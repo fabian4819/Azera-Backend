@@ -16,6 +16,12 @@ export interface ParsedInsight {
   reach?: number
 }
 
+/**
+ * Platform yang didukung untuk parsing insight — lihat docs/plan/02-notes-meeting.md
+ * (notes 17 Agu 2026). YouTube di-drop dari scope (keputusan klien 17 Agu 2026).
+ */
+export type InsightPlatform = 'instagram' | 'tiktok' | 'threads' | 'x'
+
 async function generateTextDeepseek(prompt: string, system?: string): Promise<string> {
   const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
@@ -74,13 +80,26 @@ export async function generateText(prompt: string, system?: string): Promise<str
   }
 }
 
-const INSIGHT_PARSE_INSTRUCTION =
-  'Baca screenshot insight media sosial ini. Kembalikan JSON dengan field: views, likes, comments, shares, saves, reach (angka, null jika tidak terlihat). Hanya JSON, tanpa penjelasan.'
+const INSIGHT_BASE_INSTRUCTION =
+  'Baca screenshot insight media sosial ini. Kembalikan HANYA JSON (tanpa penjelasan) dengan field: views, reach, likes, comments, shares, saves — semua angka, gunakan null untuk field yang tidak ada di screenshot ini atau tidak berlaku untuk platform ini.'
 
-export async function parseInsightScreenshot(imageUrl: string): Promise<ParsedInsight> {
+// Label UI Instagram/TikTok/X/Threads yang perlu di-mapping ke nama field kita,
+// dikonfirmasi klien (docs/plan/02-notes-meeting.md, notes 17 Agu 2026).
+const INSIGHT_PLATFORM_HINTS: Record<InsightPlatform, string> = {
+  instagram:
+    'Platform: Instagram. Label "Akun yang dijangkau" / "Accounts reached" masuk field reach. "Dibagikan"/"Shares" masuk shares. "Disimpan"/"Saved" masuk saves.',
+  tiktok:
+    'Platform: TikTok. Label "Total Penonton" / "Total viewers" masuk field reach. Semua field (views, reach, likes, comments, shares, saves) biasanya tersedia.',
+  threads:
+    'Platform: Threads. Field reach dan saves TIDAK ADA di platform ini — set null, jangan dikira-kira. Label "Posting ulang" / "Reposts" masuk field shares.',
+  x: 'Platform: X (Twitter). Field reach dan saves TIDAK ADA di platform ini — set null, jangan dikira-kira. Label "Posting ulang" / "Reposts" / "Retweets" masuk field shares.',
+}
+
+export async function parseInsightScreenshot(imageUrl: string, platform: InsightPlatform): Promise<ParsedInsight> {
+  const instruction = `${INSIGHT_BASE_INSTRUCTION}\n${INSIGHT_PLATFORM_HINTS[platform]}`
   switch (env.ai.visionProvider) {
     case 'gemini':
-      return parseImageGemini(imageUrl, INSIGHT_PARSE_INSTRUCTION)
+      return parseImageGemini(imageUrl, instruction)
     default:
       throw new Error(`Unsupported AI_VISION_PROVIDER: ${env.ai.visionProvider}`)
   }

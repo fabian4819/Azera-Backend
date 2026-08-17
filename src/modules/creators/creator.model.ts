@@ -2,7 +2,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
 
 export type Gender = 'male' | 'female_hijab' | 'female_non_hijab'
-export type SocialPlatform = 'instagram' | 'tiktok' | 'threads' | 'x' | 'youtube'
+export type SocialPlatform = 'instagram' | 'tiktok' | 'threads' | 'x'
 export type CreatorActivity = 'kol' | 'koc' | 'ugc' | 'affiliator' | 'live_streamer'
 export type ComplianceStatus = 'ok' | 'sp1' | 'sp2_blacklist'
 
@@ -53,7 +53,7 @@ export interface ICreator extends Document {
 
 const SocialAccountSchema = new Schema<ISocialAccount>(
   {
-    platform: { type: String, enum: ['instagram', 'tiktok', 'threads', 'x', 'youtube'], required: true },
+    platform: { type: String, enum: ['instagram', 'tiktok', 'threads', 'x'], required: true },
     username: { type: String, required: true },
     profileUrl: { type: String, required: true },
     followers: { type: Number, required: true, default: 0 },

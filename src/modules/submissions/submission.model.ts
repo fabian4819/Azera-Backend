@@ -1,9 +1,16 @@
 import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
+import { SocialPlatform } from '../creators/creator.model'
 
 export type SubmissionType = 'draft' | 'post'
 export type SubmissionStatus = 'submitted' | 'approved' | 'revision_requested'
 
+/**
+ * Metrik per platform (notes klien 17 Agu 2026):
+ * - IG & TikTok: views, reach, likes, comments, shares, saves (semua ada)
+ * - X & Threads: views, likes, comments, shares (= "Posting Ulang"/repost) — TIDAK ada reach/saves
+ * Field yang tidak berlaku untuk platform tsb dibiarkan null, bukan 0.
+ */
 interface IParsedInsight {
   views?: number
   likes?: number
@@ -20,6 +27,8 @@ export interface ISubmission extends Document {
   campaignId: Types.ObjectId
   creatorId: Types.ObjectId
   type: SubmissionType
+  /** Platform post ini — menentukan field insight mana yang berlaku & label parsing AI */
+  platform: SocialPlatform
   link?: string
   insightScreenshotUrls: string[]
   parsedInsight?: IParsedInsight
@@ -35,6 +44,7 @@ const SubmissionSchema = new Schema<ISubmission>(
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign', required: true },
     creatorId: { type: Schema.Types.ObjectId, ref: 'Creator', required: true },
     type: { type: String, enum: ['draft', 'post'], required: true },
+    platform: { type: String, enum: ['instagram', 'tiktok', 'threads', 'x'], required: true },
     link: String,
     insightScreenshotUrls: [String],
     parsedInsight: {
