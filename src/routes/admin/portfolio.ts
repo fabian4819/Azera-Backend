@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import { connectDB } from '../../lib/db'
+import { connectDB } from '../../db/connect'
 import Portfolio from '../../models/Portfolio'
 import { requireAuth, AuthRequest } from '../../middleware/auth'
 import { upload } from '../../middleware/upload'

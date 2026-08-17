@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { connectDB } from '../lib/db'
+import { connectDB } from '../db/connect'
 import Brand from '../models/Brand'
 
 const router = Router()

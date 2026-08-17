@@ -1,0 +1,32 @@
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - client
+
+  client:
+    image: ghcr.io/fabian4819/azera-frontend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  api:
+    image: ghcr.io/fabian4819/azera-backend:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - baileys_auth:/app/auth_info_baileys # dipakai mulai modul 4 (WhatsApp automation)
+
+volumes:
+  caddy_data:
+  caddy_config:
+  baileys_auth:

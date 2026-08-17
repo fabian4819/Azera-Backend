@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express'
-import { connectDB } from '../lib/db'
+import { connectDB } from '../db/connect'
 import KOL from '../models/KOL'
 import { upload } from '../middleware/upload'
 import { uploadToCloudinary } from '../lib/cloudinary'

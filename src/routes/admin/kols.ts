@@ -1,5 +1,5 @@
 import { Router, Response } from 'express'
-import { connectDB } from '../../lib/db'
+import { connectDB } from '../../db/connect'
 import KOL from '../../models/KOL'
 import { requireAuth, AuthRequest } from '../../middleware/auth'
 import { buildKOLApprovalWALink, buildKOLRejectionWALink } from '../../utils/whatsapp'
