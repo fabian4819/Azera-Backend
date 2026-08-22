@@ -44,7 +44,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       { _id: req.params.id, tenantId: req.auth!.tenantId },
       { status, decidedByUserId: req.auth!.userId, decidedAt: new Date() },
       { new: true }
-    )
+    ).populate('creatorId')
     if (!application) { res.status(404).json({ message: 'Not found' }); return }
 
     let generatedPassword: string | undefined
