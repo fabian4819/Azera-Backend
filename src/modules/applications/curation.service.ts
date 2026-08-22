@@ -52,9 +52,10 @@ export async function runSmartCuration(
   }
 
   if (criteria.provinces.length > 0) {
-    if (!criteria.provinces.includes(creator.domicile.province)) {
+    const province = creator.domicile?.province
+    if (!province || !criteria.provinces.includes(province)) {
       unmetCount++
-      reasons.push(`Domisili creator (${creator.domicile.province}) di luar target campaign (${criteria.provinces.join(', ')}).`)
+      reasons.push(`Domisili creator (${province || 'belum diisi'}) di luar target campaign (${criteria.provinces.join(', ')}).`)
     }
   }
 

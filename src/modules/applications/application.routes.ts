@@ -63,4 +63,25 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// AD-25: pelacakan pembayaran ke creator — toggle manual, tanpa otomasi
+router.patch('/:id/payment', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { creatorPaymentStatus } = req.body as { creatorPaymentStatus: 'unpaid' | 'paid' }
+    if (!['unpaid', 'paid'].includes(creatorPaymentStatus)) {
+      res.status(400).json({ message: 'creatorPaymentStatus harus unpaid atau paid' })
+      return
+    }
+    const application = await Application.findOneAndUpdate(
+      { _id: req.params.id, tenantId: req.auth!.tenantId },
+      { creatorPaymentStatus },
+      { new: true }
+    ).populate('creatorId', 'name phone')
+    if (!application) { res.status(404).json({ message: 'Not found' }); return }
+    res.json(application)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 export default router

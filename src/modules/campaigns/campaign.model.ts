@@ -55,6 +55,10 @@ export interface ICampaign extends Document {
     discount?: number
   }
   briefContent?: string
+  /** Target KPI campaign (AD-23/24) — opsional, dipakai buat hitung % pencapaian di analytics/insight */
+  targetKpi?: { views?: number; engagementRate?: number }
+  /** AD-24: analisis AI setelah campaign selesai — jadi input untuk Auto Report (AD-26) */
+  aiInsight?: string
   workflowStage: WorkflowStage
   status: 'draft' | 'active' | 'completed' | 'cancelled'
   applyOpen: boolean
@@ -99,6 +103,11 @@ const CampaignSchema = new Schema<ICampaign>(
       discount: Number,
     },
     briefContent: String,
+    targetKpi: {
+      views: Number,
+      engagementRate: Number,
+    },
+    aiInsight: String,
     workflowStage: { type: String, enum: WORKFLOW_STAGES, default: 'draft' },
     status: { type: String, enum: ['draft', 'active', 'completed', 'cancelled'], default: 'draft' },
     applyOpen: { type: Boolean, default: false },

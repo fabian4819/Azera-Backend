@@ -28,8 +28,9 @@ export interface ICreator extends Document {
   phone: string
   password?: string
   email?: string
-  gender: Gender
-  domicile: { province: string; city: string }
+  /** Opsional — creator hasil import historis (AD-28) mungkin belum punya data ini */
+  gender?: Gender
+  domicile?: { province?: string; city?: string }
   socials: ISocialAccount[]
   activities: CreatorActivity[]
   niches: string[]
@@ -67,10 +68,10 @@ const CreatorSchema = new Schema<ICreator>(
     phone: { type: String, required: true },
     password: String,
     email: String,
-    gender: { type: String, enum: ['male', 'female_hijab', 'female_non_hijab'], required: true },
+    gender: { type: String, enum: ['male', 'female_hijab', 'female_non_hijab'] },
     domicile: {
-      province: { type: String, required: true },
-      city: { type: String, required: true },
+      province: String,
+      city: String,
     },
     socials: [SocialAccountSchema],
     activities: [{ type: String, enum: ['kol', 'koc', 'ugc', 'affiliator', 'live_streamer'] }],

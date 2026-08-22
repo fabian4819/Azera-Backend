@@ -16,6 +16,8 @@ export interface IInvoice extends Document {
   brandId: Types.ObjectId
   /** Format INV-AZK-YYYYMM-NNN, kompatibel dengan penomoran bot-cashflow */
   number: string
+  /** Kode akses halaman publik invoice — "link + kode" (Pasal spec checklist) */
+  accessCode: string
   billTo: string
   items: IInvoiceItem[]
   discount: number
@@ -48,6 +50,7 @@ const InvoiceSchema = new Schema<IInvoice>(
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign', required: true },
     brandId: { type: Schema.Types.ObjectId, ref: 'Brand', required: true },
     number: { type: String, required: true },
+    accessCode: { type: String, required: true },
     billTo: { type: String, required: true },
     items: [InvoiceItemSchema],
     discount: { type: Number, default: 0 },

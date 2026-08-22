@@ -4,6 +4,14 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { generateText } from '../../lib/ai'
 import Campaign from './campaign.model'
+import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
+import { generateCampaignInsight } from './insight.service'
+import { buildReportHtml } from '../documents/reportTemplate'
+import { generateCaseStudy } from '../documents/caseStudy.service'
+import { renderHtmlToPdf } from '../../lib/pdf'
+import { uploadToCloudinary } from '../../lib/cloudinary'
+import Brand from '../../models/Brand'
+import DocumentModel from '../documents/document.model'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -27,7 +35,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     await connectDB()
     const {
       brandId, name, objective, deliverables, budget, timeline,
-      criteria, type, eventDetails, picUserId, handleByUserId, fee,
+      criteria, type, eventDetails, picUserId, handleByUserId, fee, targetKpi,
     } = req.body
     if (!brandId || !name || !objective || budget === undefined) {
       res.status(400).json({ message: 'brandId, name, objective, budget wajib diisi' })
@@ -44,6 +52,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       picUserId: picUserId || req.auth!.userId,
       handleByUserId,
       fee: fee || {},
+      targetKpi: targetKpi || {},
       applySlug: slugify(name),
       accessCode: generateAccessCode(),
     })
@@ -60,7 +69,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const filter: Record<string, unknown> = { tenantId: req.auth!.tenantId }
     if (status) filter.status = status
     if (brandId) filter.brandId = brandId
-    const campaigns = await Campaign.find(filter).sort({ createdAt: -1 })
+    const campaigns = await Campaign.find(filter).populate('brandId', 'namaBrand').sort({ createdAt: -1 })
     res.json(campaigns)
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -81,7 +90,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 const EDITABLE_FIELDS = [
   'name', 'objective', 'deliverables', 'budget', 'timeline', 'criteria',
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
-  'briefContent', 'workflowStage', 'status', 'applyOpen',
+  'briefContent', 'targetKpi', 'workflowStage', 'status', 'applyOpen',
 ] as const
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
@@ -137,6 +146,81 @@ Kembalikan HANYA JSON (tanpa markdown code block) dengan struktur:
     res.json(campaign)
   } catch (err) {
     res.status(500).json({ message: 'Gagal generate brief', error: (err as Error).message })
+  }
+})
+
+// AD-23: agregasi insight per campaign (views/reach/ER/CPM, pencapaian target KPI)
+router.get('/:id/analytics', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    const analytics = await computeCampaignAnalytics(campaign._id, req.auth!.tenantId)
+    res.json(analytics)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// AD-24: AI Campaign Insight — analisis pencapaian target, platform terbaik, creator paling efisien
+router.post('/:id/generate-insight', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const insight = await generateCampaignInsight(req.params.id, req.auth!.tenantId)
+    res.json({ aiInsight: insight })
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal generate insight', error: (err as Error).message })
+  }
+})
+
+// AD-26: Auto Report Generator — HTML->PDF via Puppeteer, ganti trigger WA "Final Report Ready" yang di-drop
+router.post('/:id/generate-report', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    const brand = await Brand.findById(campaign.brandId)
+    const analytics = await computeCampaignAnalytics(campaign._id, req.auth!.tenantId)
+    const creators = await getCampaignCreatorSummaries(campaign._id, req.auth!.tenantId)
+
+    const html = buildReportHtml({ campaign, brandName: brand?.namaBrand || 'Brand', analytics, creators })
+    const pdfBuffer = await renderHtmlToPdf(html)
+    const pdfUrl = await uploadToCloudinary(pdfBuffer, `reports/${campaign._id}`)
+
+    const document = await DocumentModel.create({
+      tenantId: req.auth!.tenantId,
+      type: 'report',
+      campaignId: campaign._id,
+      brandId: campaign.brandId,
+      data: { analytics, creators, aiInsight: campaign.aiInsight },
+      pdfUrl,
+    })
+
+    res.status(201).json(document)
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal generate report', error: (err as Error).message })
+  }
+})
+
+// AD-27: Auto Case Study Generator (model content website — model IG di-drop)
+router.post('/:id/generate-case-study', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const document = await generateCaseStudy(req.params.id, req.auth!.tenantId)
+    res.status(201).json(document)
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal generate case study', error: (err as Error).message })
+  }
+})
+
+// Dokumen (report/case study/invoice) yang sudah dibuat untuk campaign ini
+router.get('/:id/documents', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const documents = await DocumentModel.find({ tenantId: req.auth!.tenantId, campaignId: req.params.id }).sort({ createdAt: -1 })
+    res.json(documents)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
   }
 })
 

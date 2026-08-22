@@ -19,6 +19,8 @@ export interface IApplication extends Document {
   status: ApplicationStatus
   decidedByUserId?: Types.ObjectId
   decidedAt?: Date
+  /** AD-25: pelacakan pembayaran ke creator — follow-up manual via admin, tanpa otomasi */
+  creatorPaymentStatus: 'unpaid' | 'paid'
   createdAt: Date
   updatedAt: Date
 }
@@ -42,6 +44,7 @@ const ApplicationSchema = new Schema<IApplication>(
     status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
     decidedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     decidedAt: Date,
+    creatorPaymentStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
   },
   { timestamps: true }
 )
