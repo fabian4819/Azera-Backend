@@ -37,3 +37,16 @@ export const uploadSpreadsheet = multer({
     else cb(new Error('Only .xlsx or .csv files are allowed'))
   },
 })
+
+// AD-33: Digital Asset Library — gambar/video/PDF/dokumen umum, lebih permisif
+export const uploadAsset = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = /^(image|video)\//.test(file.mimetype)
+      || file.mimetype === 'application/pdf'
+      || /\.(pdf|doc|docx|txt|zip)$/i.test(file.originalname)
+    if (allowed) cb(null, true)
+    else cb(new Error('Tipe file tidak didukung'))
+  },
+})

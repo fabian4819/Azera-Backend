@@ -23,6 +23,9 @@ import publicInvoiceRouter from './modules/finance/publicInvoice.routes'
 import importRouter from './modules/imports/import.routes'
 import whatsappRouter from './modules/whatsapp/whatsapp.routes'
 import waTemplateRouter from './modules/whatsapp/waTemplate.routes'
+import assetRouter from './modules/assets/asset.routes'
+import publicCreatorRouter from './modules/creators/publicCreator.routes'
+import publicCaseStudyRouter from './modules/documents/publicCaseStudy.routes'
 import { connectWhatsApp } from './lib/baileys'
 import { startCronJobs } from './lib/cron'
 
@@ -61,6 +64,11 @@ app.use('/api/admin/import', importRouter)
 // Modul 4 — WhatsApp Automation (AD-29..31)
 app.use('/api/admin/whatsapp', whatsappRouter)
 app.use('/api/admin/wa-templates', waTemplateRouter)
+
+// Modul 5 — Asset Library, Landing Page (AD-33..)
+app.use('/api/admin', assetRouter)
+app.use('/api/creators', publicCreatorRouter)
+app.use('/api/portfolio', publicCaseStudyRouter)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 
