@@ -2,13 +2,15 @@ import { Router, Response } from 'express'
 import crypto from 'crypto'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
+import { env } from '../../config/env'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import { generateInvoicePdf } from '../../lib/invoicePdf'
 import { nextInvoiceNumber } from './invoiceCounter.model'
 import Invoice from './invoice.model'
 import Campaign from '../campaigns/campaign.model'
 import Brand from '../../models/Brand'
-import WaMessageLog from '../whatsapp/waMessageLog.model'
+import { enqueueWaMessage } from '../../lib/baileys'
+import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
@@ -70,14 +72,19 @@ router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Res
       pdfUrl,
     })
 
-    await WaMessageLog.create({
-      tenantId: req.auth!.tenantId,
-      trigger: 'invoice_new',
-      to: brand?.whatsapp || '-',
-      payload: `✅ Invoice ${number}\n📋 ${campaign.name}\n👤 ${invoice.billTo}\n💰 Total: Rp${total.toLocaleString('id-ID')}\n📎 ${pdfUrl}`,
-      status: 'queued',
-      campaignId: campaign._id,
-    })
+    // AD-31: trigger invoice_new — kirim ringkasan + link halaman pembayaran ke client
+    if (brand?.whatsapp) {
+      const template = await getTemplate(req.auth!.tenantId, 'invoice_new')
+      const payload = renderTemplate(template, {
+        invoice_number: number,
+        campaign: campaign.name,
+        bill_to: invoice.billTo,
+        total: `Rp${total.toLocaleString('id-ID')}`,
+        pdf_url: pdfUrl,
+        payment_link: `${env.clientOrigin}/invoice/${invoice._id}?code=${invoice.accessCode}`,
+      })
+      await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger: 'invoice_new', to: brand.whatsapp, payload, campaignId: String(campaign._id) })
+    }
 
     res.status(201).json(invoice)
   } catch (err) {
@@ -117,14 +124,15 @@ router.patch('/invoices/:id/verify', async (req: AuthRequest, res: Response) => 
     )
     if (!invoice) { res.status(404).json({ message: 'Not found' }); return }
 
-    await WaMessageLog.create({
-      tenantId: req.auth!.tenantId,
-      trigger: 'payment_completed',
-      to: '-',
-      payload: `Pembayaran invoice ${invoice.number} telah diverifikasi.`,
-      status: 'queued',
-      campaignId: invoice.campaignId,
-    })
+    // AD-31: notifikasi ke client bahwa pembayaran invoice terverifikasi (invoice_paid —
+    // trigger terpisah dari payment_completed milik creator, audience beda)
+    const brand = await Brand.findById(invoice.brandId)
+    const campaign = await Campaign.findById(invoice.campaignId)
+    if (brand?.whatsapp) {
+      const template = await getTemplate(req.auth!.tenantId, 'invoice_paid')
+      const payload = renderTemplate(template, { bill_to: brand.namaBrand, invoice_number: invoice.number, campaign: campaign?.name || '-' })
+      await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger: 'invoice_paid', to: brand.whatsapp, payload, campaignId: String(invoice.campaignId) })
+    }
 
     res.json(invoice)
   } catch {

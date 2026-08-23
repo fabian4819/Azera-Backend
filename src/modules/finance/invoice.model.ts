@@ -31,6 +31,8 @@ export interface IInvoice extends Document {
   verifiedByUserId?: Types.ObjectId
   verifiedAt?: Date
   pdfUrl?: string
+  /** AD-31: offset reminder (H-7/H-3/H-1/due) yang sudah dikirim — cegah kirim dobel dari cron harian */
+  remindersSent: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -64,6 +66,7 @@ const InvoiceSchema = new Schema<IInvoice>(
     verifiedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     verifiedAt: Date,
     pdfUrl: String,
+    remindersSent: { type: [String], default: [] },
   },
   { timestamps: true }
 )

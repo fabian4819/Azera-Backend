@@ -17,6 +17,7 @@ export const WA_TRIGGERS = [
   'payment_completed',
   // client
   'invoice_new',
+  'invoice_paid',
   'reminder_payment_client',
   'campaign_started',
   'campaign_completed',

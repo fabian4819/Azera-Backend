@@ -2,6 +2,7 @@ import { Router, Response } from 'express'
 import crypto from 'crypto'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
+import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
 import Campaign from './campaign.model'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
@@ -12,6 +13,10 @@ import { renderHtmlToPdf } from '../../lib/pdf'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import Brand from '../../models/Brand'
 import DocumentModel from '../documents/document.model'
+import Application from '../applications/application.model'
+import Creator from '../creators/creator.model'
+import { enqueueWaMessage } from '../../lib/baileys'
+import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -90,7 +95,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 const EDITABLE_FIELDS = [
   'name', 'objective', 'deliverables', 'budget', 'timeline', 'criteria',
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
-  'briefContent', 'targetKpi', 'workflowStage', 'status', 'applyOpen',
+  'briefContent', 'waGroupLink', 'targetKpi', 'workflowStage', 'status', 'applyOpen',
 ] as const
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
@@ -100,15 +105,53 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     for (const field of EDITABLE_FIELDS) {
       if (field in req.body) updates[field] = req.body[field]
     }
+    const before = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!before) { res.status(404).json({ message: 'Not found' }); return }
     const campaign = await Campaign.findOneAndUpdate(
       { _id: req.params.id, tenantId: req.auth!.tenantId },
       updates,
       { new: true }
     )
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+
+    // AD-31: campaign_started / campaign_completed — kirim ke client saat status berubah
+    if (updates.status && updates.status !== before.status && ['active', 'completed'].includes(updates.status as string)) {
+      const trigger = updates.status === 'active' ? 'campaign_started' : 'campaign_completed'
+      const brand = await Brand.findById(campaign.brandId)
+      if (brand?.whatsapp) {
+        const template = await getTemplate(req.auth!.tenantId, trigger)
+        const payload = renderTemplate(template, { bill_to: brand.namaBrand, campaign: campaign.name })
+        await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger, to: brand.whatsapp, payload, campaignId: String(campaign._id) })
+      }
+    }
+
     res.json(campaign)
   } catch {
     res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// AD-30: kirim brief campaign ke semua creator yang sudah diterima (trigger #3, terpisah dari notifikasi diterima)
+router.post('/:id/send-brief', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    if (!campaign.briefContent) { res.status(400).json({ message: 'Brief belum dibuat' }); return }
+
+    const applications = await Application.find({ tenantId: req.auth!.tenantId, campaignId: campaign._id, status: 'accepted' }).populate('creatorId')
+    const template = await getTemplate(req.auth!.tenantId, 'brief_campaign')
+    let sent = 0
+    for (const app of applications) {
+      const creator = app.creatorId as unknown as { name: string; phone: string } | null
+      if (!creator?.phone) continue
+      const payload = renderTemplate(template, { nama: creator.name, campaign: campaign.name, brief: campaign.briefContent })
+      await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger: 'brief_campaign', to: creator.phone, payload, campaignId: String(campaign._id) })
+      sent++
+    }
+    res.json({ sent })
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal mengirim brief', error: (err as Error).message })
   }
 })
 
@@ -210,6 +253,67 @@ router.post('/:id/generate-case-study', async (req: AuthRequest, res: Response) 
     res.status(201).json(document)
   } catch (err) {
     res.status(500).json({ message: 'Gagal generate case study', error: (err as Error).message })
+  }
+})
+
+interface BroadcastBody {
+  title: string
+  urgent?: boolean
+  location?: string
+  schedule?: string
+  fee: string
+  topPayment: string
+  syarat: string
+  sow: string
+  note?: string
+  pic: string
+  recipients: string[] | 'all_creators'
+}
+
+// AD-31: Broadcast Campaign — kirim ke daftar nomor manual atau semua creator approved
+router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+
+    const body = req.body as BroadcastBody
+    if (!body.title || !body.fee || !body.syarat) {
+      res.status(400).json({ message: 'title, fee, dan syarat wajib diisi' })
+      return
+    }
+
+    let numbers: string[]
+    if (body.recipients === 'all_creators') {
+      const creators = await Creator.find({ tenantId: req.auth!.tenantId, status: 'approved' }, 'phone')
+      numbers = creators.map((c) => c.phone).filter(Boolean)
+    } else {
+      numbers = (body.recipients || []).filter(Boolean)
+    }
+    if (!numbers.length) { res.status(400).json({ message: 'Tidak ada penerima' }); return }
+
+    const template = await getTemplate(req.auth!.tenantId, 'broadcast_campaign')
+    const payload = renderTemplate(template, {
+      urgent_label: body.urgent ? '🚨 URGENT — ' : '',
+      title: body.title,
+      location_schedule: body.location || body.schedule ? `📍 ${body.location || '-'}\n🗓️ ${body.schedule || '-'}\n\n` : '',
+      fee: body.fee,
+      top_payment: body.topPayment,
+      syarat: body.syarat,
+      sow: body.sow,
+      note: body.note ? `📝 Catatan: ${body.note}\n` : '',
+      apply_link: `${env.clientOrigin}/apply/${campaign.applySlug}`,
+      pic: body.pic,
+    })
+
+    let sent = 0
+    for (const to of numbers) {
+      await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger: 'broadcast_campaign', to, payload, campaignId: String(campaign._id) })
+      sent++
+    }
+    res.status(201).json({ sent })
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal mengirim broadcast', error: (err as Error).message })
   }
 })
 

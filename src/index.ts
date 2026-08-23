@@ -22,7 +22,9 @@ import financeRecordRouter from './modules/finance/financeRecord.routes'
 import publicInvoiceRouter from './modules/finance/publicInvoice.routes'
 import importRouter from './modules/imports/import.routes'
 import whatsappRouter from './modules/whatsapp/whatsapp.routes'
+import waTemplateRouter from './modules/whatsapp/waTemplate.routes'
 import { connectWhatsApp } from './lib/baileys'
+import { startCronJobs } from './lib/cron'
 
 const app = express()
 
@@ -56,8 +58,9 @@ app.use('/api/admin', financeRecordRouter)
 app.use('/api/invoices', publicInvoiceRouter)
 app.use('/api/admin/import', importRouter)
 
-// Modul 4 — WhatsApp Automation (AD-29)
+// Modul 4 — WhatsApp Automation (AD-29..31)
 app.use('/api/admin/whatsapp', whatsappRouter)
+app.use('/api/admin/wa-templates', waTemplateRouter)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 
@@ -66,5 +69,8 @@ app.listen(env.port, () => console.log(`Server running on port ${env.port}`))
 // Resume sesi Baileys tersimpan (kalau ada) saat server start; kalau belum pernah pairing,
 // otomatis masuk state 'qr' menunggu admin scan di halaman WhatsApp.
 connectWhatsApp().catch((err) => console.error('Baileys connect error:', err))
+
+// AD-31: reminder pembayaran client (H-7/H-3/H-1/jatuh tempo) + daily progress report 17:00
+startCronJobs()
 
 export default app
