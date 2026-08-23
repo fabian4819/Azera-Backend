@@ -21,6 +21,8 @@ import invoiceRouter from './modules/finance/invoice.routes'
 import financeRecordRouter from './modules/finance/financeRecord.routes'
 import publicInvoiceRouter from './modules/finance/publicInvoice.routes'
 import importRouter from './modules/imports/import.routes'
+import whatsappRouter from './modules/whatsapp/whatsapp.routes'
+import { connectWhatsApp } from './lib/baileys'
 
 const app = express()
 
@@ -54,8 +56,15 @@ app.use('/api/admin', financeRecordRouter)
 app.use('/api/invoices', publicInvoiceRouter)
 app.use('/api/admin/import', importRouter)
 
+// Modul 4 — WhatsApp Automation (AD-29)
+app.use('/api/admin/whatsapp', whatsappRouter)
+
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 
 app.listen(env.port, () => console.log(`Server running on port ${env.port}`))
+
+// Resume sesi Baileys tersimpan (kalau ada) saat server start; kalau belum pernah pairing,
+// otomatis masuk state 'qr' menunggu admin scan di halaman WhatsApp.
+connectWhatsApp().catch((err) => console.error('Baileys connect error:', err))
 
 export default app
