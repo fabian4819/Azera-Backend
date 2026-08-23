@@ -4,7 +4,7 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
-import Campaign from './campaign.model'
+import Campaign, { WORKFLOW_STAGES, WorkflowStage } from './campaign.model'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
 import { generateCampaignInsight } from './insight.service'
 import { buildReportHtml } from '../documents/reportTemplate'
@@ -17,6 +17,8 @@ import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
 import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
+import { transitionWorkflow, tryAutoTransition, getCreatorSubStages, WorkflowTransitionError, WORKFLOW_TRANSITIONS } from './workflow.service'
+import WorkflowAudit from './workflowAudit.model'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -92,10 +94,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// workflowStage SENGAJA tidak di sini — harus lewat POST /:id/workflow/transition
+// (AD-32) supaya tervalidasi & tercatat di WorkflowAudit, bukan di-patch bebas.
 const EDITABLE_FIELDS = [
   'name', 'objective', 'deliverables', 'budget', 'timeline', 'criteria',
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
-  'briefContent', 'waGroupLink', 'targetKpi', 'workflowStage', 'status', 'applyOpen',
+  'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
 ] as const
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
@@ -125,6 +129,15 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // AD-32: auto-transition tahap 2->3 / 3->4 saat toggle buka/tutup pendaftaran
+    if (typeof updates.applyOpen === 'boolean' && updates.applyOpen !== before.applyOpen) {
+      if (updates.applyOpen) {
+        await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'listing', toStage: 'open_registration', userId: req.auth!.userId })
+      } else {
+        await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'open_registration', toStage: 'internal_review', userId: req.auth!.userId })
+      }
+    }
+
     res.json(campaign)
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -149,6 +162,13 @@ router.post('/:id/send-brief', async (req: AuthRequest, res: Response) => {
       await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger: 'brief_campaign', to: creator.phone, payload, campaignId: String(campaign._id) })
       sent++
     }
+
+    // AD-32: brief terkirim -> auto maju ke brief_sent lalu waiting_draft
+    for (const from of ['creator_approved', 'client_approval'] as const) {
+      await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: from, toStage: 'brief_sent', userId: req.auth!.userId })
+    }
+    await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'brief_sent', toStage: 'waiting_draft', userId: req.auth!.userId })
+
     res.json({ sent })
   } catch (err) {
     res.status(500).json({ message: 'Gagal mengirim brief', error: (err as Error).message })
@@ -239,6 +259,9 @@ router.post('/:id/generate-report', async (req: AuthRequest, res: Response) => {
       pdfUrl,
     })
 
+    // AD-32: report ter-generate -> auto maju ke report_generated
+    await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'insight_collected', toStage: 'report_generated', userId: req.auth!.userId })
+
     res.status(201).json(document)
   } catch (err) {
     res.status(500).json({ message: 'Gagal generate report', error: (err as Error).message })
@@ -324,6 +347,53 @@ router.get('/:id/documents', async (req: AuthRequest, res: Response) => {
     const documents = await DocumentModel.find({ tenantId: req.auth!.tenantId, campaignId: req.params.id }).sort({ createdAt: -1 })
     res.json(documents)
   } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// AD-32: state 17-tahap campaign + sub-tahap per creator (dihitung, bukan disimpan) + histori transisi
+router.get('/:id/workflow', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    const creatorStages = await getCreatorSubStages(req.params.id, req.auth!.tenantId)
+    const history = await WorkflowAudit.find({ tenantId: req.auth!.tenantId, campaignId: req.params.id }).sort({ createdAt: -1 }).populate('byUserId', 'name')
+    res.json({
+      workflowStage: campaign.workflowStage,
+      validNextStages: WORKFLOW_TRANSITIONS[campaign.workflowStage],
+      creatorStages,
+      history,
+    })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// AD-32: transisi tahap tervalidasi (guard transisi + role) — owner/admin-dengan-alasan bisa override
+router.post('/:id/workflow/transition', async (req: AuthRequest, res: Response) => {
+  try {
+    const { toStage, reason, override } = req.body as { toStage?: WorkflowStage; reason?: string; override?: boolean }
+    if (!toStage || !WORKFLOW_STAGES.includes(toStage)) {
+      res.status(400).json({ message: 'toStage wajib diisi dan valid' })
+      return
+    }
+    await connectDB()
+    const campaign = await transitionWorkflow({
+      campaignId: req.params.id,
+      tenantId: req.auth!.tenantId,
+      toStage,
+      userId: req.auth!.userId,
+      role: req.auth!.role as 'owner' | 'admin' | 'ce' | 'finance',
+      reason,
+      override,
+    })
+    res.json(campaign)
+  } catch (err) {
+    if (err instanceof WorkflowTransitionError) {
+      res.status(400).json({ message: err.message })
+      return
+    }
     res.status(500).json({ message: 'Server error' })
   }
 })

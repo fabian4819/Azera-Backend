@@ -9,6 +9,7 @@ import Campaign from '../campaigns/campaign.model'
 import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { WaTrigger } from '../whatsapp/waTemplate.model'
+import { tryAutoTransition } from '../campaigns/workflow.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -73,6 +74,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
         grup_link: campaign.waGroupLink,
       })
       await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger, to: creator.phone, payload, campaignId: String(campaign._id), creatorId: String(creator._id) })
+    }
+
+    // AD-32: creator pertama diterima -> auto maju ke creator_approved
+    if (status === 'accepted' && campaign) {
+      for (const from of ['internal_review', 'smart_recommendation'] as const) {
+        await tryAutoTransition({ campaignId: String(campaign._id), tenantId: req.auth!.tenantId, fromStage: from, toStage: 'creator_approved', userId: req.auth!.userId })
+      }
     }
 
     res.json({ application, generatedPassword })

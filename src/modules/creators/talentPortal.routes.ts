@@ -5,6 +5,7 @@ import { upload } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import Application from '../applications/application.model'
 import Submission from '../submissions/submission.model'
+import { tryAutoTransition } from '../campaigns/workflow.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('creator'))
@@ -80,6 +81,15 @@ router.post(
         type, platform, link,
         insightScreenshotUrls,
       })
+
+      // AD-32: creator submit draft/post -> auto maju tahap (best-effort, tidak ganggu submission)
+      if (type === 'draft') {
+        await tryAutoTransition({ campaignId: req.params.campaignId, tenantId: req.auth!.tenantId, fromStage: 'waiting_draft', toStage: 'content_review', userId: req.auth!.userId })
+      }
+      if (type === 'post') {
+        await tryAutoTransition({ campaignId: req.params.campaignId, tenantId: req.auth!.tenantId, fromStage: 'waiting_post', toStage: 'posted', userId: req.auth!.userId })
+        await tryAutoTransition({ campaignId: req.params.campaignId, tenantId: req.auth!.tenantId, fromStage: 'posted', toStage: 'waiting_insight', userId: req.auth!.userId })
+      }
 
       res.status(201).json(submission)
     } catch (err) {
