@@ -16,6 +16,8 @@ export interface IApplication extends Document {
   }
   curationResult: CurationResult
   curationReason?: string
+  /** AD-47: jawaban untuk Campaign.customFields, keyed by ICustomField.id */
+  customAnswers: Record<string, string | string[]>
   status: ApplicationStatus
   decidedByUserId?: Types.ObjectId
   decidedAt?: Date
@@ -41,6 +43,7 @@ const ApplicationSchema = new Schema<IApplication>(
       default: 'need_review',
     },
     curationReason: String,
+    customAnswers: { type: Schema.Types.Mixed, default: {} },
     status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
     decidedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     decidedAt: Date,

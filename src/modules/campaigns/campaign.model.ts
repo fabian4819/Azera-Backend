@@ -26,6 +26,25 @@ export const WORKFLOW_STAGES = [
 
 export type WorkflowStage = (typeof WORKFLOW_STAGES)[number]
 
+/**
+ * AD-47: pertanyaan tambahan custom per campaign di form Apply, ala Google Forms.
+ * Field inti (nama/WA/gender/domisili/sosmed/dst) tetap tersimpan di Creator —
+ * ini murni pertanyaan EKSTRA yang ditambahkan admin, jawabannya masuk ke
+ * Application.customAnswers (lihat application.model.ts), tidak menggantikan
+ * field inti supaya Smart Curation (yang baca dari Creator, bukan dari sini)
+ * tidak perlu berubah.
+ */
+export type CustomFieldType = 'text' | 'textarea' | 'number' | 'select' | 'checkbox'
+
+export interface ICustomField {
+  id: string
+  label: string
+  type: CustomFieldType
+  required: boolean
+  /** Dipakai untuk type 'select' (pilih satu) & 'checkbox' (bisa lebih dari satu) */
+  options?: string[]
+}
+
 export interface ICampaign extends Document {
   tenantId: Types.ObjectId
   brandId: Types.ObjectId
@@ -65,9 +84,22 @@ export interface ICampaign extends Document {
   status: 'draft' | 'active' | 'completed' | 'cancelled'
   applyOpen: boolean
   applySlug: string
+  /** AD-47: pertanyaan tambahan custom di form Apply, diisi admin lewat CampaignDetail */
+  customFields: ICustomField[]
   createdAt: Date
   updatedAt: Date
 }
+
+const CustomFieldSchema = new Schema<ICustomField>(
+  {
+    id: { type: String, required: true },
+    label: { type: String, required: true },
+    type: { type: String, enum: ['text', 'textarea', 'number', 'select', 'checkbox'], required: true },
+    required: { type: Boolean, default: false },
+    options: [String],
+  },
+  { _id: false }
+)
 
 const CampaignSchema = new Schema<ICampaign>(
   {
@@ -115,6 +147,7 @@ const CampaignSchema = new Schema<ICampaign>(
     status: { type: String, enum: ['draft', 'active', 'completed', 'cancelled'], default: 'draft' },
     applyOpen: { type: Boolean, default: false },
     applySlug: { type: String, required: true },
+    customFields: { type: [CustomFieldSchema], default: [] },
   },
   { timestamps: true }
 )

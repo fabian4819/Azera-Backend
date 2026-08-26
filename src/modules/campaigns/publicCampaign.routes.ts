@@ -28,6 +28,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
       type: campaign.type,
       eventDetails: campaign.eventDetails,
       timeline: campaign.timeline,
+      customFields: campaign.customFields,
     })
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -48,11 +49,22 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     const {
       name, phone, gender, domicile, socials, activities, niches, nicheOther,
       contentStyles, contentStyleOther, bankAccount, npwp, mediaKitUrl, portfolioLink,
-      answers,
+      answers, customAnswers,
     } = req.body
 
     if (!phone || !name) {
       res.status(400).json({ message: 'Nama dan nomor WA wajib diisi' })
+      return
+    }
+
+    // AD-47: validasi pertanyaan custom yang wajib diisi
+    const missingRequired = (campaign.customFields || []).filter((f) => {
+      if (!f.required) return false
+      const v = customAnswers?.[f.id]
+      return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)
+    })
+    if (missingRequired.length > 0) {
+      res.status(400).json({ message: `Wajib diisi: ${missingRequired.map((f) => f.label).join(', ')}` })
       return
     }
 
@@ -89,6 +101,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       campaignId: campaign._id,
       creatorId: creator._id,
       answers: answers || {},
+      customAnswers: customAnswers || {},
       curationResult: curation.result,
       curationReason: curation.reason,
       status: curation.autoRejected ? 'rejected' : 'pending',

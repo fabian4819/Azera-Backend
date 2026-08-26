@@ -100,6 +100,7 @@ const EDITABLE_FIELDS = [
   'name', 'objective', 'deliverables', 'budget', 'timeline', 'criteria',
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
   'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
+  'customFields',
 ] as const
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
