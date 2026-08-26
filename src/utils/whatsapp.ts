@@ -14,7 +14,7 @@ export function buildBrandWALink(data: {
 }) {
   const message = `Halo Azera! 👋
 
-Saya ingin konsultasi kampanye KOL untuk brand kami.
+Saya ingin konsultasi campaign KOL untuk brand kami.
 
 *Detail Brand:*
 • Brand: ${data.namaBrand}
@@ -22,7 +22,7 @@ Saya ingin konsultasi kampanye KOL untuk brand kami.
 • Kategori: ${data.kategori}
 • Website/IG: ${data.website || '-'}
 
-*Kebutuhan Kampanye:*
+*Kebutuhan Campaign:*
 • Paket: ${data.paket}
 • Budget: ${data.budget}
 • Durasi: ${data.durasi}
