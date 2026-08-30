@@ -1,4 +1,8 @@
-import 'dotenv/config'
+import dotenv from 'dotenv'
+// .env.local (gitignored) lets you override just a few vars (e.g. MONGODB_URI) for
+// local dev without touching .env — loaded first, so its values win; .env fills the rest.
+dotenv.config({ path: '.env.local' })
+dotenv.config({ path: '.env' })
 import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
