@@ -9,6 +9,14 @@ export const BRAND_JASA_OPTIONS = [
 
 export type BrandJasa = (typeof BRAND_JASA_OPTIONS)[number]['key']
 
+/** Tingkatan budget campaign — dipakai bot WhatsApp (leadBot.service.ts) sebagai pilihan tetap, bukan isian bebas */
+export const BRAND_BUDGET_OPTIONS = [
+  { key: 'micro', range: '< Rp 15 Juta', label: 'Simple Micro Activation' },
+  { key: 'medium', range: 'Rp 15–45 Juta', label: 'Recommended Medium Campaign' },
+  { key: 'bespoke', range: 'Rp 45–100 Juta', label: 'Bespoke Creators & Media Buy' },
+  { key: 'enterprise', range: '> Rp 100 Juta', label: 'Massive National Takeover System' },
+] as const
+
 export interface IBrand extends Document {
   namaBrand: string
   namaPIC: string

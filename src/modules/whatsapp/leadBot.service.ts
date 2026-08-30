@@ -1,5 +1,5 @@
 import { connectDB } from '../../db/connect'
-import { BRAND_JASA_OPTIONS, BrandJasa } from '../../models/Brand'
+import { BRAND_JASA_OPTIONS, BRAND_BUDGET_OPTIONS, BrandJasa } from '../../models/Brand'
 import { createBrandInquiry } from '../brands/brand.service'
 import { sendDirectMessage } from '../../lib/baileys'
 
@@ -7,8 +7,9 @@ import { sendDirectMessage } from '../../lib/baileys'
  * Bot percakapan WhatsApp untuk lead masuk (belum jadi klien/creator terdaftar) —
  * beda dari trigger AD-30/31 yang mengirim notifikasi ke Creator/Client yang
  * SUDAH ada di sistem. Ini menyapa siapa pun yang chat nomor bisnis, lalu
- * mengarahkan ke salah satu dari 3 jalur: daftar Brand (isi form lewat chat),
- * daftar KOL (redirect ke link form web), atau Support (serah-terima ke admin).
+ * mengarahkan ke salah satu dari 3 jalur: daftar Brand (isi form template
+ * sekali kirim), daftar KOL (redirect ke link form web), atau Support
+ * (serah-terima ke admin).
  */
 
 const GREETING = 'Halo, kak! 👋 Selamat datang di *AzeraKOL* — agency KOL marketing.'
@@ -23,6 +24,29 @@ const KOL_REGISTER_URL = 'https://azerakol.id/kol/register'
 const SESSION_TTL_MS = 30 * 60 * 1000 // sesi idle 30 menit → reset ke menu utama
 const SUPPORT_SILENCE_MS = 12 * 60 * 60 * 1000 // setelah pilih Support, bot diam 12 jam biar admin yang balas manual
 
+const JASA_LIST = BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`).join('\n')
+const BUDGET_LIST = BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range} — ${o.label}`).join('\n')
+
+// Blok yang dikirim apa adanya supaya bisa langsung di-copy brand, diisi, lalu dikirim balik dalam satu pesan
+const BRAND_TEMPLATE_BLOCK =
+  'Nama Lengkap: \n' +
+  'No. WhatsApp: \n' +
+  'Nama Company: \n' +
+  `Jasa (isi angka 1-${BRAND_JASA_OPTIONS.length}): \n` +
+  'Campaign Brief: \n' +
+  'Target Audience: \n' +
+  `Budget (isi angka 1-${BRAND_BUDGET_OPTIONS.length}): \n` +
+  'Timeline (opsional): '
+
+const BRAND_TEMPLATE_MESSAGE =
+  'Oke, siap bantu daftarkan brand kamu! 🎉\n\n' +
+  'Tinggal *copy* format di bawah ini, isi bagian setelah titik dua, lalu kirim balik ke chat ini dalam satu pesan ya:\n\n' +
+  '```\n' +
+  BRAND_TEMPLATE_BLOCK +
+  '\n```\n\n' +
+  `*Pilihan Jasa:*\n${JASA_LIST}\n\n` +
+  `*Pilihan Budget:*\n${BUDGET_LIST}`
+
 type BrandDraft = Partial<{
   fullName: string
   whatsapp: string
@@ -34,87 +58,113 @@ type BrandDraft = Partial<{
   timeline: string
 }>
 
-type SessionMode = 'menu' | 'brand' | 'support'
+type SessionMode = 'menu' | 'brand_template' | 'support'
 
 interface Session {
   mode: SessionMode
-  stepIndex: number
-  draft: BrandDraft
   updatedAt: number
 }
 
-type ParseResult = { ok: true; value: string } | { ok: false; error: string }
-
-interface BrandStepDef {
+interface FieldDef {
   key: keyof BrandDraft
-  prompt: string
-  parse: (text: string) => ParseResult
+  label: string
+  match: RegExp
+  required: boolean
+  hint: string
+  /** null = tidak valid/tidak dikenali */
+  normalize: (raw: string) => string | null
 }
 
-const BRAND_STEPS: BrandStepDef[] = [
+const FIELD_DEFS: FieldDef[] = [
   {
     key: 'fullName',
-    prompt: 'Oke, siap bantu daftarkan brand kamu! 🎉\n\nSiapa nama lengkap kamu?',
-    parse: (t) => (t.length >= 2 ? { ok: true, value: t } : { ok: false, error: 'Nama minimal 2 karakter ya, coba ketik lagi 🙏' }),
+    label: 'Nama Lengkap',
+    match: /^nama\s*lengkap/i,
+    required: true,
+    hint: 'minimal 2 karakter',
+    normalize: (raw) => (raw.trim().length >= 2 ? raw.trim() : null),
   },
   {
     key: 'whatsapp',
-    prompt: 'Nomor WhatsApp yang bisa dihubungi? (boleh beda dari nomor yang kamu pakai chat ini)',
-    parse: (t) => {
-      const digits = t.replace(/\D/g, '')
-      return digits.length >= 9
-        ? { ok: true, value: digits }
-        : { ok: false, error: 'Nomor WhatsApp sepertinya belum valid, coba ketik lagi ya (contoh: 08xxxxxxxxxx) 🙏' }
+    label: 'No. WhatsApp',
+    match: /^no\.?\s*whatsapp/i,
+    required: true,
+    hint: 'nomor WhatsApp yang valid, contoh 08xxxxxxxxxx',
+    normalize: (raw) => {
+      const digits = raw.replace(/\D/g, '')
+      return digits.length >= 9 ? digits : null
     },
   },
   {
     key: 'companyName',
-    prompt: 'Nama company / brand kamu apa?',
-    parse: (t) => (t.length >= 2 ? { ok: true, value: t } : { ok: false, error: 'Nama company minimal 2 karakter ya 🙏' }),
+    label: 'Nama Company',
+    match: /^nama\s*company/i,
+    required: true,
+    hint: 'minimal 2 karakter',
+    normalize: (raw) => (raw.trim().length >= 2 ? raw.trim() : null),
   },
   {
     key: 'jasa',
-    prompt: `Jasa apa yang kamu butuhkan?\n${BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`).join('\n')}\n\nBalas dengan angka 1-${BRAND_JASA_OPTIONS.length}.`,
-    parse: (t) => {
+    label: 'Jasa',
+    match: /^jasa/i,
+    required: true,
+    hint: `isi angka 1-${BRAND_JASA_OPTIONS.length} sesuai Pilihan Jasa`,
+    normalize: (raw) => {
+      const t = raw.trim()
       const idx = parseInt(t, 10)
       const byIndex = BRAND_JASA_OPTIONS[idx - 1]
-      const byLabel = BRAND_JASA_OPTIONS.find((o) => t.toLowerCase().includes(o.label.toLowerCase().split(' ')[0]))
-      const match = byIndex || byLabel
-      return match ? { ok: true, value: match.key } : { ok: false, error: `Mohon pilih salah satu dengan angka 1-${BRAND_JASA_OPTIONS.length} ya 🙏` }
+      const byLabel = BRAND_JASA_OPTIONS.find((o) => t.toLowerCase().includes(o.label.toLowerCase()))
+      return (byIndex || byLabel)?.key ?? null
     },
   },
   {
     key: 'brief',
-    prompt: 'Ceritain campaign brief-nya dong — produk apa, campaign-nya ngapain, dll.',
-    parse: (t) => (t.length >= 5 ? { ok: true, value: t } : { ok: false, error: 'Boleh diceritain sedikit lebih detail? 🙏' }),
+    label: 'Campaign Brief',
+    match: /^campaign\s*brief/i,
+    required: true,
+    hint: 'ceritakan sedikit lebih detail',
+    normalize: (raw) => (raw.trim().length >= 5 ? raw.trim() : null),
   },
   {
     key: 'targetAudience',
-    prompt: 'Target audience campaign kamu seperti apa? (bebas, contoh: wanita 18-30 tahun suka skincare)',
-    parse: (t) => (t.length >= 3 ? { ok: true, value: t } : { ok: false, error: 'Boleh dijelaskan sedikit lebih detail? 🙏' }),
+    label: 'Target Audience',
+    match: /^target\s*audience/i,
+    required: true,
+    hint: 'jelaskan sedikit lebih detail',
+    normalize: (raw) => (raw.trim().length >= 3 ? raw.trim() : null),
   },
   {
     key: 'budget',
-    prompt: 'Berapa budget campaign yang disiapkan? (wajib diisi, contoh: Rp 20 juta)',
-    parse: (t) =>
-      t.length >= 1 && !['-', 'skip', 'tidak ada'].includes(t.toLowerCase())
-        ? { ok: true, value: t }
-        : { ok: false, error: 'Budget wajib diisi ya kak, mohon isi nominal atau rentang budget-nya 🙏' },
+    label: 'Budget',
+    match: /^budget/i,
+    required: true,
+    hint: `isi angka 1-${BRAND_BUDGET_OPTIONS.length} sesuai Pilihan Budget`,
+    normalize: (raw) => {
+      const t = raw.trim()
+      const idx = parseInt(t, 10)
+      const byIndex = BRAND_BUDGET_OPTIONS[idx - 1]
+      const byRange = BRAND_BUDGET_OPTIONS.find((o) => t.toLowerCase().includes(o.range.toLowerCase()) || t.toLowerCase().includes(o.label.toLowerCase()))
+      const match = byIndex || byRange
+      return match ? `${match.range} — ${match.label}` : null
+    },
   },
   {
     key: 'timeline',
-    prompt: 'Terakhir, timeline campaign-nya kapan? (opsional — ketik "-" kalau belum tahu)',
-    parse: (t) => ({
-      ok: true,
-      value: ['-', 'skip', 'tidak ada', 'belum tahu'].includes(t.toLowerCase()) ? '' : t,
-    }),
+    label: 'Timeline',
+    match: /^timeline/i,
+    required: false,
+    hint: '',
+    normalize: (raw) => {
+      const t = raw.trim()
+      return ['-', 'skip', 'tidak ada', 'belum tahu', ''].includes(t.toLowerCase()) ? '' : t
+    },
   },
 ]
 
 const sessions = new Map<string, Session>()
 
 function newMenuSession(now: number): Session {
-  return { mode: 'menu', stepIndex: 0, draft: {}, updatedAt: now }
+  return { mode: 'menu', updatedAt: now }
 }
 
 export async function handleIncomingMessage(jid: string, rawText: string): Promise<void> {
@@ -149,17 +199,15 @@ export async function handleIncomingMessage(jid: string, rawText: string): Promi
 
   if (session.mode === 'menu') {
     await handleMenuChoice(jid, session, lower)
-  } else if (session.mode === 'brand') {
-    await handleBrandStep(jid, session, text)
+  } else if (session.mode === 'brand_template') {
+    await handleBrandTemplateReply(jid, text)
   }
 }
 
 async function handleMenuChoice(jid: string, session: Session, lower: string): Promise<void> {
   if (lower === '1' || lower.includes('brand')) {
-    session.mode = 'brand'
-    session.stepIndex = 0
-    session.draft = {}
-    await sendDirectMessage(jid, BRAND_STEPS[0].prompt)
+    session.mode = 'brand_template'
+    await sendDirectMessage(jid, BRAND_TEMPLATE_MESSAGE)
     return
   }
 
@@ -182,24 +230,65 @@ async function handleMenuChoice(jid: string, session: Session, lower: string): P
   await sendDirectMessage(jid, `Mohon pilih salah satu ya kak 🙏\n\n${MENU}`)
 }
 
-async function handleBrandStep(jid: string, session: Session, text: string): Promise<void> {
-  const stepDef = BRAND_STEPS[session.stepIndex]
-  const result = stepDef.parse(text)
-  if (!result.ok) {
-    await sendDirectMessage(jid, result.error)
+/** Cari baris yang jadi awal tiap field, lalu ambil semua teks sampai baris label field berikutnya (dukung isian multi-baris, mis. Campaign Brief panjang) */
+function parseBrandTemplate(text: string): { draft: BrandDraft; missing: string[]; invalid: string[]; matchedAny: boolean } {
+  const lines = text.split(/\r?\n/)
+  const marks: { lineIndex: number; fieldIndex: number; inlineValue: string }[] = []
+
+  lines.forEach((line, lineIndex) => {
+    const fieldIndex = FIELD_DEFS.findIndex((f) => f.match.test(line.trim()))
+    if (fieldIndex !== -1) {
+      const colonIndex = line.indexOf(':')
+      marks.push({ lineIndex, fieldIndex, inlineValue: colonIndex !== -1 ? line.slice(colonIndex + 1) : '' })
+    }
+  })
+
+  const draft: BrandDraft = {}
+  const invalid: string[] = []
+
+  marks.forEach((mark, i) => {
+    const field = FIELD_DEFS[mark.fieldIndex]
+    const nextLineIndex = i + 1 < marks.length ? marks[i + 1].lineIndex : lines.length
+    const extraLines = lines.slice(mark.lineIndex + 1, nextLineIndex)
+    const raw = [mark.inlineValue, ...extraLines].join('\n').trim()
+    const normalized = field.normalize(raw)
+    if (normalized === null) {
+      invalid.push(`${field.label} (${field.hint})`)
+    } else {
+      ;(draft as Record<string, string>)[field.key] = normalized
+    }
+  })
+
+  const attemptedKeys = new Set(marks.map((m) => FIELD_DEFS[m.fieldIndex].key))
+  const missing = FIELD_DEFS.filter((f) => f.required && !attemptedKeys.has(f.key)).map((f) => f.label)
+
+  return { draft, missing, invalid, matchedAny: marks.length > 0 }
+}
+
+async function handleBrandTemplateReply(jid: string, text: string): Promise<void> {
+  const lower = text.toLowerCase()
+  if (['format', 'template', 'ulang'].includes(lower)) {
+    await sendDirectMessage(jid, BRAND_TEMPLATE_MESSAGE)
     return
   }
 
-  ;(session.draft as Record<string, string>)[stepDef.key] = result.value
+  const { draft, missing, invalid, matchedAny } = parseBrandTemplate(text)
 
-  const nextIndex = session.stepIndex + 1
-  if (nextIndex < BRAND_STEPS.length) {
-    session.stepIndex = nextIndex
-    await sendDirectMessage(jid, BRAND_STEPS[nextIndex].prompt)
+  if (!matchedAny) {
+    await sendDirectMessage(jid, `Sepertinya belum sesuai format ya kak 🙏 Yuk copy template ini, isi, terus kirim balik:\n\n${BRAND_TEMPLATE_MESSAGE}`)
     return
   }
 
-  await finalizeBrandLead(jid, session.draft)
+  if (missing.length > 0 || invalid.length > 0) {
+    const lines = ['Beberapa bagian masih perlu dilengkapi/diperbaiki nih kak:']
+    missing.forEach((m) => lines.push(`- ${m}: wajib diisi`))
+    invalid.forEach((m) => lines.push(`- ${m}`))
+    lines.push('', 'Silakan kirim ulang format lengkapnya ya (boleh copy dari pesan kamu sebelumnya lalu diperbaiki). Ketik *format* kalau mau template kosong lagi.')
+    await sendDirectMessage(jid, lines.join('\n'))
+    return
+  }
+
+  await finalizeBrandLead(jid, draft)
   sessions.delete(jid)
 }
 
