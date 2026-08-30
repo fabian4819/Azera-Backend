@@ -3,12 +3,14 @@ import makeWASocket, {
   DisconnectReason,
   WASocket,
   ConnectionState,
+  proto,
 } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import path from 'path'
 import fs from 'fs/promises'
 import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
 import { WaTrigger } from '../modules/whatsapp/waTemplate.model'
+import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
 
 const AUTH_DIR = path.join(process.cwd(), 'auth_info_baileys')
 const SEND_DELAY_MS = 3000 // jarak antar pesan — mitigasi risiko banned (AD-29)
@@ -74,8 +76,38 @@ export async function connectWhatsApp(): Promise<void> {
         }
       }
     })
+
+    // Lead bot: pesan masuk dari lawan bicara → arahkan ke menu Brand/KOL/Support (docs/plan/modul-4-automation-workflow.md).
+    // Diam untuk pesan grup, status broadcast, dan pesan dari diri sendiri (echo pengiriman lain).
+    sock.ev.on('messages.upsert', ({ messages, type }) => {
+      if (type !== 'notify') return
+      for (const msg of messages) {
+        const jid = msg.key.remoteJid
+        if (!jid || msg.key.fromMe || jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+        const text = extractMessageText(msg)
+        if (!text) continue
+        handleIncomingMessage(jid, text).catch((err) => console.error('WA bot error:', err))
+      }
+    })
   } finally {
     connecting = false
+  }
+}
+
+function extractMessageText(msg: proto.IWebMessageInfo): string | null {
+  const m = msg.message
+  if (!m) return null
+  return m.conversation || m.extendedTextMessage?.text || m.buttonsResponseMessage?.selectedDisplayText || null
+}
+
+/** Balasan langsung bot percakapan (leadBot.service) — bypass queue karena ini interaktif, bukan notifikasi batch */
+export async function sendDirectMessage(to: string, text: string): Promise<void> {
+  if (!sock || status !== 'connected') return
+  try {
+    const jid = to.includes('@') ? to : `${to.replace(/\D/g, '')}@s.whatsapp.net`
+    await sock.sendMessage(jid, { text })
+  } catch (err) {
+    console.error('WA bot sendDirectMessage error:', err)
   }
 }
 
