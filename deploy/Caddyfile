@@ -1,3 +1,10 @@
 {$DOMAIN} {
 	reverse_proxy client:80
 }
+
+# Subdomain lama (app.azerakol.id) — redirect permanen ke domain utama.
+# DNS-nya masih mengarah ke server ini di panel domainesia; blok ini
+# memastikan pengunjung tetap sampai ke situs, bukan error/salah domain.
+app.azerakol.id {
+	redir https://azerakol.id{uri} permanent
+}
