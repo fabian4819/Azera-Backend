@@ -8,6 +8,17 @@ import { uploadToCloudinary } from '../../lib/cloudinary'
 const router = Router()
 router.use(requireAuth)
 
+// multer/busboy taruh field non-file multipart sebagai string flat di req.body —
+// metrics & topCreators dikirim client sebagai JSON.stringify(...), perlu di-parse balik.
+function parseJsonFields(data: Record<string, unknown>) {
+  for (const field of ['metrics', 'topCreators']) {
+    if (typeof data[field] === 'string' && data[field]) {
+      try { data[field] = JSON.parse(data[field] as string) } catch { delete data[field] }
+    }
+  }
+  return data
+}
+
 router.get('/', async (_req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -23,7 +34,7 @@ router.post('/', upload.fields([
   try {
     await connectDB()
     const files = req.files as Record<string, Express.Multer.File[]>
-    const data: Record<string, unknown> = { ...req.body }
+    const data: Record<string, unknown> = parseJsonFields({ ...req.body })
 
     if (files?.logo?.[0]) {
       data.logo = await uploadToCloudinary(files.logo[0].buffer, 'azera/portfolio/logos')
@@ -46,7 +57,7 @@ router.patch('/:id', upload.fields([
   try {
     await connectDB()
     const files = req.files as Record<string, Express.Multer.File[]>
-    const data: Record<string, unknown> = { ...req.body }
+    const data: Record<string, unknown> = parseJsonFields({ ...req.body })
 
     if (files?.logo?.[0]) {
       data.logo = await uploadToCloudinary(files.logo[0].buffer, 'azera/portfolio/logos')
