@@ -16,7 +16,8 @@ router.post('/register', async (req: Request, res: Response) => {
     const tenant = await getDefaultTenant()
     const {
       name, phone, gender, domicile, socials, activities, niches, nicheOther,
-      contentStyles, contentStyleOther, bankAccount, npwp, mediaKitUrl, portfolioLink,
+      contentStyles, contentStyleOther, bankAccount, npwp,
+      rateEstimateType, rateEstimateAmount, rateNegotiable, mediaKitUrl, portfolioLink,
     } = req.body
 
     if (!name || !phone || !gender) {
@@ -39,7 +40,8 @@ router.post('/register', async (req: Request, res: Response) => {
       nicheOther,
       contentStyles: contentStyles || [],
       contentStyleOther,
-      bankAccount, npwp, mediaKitUrl, portfolioLink,
+      bankAccount, npwp,
+      rateEstimateType, rateEstimateAmount, rateNegotiable, mediaKitUrl, portfolioLink,
       source: 'form',
     })
 

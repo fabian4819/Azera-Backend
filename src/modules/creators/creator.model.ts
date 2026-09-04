@@ -39,6 +39,10 @@ export interface ICreator extends Document {
   contentStyleOther?: string
   bankAccount?: { bankName: string; accountNumber: string; accountName: string }
   npwp?: string
+  /** AD-49: estimasi rate 1x video posting, sebagai referensi awal — bukan kesepakatan final */
+  rateEstimateType?: 'nominal' | 'unknown'
+  rateEstimateAmount?: number
+  rateNegotiable?: 'yes' | 'no' | 'depends'
   mediaKitUrl?: string
   portfolioLink?: string
   photoUrl?: string
@@ -85,6 +89,9 @@ const CreatorSchema = new Schema<ICreator>(
       accountName: String,
     },
     npwp: String,
+    rateEstimateType: { type: String, enum: ['nominal', 'unknown'] },
+    rateEstimateAmount: Number,
+    rateNegotiable: { type: String, enum: ['yes', 'no', 'depends'] },
     mediaKitUrl: String,
     portfolioLink: String,
     photoUrl: String,
