@@ -15,6 +15,7 @@ import Brand from '../../models/Brand'
 import DocumentModel from '../documents/document.model'
 import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
+import PicUser from '../pic/pic.model'
 import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, tryAutoTransition, getCreatorSubStages, WorkflowTransitionError, WORKFLOW_TRANSITIONS } from './workflow.service'
@@ -395,6 +396,65 @@ router.post('/:id/workflow/transition', async (req: AuthRequest, res: Response) 
       res.status(400).json({ message: err.message })
       return
     }
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// PIC/Handle-by akun (PicUser) yang di-assign admin ke campaign ini — muncul di
+// dashboard PIC begitu ditambahkan. Akun PIC sign up sendiri tanpa accessCode,
+// jadi satu-satunya cara campaign muncul di dashboard mereka adalah lewat sini.
+router.get('/:id/pic', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const picUsers = await PicUser.find({ tenantId: req.auth!.tenantId, campaignIds: req.params.id })
+      .select('name email phone')
+    res.json(picUsers)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.post('/:id/pic', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { email } = req.body
+    if (!email) {
+      res.status(400).json({ message: 'Email wajib diisi' })
+      return
+    }
+    const campaign = await Campaign.findOne({ tenantId: req.auth!.tenantId, _id: req.params.id })
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign tidak ditemukan' })
+      return
+    }
+    const picUser = await PicUser.findOne({ tenantId: req.auth!.tenantId, email })
+    if (!picUser) {
+      res.status(404).json({ message: 'PIC dengan email ini belum sign up di /login' })
+      return
+    }
+    const alreadyLinked = picUser.campaignIds.some((cid) => String(cid) === String(campaign._id))
+    if (!alreadyLinked) {
+      picUser.campaignIds.push(campaign._id)
+      await picUser.save()
+    }
+    res.status(201).json({ _id: picUser._id, name: picUser.name, email: picUser.email, phone: picUser.phone })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.delete('/:id/pic/:picUserId', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const picUser = await PicUser.findOne({ tenantId: req.auth!.tenantId, _id: req.params.picUserId })
+    if (!picUser) {
+      res.status(404).json({ message: 'PIC tidak ditemukan' })
+      return
+    }
+    picUser.campaignIds = picUser.campaignIds.filter((cid) => String(cid) !== req.params.id)
+    await picUser.save()
+    res.json({ message: 'PIC dilepas dari campaign ini' })
+  } catch {
     res.status(500).json({ message: 'Server error' })
   }
 })

@@ -5,10 +5,38 @@ import { upload } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import Application from '../applications/application.model'
 import Submission from '../submissions/submission.model'
+import Creator from './creator.model'
 import { tryAutoTransition } from '../campaigns/workflow.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('creator'))
+
+router.get('/me', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const creator = await Creator.findOne({ tenantId: req.auth!.tenantId, _id: req.auth!.userId })
+    if (!creator) { res.status(404).json({ message: 'Not found' }); return }
+    res.json({ name: creator.name, phone: creator.phone, email: creator.email || '' })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Lengkapi email untuk creator yang sign up sebelum field ini ditambahkan (AD-49 follow-up).
+router.patch('/me', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { email } = req.body
+    if (!email) { res.status(400).json({ message: 'Email wajib diisi' }); return }
+    const creator = await Creator.findOne({ tenantId: req.auth!.tenantId, _id: req.auth!.userId })
+    if (!creator) { res.status(404).json({ message: 'Not found' }); return }
+    creator.email = email
+    await creator.save()
+    res.json({ name: creator.name, phone: creator.phone, email: creator.email })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
 
 // AD-22: campaign aktif milik creator (fungsi dasar saja — checklist tab 1 no.5)
 router.get('/campaigns', async (req: AuthRequest, res: Response) => {

@@ -41,7 +41,7 @@ export const creatorAuthRouter = Router()
 creatorAuthRouter.post('/register-password', async (req: Request, res: Response) => {
   try {
     await connectDB()
-    const { phone, password } = req.body
+    const { phone, password, email } = req.body
     if (!phone || !password) {
       res.status(400).json({ message: 'Nomor WA dan password wajib diisi' })
       return
@@ -61,6 +61,7 @@ creatorAuthRouter.post('/register-password', async (req: Request, res: Response)
       return
     }
     creator.password = await bcrypt.hash(password, 10)
+    if (email) creator.email = email
     await creator.save()
     const token = signCreatorToken(String(creator._id), String(creator.tenantId))
     res.status(201).json({ token, creator: { name: creator.name, phone: creator.phone } })

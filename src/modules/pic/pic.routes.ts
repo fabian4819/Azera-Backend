@@ -7,16 +7,17 @@ import PicUser from './pic.model'
 import Campaign from '../campaigns/campaign.model'
 import { getCampaignDashboardData } from '../campaigns/dashboard.service'
 
-// PIC/Handle-by account — satu akun bisa terhubung ke banyak campaign lewat
-// accessCode masing-masing campaign (bukan hierarki akun per campaign).
+// PIC/Handle-by account — sign up tanpa accessCode, akun dibuat kosong
+// (campaignIds: []). Admin yang assign campaign ke akun ini (lihat endpoint
+// /:id/pic di campaign.routes.ts), baru muncul di dashboard PIC.
 export const picAuthRouter = Router()
 
 picAuthRouter.post('/register', async (req: Request, res: Response) => {
   try {
     await connectDB()
-    const { name, email, password, accessCode } = req.body
-    if (!name || !email || !password || !accessCode) {
-      res.status(400).json({ message: 'Nama, email, password, dan kode akses campaign wajib diisi' })
+    const { name, email, password, phone } = req.body
+    if (!name || !email || !password || !phone) {
+      res.status(400).json({ message: 'Nama, nomor WhatsApp, email, dan password wajib diisi' })
       return
     }
     if (password.length < 6) {
@@ -29,14 +30,9 @@ picAuthRouter.post('/register', async (req: Request, res: Response) => {
       res.status(409).json({ message: 'Email sudah terdaftar' })
       return
     }
-    const campaign = await Campaign.findOne({ tenantId: tenant._id, accessCode })
-    if (!campaign) {
-      res.status(404).json({ message: 'Kode akses campaign tidak valid' })
-      return
-    }
     const hashed = await bcrypt.hash(password, 10)
     const picUser = await PicUser.create({
-      tenantId: tenant._id, name, email, password: hashed, campaignIds: [campaign._id],
+      tenantId: tenant._id, name, email, phone, password: hashed, campaignIds: [],
     })
     const token = signPicToken(String(picUser._id), String(picUser.tenantId))
     res.status(201).json({ token, pic: { name: picUser.name, email: picUser.email } })
@@ -69,36 +65,6 @@ picAuthRouter.post('/login', async (req: Request, res: Response) => {
 
 export const picPortalRouter = Router()
 picPortalRouter.use(requireAuth, requireRole('pic'))
-
-// Hubungkan campaign tambahan ke akun PIC yang sudah ada, pakai accessCode campaign itu.
-picPortalRouter.post('/campaigns/link', async (req: AuthRequest, res: Response) => {
-  try {
-    await connectDB()
-    const { accessCode } = req.body
-    if (!accessCode) {
-      res.status(400).json({ message: 'Kode akses wajib diisi' })
-      return
-    }
-    const campaign = await Campaign.findOne({ tenantId: req.auth!.tenantId, accessCode })
-    if (!campaign) {
-      res.status(404).json({ message: 'Kode akses campaign tidak valid' })
-      return
-    }
-    const picUser = await PicUser.findById(req.auth!.userId)
-    if (!picUser) {
-      res.status(404).json({ message: 'Not found' })
-      return
-    }
-    const alreadyLinked = picUser.campaignIds.some((cid) => String(cid) === String(campaign._id))
-    if (!alreadyLinked) {
-      picUser.campaignIds.push(campaign._id)
-      await picUser.save()
-    }
-    res.json({ message: alreadyLinked ? 'Campaign sudah terhubung' : 'Campaign berhasil ditambahkan' })
-  } catch {
-    res.status(500).json({ message: 'Server error' })
-  }
-})
 
 picPortalRouter.get('/campaigns', async (req: AuthRequest, res: Response) => {
   try {
