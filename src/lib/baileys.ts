@@ -86,9 +86,14 @@ export async function connectWhatsApp(): Promise<void> {
         sock = null
         if (loggedOut) {
           connectedNumber = null
+          // WA sendiri yang sudah invalidate sesi ini (mis. device di-unlink dari HP) — kalau file
+          // auth dibiarkan, setiap percobaan connect berikutnya cuma nyoba resume sesi mati ini lagi
+          // dan diam-diam gagal tanpa pernah munculin QR baru. Hapus supaya connect berikutnya mulai
+          // fresh dan benar-benar generate QR baru.
+          fs.rm(AUTH_DIR, { recursive: true, force: true }).catch((err) => console.error('WA rm auth dir error:', err))
         } else {
           setTimeout(() => {
-            connectWhatsApp().catch(() => {})
+            connectWhatsApp().catch((err) => console.error('WA reconnect error:', err))
           }, RECONNECT_DELAY_MS)
         }
       }

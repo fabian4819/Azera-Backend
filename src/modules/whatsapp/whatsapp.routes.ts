@@ -28,7 +28,7 @@ router.get('/qr', async (req: AuthRequest, res: Response) => {
 })
 
 router.post('/connect', async (req: AuthRequest, res: Response) => {
-  connectWhatsApp().catch(() => {})
+  connectWhatsApp().catch((err) => console.error('WA connect error:', err))
   res.json(getWaStatus())
 })
 
