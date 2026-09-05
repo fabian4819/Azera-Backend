@@ -54,7 +54,13 @@ export async function connectWhatsApp(): Promise<void> {
     // kirim window singkat) — supaya inbox dashboard bisa terisi histori lama, bukan cuma pesan baru.
     sock = makeWASocket({ auth: state, logger, syncFullHistory: true })
 
-    sock.ev.on('creds.update', saveCreds)
+    // Tanpa guard generasi di sini, socket LAMA yang masih menutup diri (mis. abis logout()) bisa
+    // menulis ulang file auth setelah fs.rm() di logoutWhatsApp() jalan — bikin folder auth kotor
+    // lagi walau baru saja dibersihkan, dan koneksi berikutnya nyoba resume sesi basi (QR gak muncul).
+    sock.ev.on('creds.update', () => {
+      if (myGeneration !== generation) return
+      saveCreds().catch((err) => console.error('WA saveCreds error:', err))
+    })
 
     sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
       if (myGeneration !== generation) return // socket ini sudah digantikan (logout/connect ulang) — abaikan event basi
@@ -183,12 +189,14 @@ export async function sendManualReply(jid: string, text: string): Promise<void> 
 }
 
 export async function logoutWhatsApp(): Promise<void> {
-  generation++ // socket lama (kalau masih ada event close yang nyusul) langsung dianggap basi
+  generation++ // socket lama (kalau masih ada event close/creds.update yang nyusul) langsung dianggap basi
   if (sock) {
-    await sock.logout().catch(() => {})
+    await sock.logout().catch((err) => console.error('WA logout() error:', err))
   }
-  await fs.rm(AUTH_DIR, { recursive: true, force: true }).catch(() => {})
   sock = null
+  // Hapus folder auth SEBELUM status jadi 'disconnected', supaya tidak ada window sempit di mana
+  // klik Connect keburu jalan dan baca folder auth yang masih dalam proses dihapus.
+  await fs.rm(AUTH_DIR, { recursive: true, force: true }).catch((err) => console.error('WA rm auth dir error:', err))
   status = 'disconnected'
   currentQr = null
   connectedNumber = null
