@@ -26,6 +26,12 @@ let status: WaStatus = 'disconnected'
 let connectedNumber: string | null = null
 let connecting = false
 
+// Baileys kadang mengirim event 'close' dari socket LAMA setelah socket BARU sudah dibuat
+// (mis. sock.logout() memicu close yang baru benar-benar sampai beberapa saat kemudian,
+// setelah user keburu klik Connect lagi). Tanpa penanda generasi ini, handler socket lama
+// bisa menimpa status/currentQr milik socket baru dan QR jadi tidak pernah muncul.
+let generation = 0
+
 export function getWaStatus() {
   return { status, connectedNumber }
 }
@@ -38,6 +44,7 @@ export async function connectWhatsApp(): Promise<void> {
   if (connecting || status === 'connected') return
   connecting = true
   status = 'connecting'
+  const myGeneration = ++generation
 
   try {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
@@ -47,6 +54,7 @@ export async function connectWhatsApp(): Promise<void> {
     sock.ev.on('creds.update', saveCreds)
 
     sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
+      if (myGeneration !== generation) return // socket ini sudah digantikan (logout/connect ulang) — abaikan event basi
       const { connection, lastDisconnect, qr } = update
 
       if (qr) {
@@ -80,6 +88,7 @@ export async function connectWhatsApp(): Promise<void> {
     // Lead bot: pesan masuk dari lawan bicara → arahkan ke menu Brand/KOL/Support (docs/plan/modul-4-automation-workflow.md).
     // Diam untuk pesan grup, status broadcast, dan pesan dari diri sendiri (echo pengiriman lain).
     sock.ev.on('messages.upsert', ({ messages, type }) => {
+      if (myGeneration !== generation) return
       if (type !== 'notify') return
       for (const msg of messages) {
         const jid = msg.key.remoteJid
@@ -112,6 +121,7 @@ export async function sendDirectMessage(to: string, text: string): Promise<void>
 }
 
 export async function logoutWhatsApp(): Promise<void> {
+  generation++ // socket lama (kalau masih ada event close yang nyusul) langsung dianggap basi
   if (sock) {
     await sock.logout().catch(() => {})
   }
