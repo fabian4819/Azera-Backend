@@ -102,3 +102,20 @@ picPortalRouter.get('/campaigns/:id/dashboard', async (req: AuthRequest, res: Re
     res.status(500).json({ message: 'Server error' })
   }
 })
+
+// Daftar akun PIC/Handle-by untuk menu admin — dipakai buat cari email saat assign ke campaign.
+export const picAdminRouter = Router()
+picAdminRouter.use(requireAuth, requireRole('owner', 'admin', 'ce'))
+
+picAdminRouter.get('/', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const picUsers = await PicUser.find({ tenantId: req.auth!.tenantId })
+      .select('name email phone campaignIds createdAt')
+      .populate('campaignIds', 'name')
+      .sort({ createdAt: -1 })
+    res.json(picUsers)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})

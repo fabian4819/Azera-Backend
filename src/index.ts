@@ -30,7 +30,7 @@ import leadBotTemplateRouter from './modules/whatsapp/leadBotTemplate.routes'
 import assetRouter from './modules/assets/asset.routes'
 import publicCreatorRouter from './modules/creators/publicCreator.routes'
 import publicCaseStudyRouter from './modules/documents/publicCaseStudy.routes'
-import { picAuthRouter, picPortalRouter } from './modules/pic/pic.routes'
+import { picAuthRouter, picPortalRouter, picAdminRouter } from './modules/pic/pic.routes'
 import { connectWhatsApp } from './lib/baileys'
 import { startCronJobs } from './lib/cron'
 
@@ -59,6 +59,7 @@ app.use('/api/campaigns', publicCampaignRouter)
 app.use('/api/creator', talentPortalRouter)
 app.use('/api/pic', picAuthRouter)
 app.use('/api/pic', picPortalRouter)
+app.use('/api/admin/pic', picAdminRouter)
 
 // Modul 3 — Analitik & Finance (AD-23..28)
 app.use('/api/admin', submissionRouter)
