@@ -2,9 +2,10 @@ import mongoose, { Schema, Document } from 'mongoose'
 
 /** Jasa yang ditanyakan di alur bot WhatsApp (lihat leadBot.service.ts) — beda taksonomi dari `tujuan` form web */
 export const BRAND_JASA_OPTIONS = [
-  { key: 'engagement_boost', label: 'Engagement Boost' },
-  { key: 'kol_marketing', label: 'KOL Marketing' },
-  { key: 'affiliate_marketing', label: 'Affiliate Marketing' },
+  { key: 'nano_micro_kol_campaign', label: 'Nano-Micro KOL Campaign' },
+  { key: 'koc_campaign', label: 'KOC Campaign' },
+  { key: 'affiliate_creator_campaign', label: 'Affiliate Creator Campaign' },
+  { key: 'event_creator_activation', label: 'Event Creator Activation' },
 ] as const
 
 export type BrandJasa = (typeof BRAND_JASA_OPTIONS)[number]['key']
