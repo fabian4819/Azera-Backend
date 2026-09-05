@@ -10,6 +10,11 @@ import { getTemplate, renderTemplate } from '../modules/whatsapp/template.servic
 
 const TIMEZONE = 'Asia/Jakarta'
 
+// Daily progress report ditujukan ke tim internal (grup WhatsApp berisi bot + tim AzeraKOL),
+// bukan ke brand — isi ID grup di .env, format JID grup: "xxxxxxxxxxxxxxxxx@g.us"
+// (cara dapat ID-nya: kirim pesan apa saja di grup itu, lalu cek log server untuk baris "WA group message from ...").
+const TEAM_GROUP_JID = process.env.WA_TEAM_GROUP_JID || ''
+
 function daysUntil(date: Date): number {
   const ms = new Date(date).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)
   return Math.round(ms / (24 * 60 * 60 * 1000))
@@ -67,11 +72,10 @@ export async function runDailyProgressReport() {
 }
 
 async function runDailyProgressReportForTenant(tenantId: string) {
+  if (!TEAM_GROUP_JID) return // grup tim belum dikonfigurasi — skip diam-diam, bukan error tiap hari
+
   const campaigns = await Campaign.find({ tenantId, status: 'active' })
   for (const campaign of campaigns) {
-    const brand = await Brand.findById(campaign.brandId)
-    if (!brand?.whatsapp) continue
-
     const submissions = await Submission.find({ tenantId: campaign.tenantId, campaignId: campaign._id })
     const draftCount = submissions.filter((s) => s.type === 'draft').length
     const approvedCount = submissions.filter((s) => s.status === 'approved').length
@@ -90,7 +94,7 @@ async function runDailyProgressReportForTenant(tenantId: string) {
       insight_count: insightCount,
     })
     await enqueueWaMessage({
-      tenantId: String(campaign.tenantId), trigger: 'daily_progress_report', to: brand.whatsapp, payload,
+      tenantId: String(campaign.tenantId), trigger: 'daily_progress_report', to: TEAM_GROUP_JID, payload,
       campaignId: String(campaign._id),
     })
   }

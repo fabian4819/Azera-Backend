@@ -92,7 +92,14 @@ export async function connectWhatsApp(): Promise<void> {
       if (type !== 'notify') return
       for (const msg of messages) {
         const jid = msg.key.remoteJid
-        if (!jid || msg.key.fromMe || jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+        if (!jid || msg.key.fromMe) continue
+        // Bantu cari JID grup: kirim pesan apa saja di grup target, lalu cek log server untuk JID-nya,
+        // supaya bisa ditempel ke field tujuan (mis. Brand.whatsapp) untuk kirim report/broadcast ke grup itu.
+        if (jid.endsWith('@g.us')) {
+          console.log(`WA group message from ${jid}`)
+          continue
+        }
+        if (jid === 'status@broadcast') continue
         const text = extractMessageText(msg)
         if (!text) continue
         handleIncomingMessage(jid, text).catch((err) => console.error('WA bot error:', err))
@@ -109,12 +116,18 @@ function extractMessageText(msg: proto.IWebMessageInfo): string | null {
   return m.conversation || m.extendedTextMessage?.text || m.buttonsResponseMessage?.selectedDisplayText || null
 }
 
+// `to` bisa berupa nomor HP biasa (dikirim 1:1) ATAU JID grup WhatsApp (mis. "12036301234567890@g.us")
+// yang sudah disimpan apa adanya di field tujuan (misal Brand.whatsapp) — kalau sudah mengandung "@"
+// dianggap JID lengkap dan dipakai langsung, supaya broadcast/report bisa diarahkan ke grup.
+function toJid(to: string): string {
+  return to.includes('@') ? to : `${to.replace(/\D/g, '')}@s.whatsapp.net`
+}
+
 /** Balasan langsung bot percakapan (leadBot.service) — bypass queue karena ini interaktif, bukan notifikasi batch */
 export async function sendDirectMessage(to: string, text: string): Promise<void> {
   if (!sock || status !== 'connected') return
   try {
-    const jid = to.includes('@') ? to : `${to.replace(/\D/g, '')}@s.whatsapp.net`
-    await sock.sendMessage(jid, { text })
+    await sock.sendMessage(toJid(to), { text })
   } catch (err) {
     console.error('WA bot sendDirectMessage error:', err)
   }
@@ -148,8 +161,7 @@ async function processQueue() {
     const item = queue.shift()!
     try {
       if (!sock || status !== 'connected') throw new Error('WhatsApp belum terhubung')
-      const jid = `${item.to.replace(/\D/g, '')}@s.whatsapp.net`
-      await sock.sendMessage(jid, { text: item.payload })
+      await sock.sendMessage(toJid(item.to), { text: item.payload })
       await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'sent', sentAt: new Date() })
     } catch (err) {
       await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'failed', error: (err as Error).message })
