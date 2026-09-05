@@ -11,7 +11,7 @@ import fs from 'fs/promises'
 import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
 import { WaTrigger } from '../modules/whatsapp/waTemplate.model'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
-import { recordIncomingMessage, recordOutgoingMessage, isBotPaused } from '../modules/whatsapp/waChat.service'
+import { recordIncomingMessage, recordOutgoingMessage, isBotPaused, backfillHistory } from '../modules/whatsapp/waChat.service'
 
 const AUTH_DIR = path.join(process.cwd(), 'auth_info_baileys')
 const SEND_DELAY_MS = 3000 // jarak antar pesan — mitigasi risiko banned (AD-29)
@@ -50,7 +50,9 @@ export async function connectWhatsApp(): Promise<void> {
   try {
     const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR)
 
-    sock = makeWASocket({ auth: state, logger })
+    // syncFullHistory: minta riwayat chat lengkap dari WhatsApp saat pairing (default Baileys cuma
+    // kirim window singkat) — supaya inbox dashboard bisa terisi histori lama, bukan cuma pesan baru.
+    sock = makeWASocket({ auth: state, logger, syncFullHistory: true })
 
     sock.ev.on('creds.update', saveCreds)
 
@@ -103,12 +105,44 @@ export async function connectWhatsApp(): Promise<void> {
         if (jid === 'status@broadcast') continue
         const text = extractMessageText(msg)
         if (!text) continue
-        recordIncomingMessage(jid, text, msg.key.id || undefined).catch((err) => console.error('WA save incoming error:', err))
+        recordIncomingMessage(jid, text, msg.key.id || undefined, msg.pushName || undefined).catch((err) => console.error('WA save incoming error:', err))
         isBotPaused(jid)
           .then((paused) => {
             if (!paused) handleIncomingMessage(jid, text).catch((err) => console.error('WA bot error:', err))
           })
           .catch((err) => console.error('WA bot-pause check error:', err))
+      }
+    })
+
+    // Sinkron riwayat chat lama yang sudah ada di WhatsApp SEBELUM device ini ditautkan —
+    // Baileys mengirim ini sekali (kadang dalam beberapa batch) setelah pairing sukses,
+    // supaya inbox dashboard tidak cuma nampilin percakapan yang baru masuk sejak connect.
+    sock.ev.on('messaging-history.set', ({ messages, contacts }) => {
+      if (myGeneration !== generation) return
+      const contactNames: Record<string, string> = {}
+      for (const c of contacts) {
+        const name = c.name || c.notify
+        if (c.id && name) contactNames[c.id] = name
+      }
+
+      const entries = []
+      for (const msg of messages) {
+        const jid = msg.key.remoteJid
+        if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+        const text = extractMessageText(msg)
+        if (!text || !msg.key.id) continue
+        const seconds = typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Number(msg.messageTimestamp) || 0
+        entries.push({
+          jid,
+          direction: (msg.key.fromMe ? 'out' : 'in') as 'in' | 'out',
+          text,
+          messageId: msg.key.id,
+          timestamp: seconds ? new Date(seconds * 1000) : new Date(),
+        })
+      }
+
+      if (entries.length) {
+        backfillHistory(entries, contactNames).catch((err) => console.error('WA history sync error:', err))
       }
     })
   } finally {
