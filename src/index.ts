@@ -13,6 +13,7 @@ import portfolioRouter from './routes/portfolio'
 import { staffAuthRouter, creatorAuthRouter } from './modules/auth/auth.routes'
 import adminBrandsRouter from './routes/admin/brands'
 import adminPortfolioRouter from './routes/admin/portfolio'
+import adminDashboardRouter from './routes/admin/dashboard'
 import campaignRouter from './modules/campaigns/campaign.routes'
 import publicCampaignRouter from './modules/campaigns/publicCampaign.routes'
 import applicationRouter from './modules/applications/application.routes'
@@ -47,6 +48,7 @@ app.use('/api/admin', staffAuthRouter)
 app.use('/api/creator', creatorAuthRouter)
 app.use('/api/admin/brands', adminBrandsRouter)
 app.use('/api/admin/portfolio', adminPortfolioRouter)
+app.use('/api/admin/dashboard', adminDashboardRouter)
 
 // Modul 2 — Modul Inti (AD-18..22)
 app.use('/api/admin/campaigns', campaignRouter)
