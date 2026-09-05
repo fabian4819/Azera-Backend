@@ -35,6 +35,40 @@ staffAuthRouter.post('/login', async (req: Request, res: Response) => {
 // Creator (talent) login — nomor WA + password yang di-set saat diterima campaign
 export const creatorAuthRouter = Router()
 
+// Self-service: creator yang sudah terdaftar (via /kol/register) tapi belum punya
+// password bisa set password sendiri, tanpa nunggu admin. Sekali di-set, endpoint
+// ini tidak bisa dipakai lagi untuk akun yang sama (bukan reset password).
+creatorAuthRouter.post('/register-password', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const { phone, password } = req.body
+    if (!phone || !password) {
+      res.status(400).json({ message: 'Nomor WA dan password wajib diisi' })
+      return
+    }
+    if (password.length < 6) {
+      res.status(400).json({ message: 'Password minimal 6 karakter' })
+      return
+    }
+    const tenant = await getDefaultTenant()
+    const creator = await Creator.findOne({ tenantId: tenant._id, phone })
+    if (!creator) {
+      res.status(404).json({ message: 'Nomor WA belum terdaftar. Daftar dulu lewat form KOL.' })
+      return
+    }
+    if (creator.password) {
+      res.status(409).json({ message: 'Akun ini sudah punya password. Hubungi admin untuk reset.' })
+      return
+    }
+    creator.password = await bcrypt.hash(password, 10)
+    await creator.save()
+    const token = signCreatorToken(String(creator._id), String(creator.tenantId))
+    res.status(201).json({ token, creator: { name: creator.name, phone: creator.phone } })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 creatorAuthRouter.post('/login', async (req: Request, res: Response) => {
   try {
     await connectDB()

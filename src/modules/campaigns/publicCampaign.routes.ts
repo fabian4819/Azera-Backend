@@ -4,9 +4,8 @@ import { getDefaultTenant } from '../tenants/defaultTenant'
 import Campaign from './campaign.model'
 import Creator from '../creators/creator.model'
 import Application from '../applications/application.model'
-import Submission from '../submissions/submission.model'
-import CreatorHistory from '../creators/creatorHistory.model'
 import { runSmartCuration } from '../applications/curation.service'
+import { getCampaignDashboardData } from './dashboard.service'
 
 const router = Router()
 
@@ -27,27 +26,7 @@ router.get('/:id/dashboard', async (req: Request, res: Response) => {
       return
     }
 
-    const [applications, submissions, histories] = await Promise.all([
-      Application.find({ tenantId: campaign.tenantId, campaignId: campaign._id })
-        .populate('creatorId', 'name phone domicile socials niches performanceScore')
-        .sort({ createdAt: -1 }),
-      Submission.find({ tenantId: campaign.tenantId, campaignId: campaign._id }).sort({ createdAt: -1 }),
-      CreatorHistory.find({ tenantId: campaign.tenantId, campaignId: campaign._id }).sort({ createdAt: -1 }),
-    ])
-
-    res.json({
-      campaign: {
-        name: campaign.name,
-        brand: campaign.brandId,
-        workflowStage: campaign.workflowStage,
-        status: campaign.status,
-        budget: campaign.budget,
-        timeline: campaign.timeline,
-      },
-      applications,
-      submissions,
-      histories,
-    })
+    res.json(await getCampaignDashboardData(campaign))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

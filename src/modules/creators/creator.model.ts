@@ -9,7 +9,8 @@ export type ComplianceStatus = 'ok' | 'sp1' | 'sp2_blacklist'
 interface ISocialAccount {
   platform: SocialPlatform
   username: string
-  profileUrl: string
+  /** Opsional sejak form KOL tidak lagi menanyakan link profil (admin bisa nebak dari username) */
+  profileUrl?: string
   followers: number
 }
 
@@ -60,7 +61,7 @@ const SocialAccountSchema = new Schema<ISocialAccount>(
   {
     platform: { type: String, enum: ['instagram', 'tiktok', 'threads', 'x'], required: true },
     username: { type: String, required: true },
-    profileUrl: { type: String, required: true },
+    profileUrl: { type: String },
     followers: { type: Number, required: true, default: 0 },
   },
   { _id: false }

@@ -16,12 +16,18 @@ interface CreatorTokenPayload {
   type: 'creator'
 }
 
-type TokenPayload = StaffTokenPayload | CreatorTokenPayload
+interface PicTokenPayload {
+  sub: string
+  tenantId: string
+  type: 'pic'
+}
+
+type TokenPayload = StaffTokenPayload | CreatorTokenPayload | PicTokenPayload
 
 export interface AuthContext {
   userId: string
   tenantId: string
-  role: UserRole | 'creator'
+  role: UserRole | 'creator' | 'pic'
 }
 
 export interface AuthRequest extends Request {
@@ -42,6 +48,10 @@ export function signCreatorToken(creatorId: string, tenantId: string): string {
   return signToken({ sub: creatorId, tenantId, type: 'creator' }, '30d')
 }
 
+export function signPicToken(picUserId: string, tenantId: string): string {
+  return signToken({ sub: picUserId, tenantId, type: 'pic' }, '30d')
+}
+
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   const header = req.headers.authorization
   if (!header || !header.startsWith('Bearer ')) {
@@ -54,7 +64,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     req.auth = {
       userId: payload.sub,
       tenantId: payload.tenantId,
-      role: payload.type === 'creator' ? 'creator' : payload.role,
+      role: payload.type === 'creator' || payload.type === 'pic' ? payload.type : payload.role,
     }
     req.adminId = payload.sub
     next()
@@ -63,7 +73,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   }
 }
 
-export function requireRole(...roles: Array<UserRole | 'creator'>) {
+export function requireRole(...roles: Array<UserRole | 'creator' | 'pic'>) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
     if (!req.auth || !roles.includes(req.auth.role)) {
       res.status(403).json({ message: 'Forbidden' })
