@@ -2,6 +2,8 @@ import { connectDB } from '../../db/connect'
 import { BRAND_JASA_OPTIONS, BRAND_BUDGET_OPTIONS, BrandJasa } from '../../models/Brand'
 import { createBrandInquiry } from '../brands/brand.service'
 import { sendDirectMessage } from '../../lib/baileys'
+import { getLeadBotTemplate } from './leadBotTemplate.service'
+import { renderTemplate } from './template.service'
 
 /**
  * Bot percakapan WhatsApp untuk lead masuk (belum jadi klien/creator terdaftar) —
@@ -10,15 +12,14 @@ import { sendDirectMessage } from '../../lib/baileys'
  * mengarahkan ke salah satu dari 3 jalur: daftar Brand (isi form template
  * sekali kirim), daftar KOL (redirect ke link form web), atau Support
  * (serah-terima ke admin).
+ *
+ * Wording pesan (sapaan, menu, dst) diambil dari `LeadBotTemplate` — admin bisa
+ * edit lewat `/admin/lead-bot-templates`. Yang TIDAK bisa diadmin-edit (lihat
+ * `LOCKED_BRAND_REFERENCE` di bawah): label field template Brand & daftar
+ * pilihan Jasa/Budget — parser `parseBrandTemplate` mencocokkan teks-teks itu
+ * secara harfiah, jadi mengubahnya lewat DB akan membuat bot gagal baca balasan.
  */
 
-const GREETING = 'Halo, kak! 👋 Selamat datang di *AzeraKOL* — agency KOL marketing.'
-const MENU =
-  'Ada yang bisa kami bantu? Silakan pilih:\n' +
-  '1️⃣ Daftar Brand (mau bikin campaign)\n' +
-  '2️⃣ Daftar KOL/Creator\n' +
-  '3️⃣ Butuh bantuan lain (Support)\n\n' +
-  'Balas dengan angka 1, 2, atau 3.'
 const KOL_REGISTER_URL = 'https://azerakol.id/kol/register'
 
 const SESSION_TTL_MS = 30 * 60 * 1000 // sesi idle 30 menit → reset ke menu utama
@@ -27,7 +28,8 @@ const SUPPORT_SILENCE_MS = 12 * 60 * 60 * 1000 // setelah pilih Support, bot dia
 const JASA_LIST = BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`).join('\n')
 const BUDGET_LIST = BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range} — ${o.label}`).join('\n')
 
-// Blok yang dikirim apa adanya supaya bisa langsung di-copy brand, diisi, lalu dikirim balik dalam satu pesan
+// Blok yang dikirim apa adanya supaya bisa langsung di-copy brand, diisi, lalu dikirim balik dalam satu pesan.
+// TERKUNCI — bukan bagian dari LeadBotTemplate yang bisa diedit admin, lihat LOCKED_BRAND_REFERENCE.
 const BRAND_TEMPLATE_BLOCK =
   'Nama Lengkap: \n' +
   'No. WhatsApp: \n' +
@@ -38,14 +40,24 @@ const BRAND_TEMPLATE_BLOCK =
   `Budget (isi angka 1-${BRAND_BUDGET_OPTIONS.length}): \n` +
   'Timeline (opsional): '
 
-const BRAND_TEMPLATE_MESSAGE =
-  'Oke, siap bantu daftarkan brand kamu! 🎉\n\n' +
-  'Tinggal *copy* format di bawah ini, isi bagian setelah titik dua, lalu kirim balik ke chat ini dalam satu pesan ya:\n\n' +
-  '```\n' +
-  BRAND_TEMPLATE_BLOCK +
-  '\n```\n\n' +
-  `*Pilihan Jasa:*\n${JASA_LIST}\n\n` +
-  `*Pilihan Budget:*\n${BUDGET_LIST}`
+/** Referensi bagian pesan bot yang TIDAK bisa diubah admin — dipakai `/admin/lead-bot-templates` untuk tampilan read-only */
+export const LOCKED_BRAND_REFERENCE = {
+  templateBlock: BRAND_TEMPLATE_BLOCK,
+  jasaOptions: BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`),
+  budgetOptions: BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range} — ${o.label}`),
+}
+
+async function buildBrandTemplateMessage(): Promise<string> {
+  const intro = await getLeadBotTemplate('brand_intro')
+  return (
+    `${intro}\n\n` +
+    '```\n' +
+    BRAND_TEMPLATE_BLOCK +
+    '\n```\n\n' +
+    `*Pilihan Jasa:*\n${JASA_LIST}\n\n` +
+    `*Pilihan Budget:*\n${BUDGET_LIST}`
+  )
+}
 
 type BrandDraft = Partial<{
   fullName: string
@@ -170,6 +182,7 @@ function newMenuSession(now: number): Session {
 export async function handleIncomingMessage(jid: string, rawText: string): Promise<void> {
   const text = rawText.trim()
   if (!text) return
+  await connectDB()
   const now = Date.now()
   const lower = text.toLowerCase()
 
@@ -184,14 +197,15 @@ export async function handleIncomingMessage(jid: string, rawText: string): Promi
   if (['menu', 'batal', 'cancel'].includes(lower)) {
     session = newMenuSession(now)
     sessions.set(jid, session)
-    await sendDirectMessage(jid, MENU)
+    await sendDirectMessage(jid, await getLeadBotTemplate('menu'))
     return
   }
 
   if (!session || now - session.updatedAt > SESSION_TTL_MS) {
     session = newMenuSession(now)
     sessions.set(jid, session)
-    await sendDirectMessage(jid, `${GREETING}\n\n${MENU}`)
+    const [greeting, menu] = await Promise.all([getLeadBotTemplate('greeting'), getLeadBotTemplate('menu')])
+    await sendDirectMessage(jid, `${greeting}\n\n${menu}`)
     return
   }
 
@@ -207,27 +221,25 @@ export async function handleIncomingMessage(jid: string, rawText: string): Promi
 async function handleMenuChoice(jid: string, session: Session, lower: string): Promise<void> {
   if (lower === '1' || lower.includes('brand')) {
     session.mode = 'brand_template'
-    await sendDirectMessage(jid, BRAND_TEMPLATE_MESSAGE)
+    await sendDirectMessage(jid, await buildBrandTemplateMessage())
     return
   }
 
   if (lower === '2' || lower.includes('kol') || lower.includes('creator') || lower.includes('kreator')) {
     sessions.delete(jid)
-    await sendDirectMessage(
-      jid,
-      `Untuk daftar sebagai KOL/Creator, silakan isi form pendaftaran di link berikut ya:\n\n${KOL_REGISTER_URL}\n\n` +
-        'Kalau ada pertanyaan lain, ketik *menu* untuk kembali ke menu utama. 🙌'
-    )
+    const tpl = await getLeadBotTemplate('kol_redirect')
+    await sendDirectMessage(jid, renderTemplate(tpl, { link: KOL_REGISTER_URL }))
     return
   }
 
   if (lower === '3' || lower.includes('support') || lower.includes('bantuan')) {
     session.mode = 'support'
-    await sendDirectMessage(jid, 'Baik kak, mohon ditunggu ya, admin kami akan segera membalas pesan kamu 🙏')
+    await sendDirectMessage(jid, await getLeadBotTemplate('support'))
     return
   }
 
-  await sendDirectMessage(jid, `Mohon pilih salah satu ya kak 🙏\n\n${MENU}`)
+  const menu = await getLeadBotTemplate('menu')
+  await sendDirectMessage(jid, `Mohon pilih salah satu ya kak 🙏\n\n${menu}`)
 }
 
 /** Cari baris yang jadi awal tiap field, lalu ambil semua teks sampai baris label field berikutnya (dukung isian multi-baris, mis. Campaign Brief panjang) */
@@ -268,19 +280,21 @@ function parseBrandTemplate(text: string): { draft: BrandDraft; missing: string[
 async function handleBrandTemplateReply(jid: string, text: string): Promise<void> {
   const lower = text.toLowerCase()
   if (['format', 'template', 'ulang'].includes(lower)) {
-    await sendDirectMessage(jid, BRAND_TEMPLATE_MESSAGE)
+    await sendDirectMessage(jid, await buildBrandTemplateMessage())
     return
   }
 
   const { draft, missing, invalid, matchedAny } = parseBrandTemplate(text)
 
   if (!matchedAny) {
-    await sendDirectMessage(jid, `Sepertinya belum sesuai format ya kak 🙏 Yuk copy template ini, isi, terus kirim balik:\n\n${BRAND_TEMPLATE_MESSAGE}`)
+    const intro = await getLeadBotTemplate('brand_wrong_format')
+    await sendDirectMessage(jid, `${intro}\n\n${await buildBrandTemplateMessage()}`)
     return
   }
 
   if (missing.length > 0 || invalid.length > 0) {
-    const lines = ['Beberapa bagian masih perlu dilengkapi/diperbaiki nih kak:']
+    const intro = await getLeadBotTemplate('brand_incomplete')
+    const lines = [intro]
     missing.forEach((m) => lines.push(`- ${m}: wajib diisi`))
     invalid.forEach((m) => lines.push(`- ${m}`))
     lines.push('', 'Silakan kirim ulang format lengkapnya ya (boleh copy dari pesan kamu sebelumnya lalu diperbaiki). Ketik *format* kalau mau template kosong lagi.')
@@ -295,7 +309,6 @@ async function handleBrandTemplateReply(jid: string, text: string): Promise<void
 async function finalizeBrandLead(jid: string, draft: BrandDraft): Promise<void> {
   const jasaLabel = BRAND_JASA_OPTIONS.find((o) => o.key === draft.jasa)?.label || ''
 
-  await connectDB()
   await createBrandInquiry(
     {
       namaBrand: draft.companyName!,
@@ -311,17 +324,14 @@ async function finalizeBrandLead(jid: string, draft: BrandDraft): Promise<void> 
     `${jasaLabel} — ${draft.companyName}`
   )
 
-  const summaryLines = [
-    'Sip, sudah kami terima! ✅',
-    '',
-    '*Ringkasan:*',
-    `Nama: ${draft.fullName}`,
-    `Company: ${draft.companyName}`,
-    `Jasa: ${jasaLabel}`,
-    `Budget: ${draft.budget}`,
-  ]
-  if (draft.timeline) summaryLines.push(`Timeline: ${draft.timeline}`)
-  summaryLines.push('', 'Tim kami akan segera menghubungi kamu via WhatsApp untuk follow-up. Terima kasih sudah menghubungi AzeraKOL! 🙏')
+  const tpl = await getLeadBotTemplate('brand_confirmation')
+  const message = renderTemplate(tpl, {
+    fullName: draft.fullName,
+    companyName: draft.companyName,
+    jasa: jasaLabel,
+    budget: draft.budget,
+    timelineLine: draft.timeline ? `Timeline: ${draft.timeline}\n` : '',
+  })
 
-  await sendDirectMessage(jid, summaryLines.join('\n'))
+  await sendDirectMessage(jid, message)
 }
