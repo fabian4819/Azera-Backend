@@ -11,6 +11,7 @@ import fs from 'fs/promises'
 import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
 import { WaTrigger } from '../modules/whatsapp/waTemplate.model'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
+import { recordIncomingMessage, recordOutgoingMessage, isBotPaused } from '../modules/whatsapp/waChat.service'
 
 const AUTH_DIR = path.join(process.cwd(), 'auth_info_baileys')
 const SEND_DELAY_MS = 3000 // jarak antar pesan — mitigasi risiko banned (AD-29)
@@ -102,7 +103,12 @@ export async function connectWhatsApp(): Promise<void> {
         if (jid === 'status@broadcast') continue
         const text = extractMessageText(msg)
         if (!text) continue
-        handleIncomingMessage(jid, text).catch((err) => console.error('WA bot error:', err))
+        recordIncomingMessage(jid, text, msg.key.id || undefined).catch((err) => console.error('WA save incoming error:', err))
+        isBotPaused(jid)
+          .then((paused) => {
+            if (!paused) handleIncomingMessage(jid, text).catch((err) => console.error('WA bot error:', err))
+          })
+          .catch((err) => console.error('WA bot-pause check error:', err))
       }
     })
   } finally {
@@ -128,9 +134,18 @@ export async function sendDirectMessage(to: string, text: string): Promise<void>
   if (!sock || status !== 'connected') return
   try {
     await sock.sendMessage(toJid(to), { text })
+    recordOutgoingMessage(to, text).catch((err) => console.error('WA save outgoing error:', err))
   } catch (err) {
     console.error('WA bot sendDirectMessage error:', err)
   }
+}
+
+/** Balasan manual admin dari inbox dashboard — beda dari sendDirectMessage karena
+ * error-nya dilempar balik ke route (biar admin tahu kalau gagal), bukan ditelan diam-diam. */
+export async function sendManualReply(jid: string, text: string): Promise<void> {
+  if (!sock || status !== 'connected') throw new Error('WhatsApp belum terhubung')
+  await sock.sendMessage(toJid(jid), { text })
+  await recordOutgoingMessage(jid, text)
 }
 
 export async function logoutWhatsApp(): Promise<void> {
@@ -163,6 +178,7 @@ async function processQueue() {
       if (!sock || status !== 'connected') throw new Error('WhatsApp belum terhubung')
       await sock.sendMessage(toJid(item.to), { text: item.payload })
       await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'sent', sentAt: new Date() })
+      recordOutgoingMessage(item.to, item.payload).catch((err) => console.error('WA save outgoing error:', err))
     } catch (err) {
       await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'failed', error: (err as Error).message })
     }
