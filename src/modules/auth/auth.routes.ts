@@ -35,15 +35,35 @@ staffAuthRouter.post('/login', async (req: Request, res: Response) => {
 // Creator (talent) login — nomor WA + password yang di-set saat diterima campaign
 export const creatorAuthRouter = Router()
 
+// Dipakai form sign up creator: sebelum minta email, cek dulu apakah nomor WA ini sudah
+// terdaftar (via /kol/register) dan sudah punya email atau belum — creator lama (sebelum
+// field email ada di form KOL) mungkin belum punya, creator baru biasanya sudah.
+creatorAuthRouter.get('/check-phone', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const phone = String(req.query.phone || '')
+    if (!phone) {
+      res.status(400).json({ message: 'Nomor WA wajib diisi' })
+      return
+    }
+    const tenant = await getDefaultTenant()
+    const creator = await Creator.findOne({ tenantId: tenant._id, phone })
+    res.json({ registered: !!creator, hasEmail: !!creator?.email })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 // Self-service: creator yang sudah terdaftar (via /kol/register) tapi belum punya
 // password bisa set password sendiri, tanpa nunggu admin. Sekali di-set, endpoint
 // ini tidak bisa dipakai lagi untuk akun yang sama (bukan reset password).
+// Email cuma wajib kalau creator-nya belum punya (creator lama pra-field-email di form KOL).
 creatorAuthRouter.post('/register-password', async (req: Request, res: Response) => {
   try {
     await connectDB()
     const { phone, password, email } = req.body
-    if (!phone || !password || !email) {
-      res.status(400).json({ message: 'Nomor WA, email, dan password wajib diisi' })
+    if (!phone || !password) {
+      res.status(400).json({ message: 'Nomor WA dan password wajib diisi' })
       return
     }
     if (password.length < 6) {
@@ -60,8 +80,12 @@ creatorAuthRouter.post('/register-password', async (req: Request, res: Response)
       res.status(409).json({ message: 'Akun ini sudah punya password. Hubungi admin untuk reset.' })
       return
     }
+    if (!creator.email && !email) {
+      res.status(400).json({ message: 'Email wajib diisi' })
+      return
+    }
     creator.password = await bcrypt.hash(password, 10)
-    creator.email = email
+    if (!creator.email && email) creator.email = email
     await creator.save()
     const token = signCreatorToken(String(creator._id), String(creator.tenantId))
     res.status(201).json({ token, creator: { name: creator.name, phone: creator.phone } })
