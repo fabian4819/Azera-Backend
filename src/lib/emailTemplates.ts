@@ -8,8 +8,21 @@ export function creatorRegistrationEmail(name: string): { subject: string; html:
   const html = `
   <div style="font-family: 'Segoe UI', Arial, sans-serif; background: #f8f9ff; padding: 32px 16px;">
     <div style="max-width: 480px; margin: 0 auto; background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 24px rgba(0,0,0,0.06);">
-      <div style="background: linear-gradient(135deg, #6728e4, #814bfe); padding: 32px 28px;">
-        <p style="margin: 0; font-weight: 900; font-style: italic; font-size: 1.3rem; color: white; letter-spacing: -0.02em;">AZERAKOL</p>
+      <div style="background: linear-gradient(135deg, #6728e4, #814bfe); padding: 28px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse: collapse;">
+          <tr>
+            <td style="width: 36px; padding-right: 10px;">
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="36" height="36" style="background: white; border-radius: 50%; text-align: center;">
+                <tr><td align="center" valign="middle">
+                  <img src="https://azerakol.id/logo-transparent.png" alt="AzeraKOL" width="22" height="22" style="display: block; margin: 0 auto;" />
+                </td></tr>
+              </table>
+            </td>
+            <td style="vertical-align: middle;">
+              <span style="font-weight: 900; font-size: 1.3rem; color: white; letter-spacing: -0.02em;">AZERAKOL</span>
+            </td>
+          </tr>
+        </table>
       </div>
       <div style="padding: 32px 28px;">
         <h1 style="margin: 0 0 12px; font-size: 1.25rem; color: #191c20;">Halo, ${escape(name)}! 👋</h1>
@@ -17,7 +30,7 @@ export function creatorRegistrationEmail(name: string): { subject: string; html:
           Terima kasih sudah mendaftar sebagai creator di AzeraKOL Network. Profil kamu sedang kami review.
         </p>
         <p style="margin: 0 0 16px; font-size: 0.95rem; color: #464652; line-height: 1.7;">
-          Tim AzeraKOL akan menghubungi kamu dalam 1–3 hari kerja lewat WhatsApp kalau profil kamu cocok dengan campaign yang sedang berjalan.
+          Tim AzeraKOL akan menghubungi kamu lewat WhatsApp kalau profil kamu cocok dengan campaign yang sedang berjalan.
         </p>
         <p style="margin: 24px 0 0; font-size: 0.85rem; color: #8a8a99;">
           Email ini dikirim otomatis, tidak perlu dibalas.

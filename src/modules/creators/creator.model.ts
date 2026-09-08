@@ -115,5 +115,8 @@ const CreatorSchema = new Schema<ICreator>(
 
 withTenant(CreatorSchema)
 CreatorSchema.index({ tenantId: 1, phone: 1 }, { unique: true })
+// sparse: true — creator lama (source 'import') mungkin belum punya email, jangan sampai
+// dianggap "duplikat" satu sama lain gara-gara sama-sama tidak punya email.
+CreatorSchema.index({ tenantId: 1, email: 1 }, { unique: true, sparse: true })
 
 export default mongoose.model<ICreator>('Creator', CreatorSchema)

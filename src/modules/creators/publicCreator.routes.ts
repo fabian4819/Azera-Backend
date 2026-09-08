@@ -33,6 +33,14 @@ router.post('/register', async (req: Request, res: Response) => {
       return
     }
 
+    // Nomor WA baru, tapi email-nya sudah dipakai akun lain — jangan sampai satu email nyambung
+    // ke lebih dari satu profil creator.
+    const emailTaken = await Creator.findOne({ tenantId: tenant._id, email })
+    if (emailTaken) {
+      res.status(409).json({ message: 'Email ini sudah terdaftar dengan akun lain. Gunakan email lain, atau hubungi tim kami kalau ini email kamu.' })
+      return
+    }
+
     creator = await Creator.create({
       tenantId: tenant._id,
       name, phone, email, gender, domicile,
