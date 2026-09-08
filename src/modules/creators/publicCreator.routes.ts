@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express'
 import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import Creator from './creator.model'
+import { sendEmail } from '../../lib/email'
+import { creatorRegistrationEmail } from '../../lib/emailTemplates'
 
 const router = Router()
 
@@ -44,6 +46,9 @@ router.post('/register', async (req: Request, res: Response) => {
       rateEstimateType, rateEstimateAmount, rateNegotiable, mediaKitUrl, portfolioLink,
       source: 'form',
     })
+
+    const { subject, html } = creatorRegistrationEmail(name)
+    sendEmail(email, subject, html).catch((err) => console.error('Creator registration email error:', err))
 
     res.status(201).json({ message: 'Pendaftaran berhasil! Tim AzeraKOL akan review profil kamu.', id: creator._id })
   } catch (err) {

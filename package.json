@@ -21,11 +21,11 @@
     "mongoose": "^8.4.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.6.0",
-    "nodemailer": "^10.0.1",
     "pdf-lib": "^1.17.1",
     "pino": "^10.3.1",
     "puppeteer": "^25.8.0",
     "qrcode": "^1.5.4",
+    "resend": "^6.26.0",
     "sharp": "^0.35.3"
   },
   "devDependencies": {
@@ -36,7 +36,6 @@
     "@types/multer": "^1.4.11",
     "@types/node": "^20.14.2",
     "@types/node-cron": "^3.0.11",
-    "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
     "tsx": "^4.15.6",
     "typescript": "^5.4.5"

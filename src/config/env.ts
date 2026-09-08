@@ -25,9 +25,9 @@ export const env = {
 
   waNumber: process.env.WA_NUMBER || '',
 
-  email: {
-    user: process.env.EMAIL_USER || '',
-    pass: process.env.EMAIL_PASS || '',
+  resend: {
+    apiKey: process.env.RESEND_API_KEY || '',
+    fromEmail: process.env.RESEND_FROM_EMAIL || 'AzeraKOL <onboarding@resend.dev>',
   },
 
   ai: {

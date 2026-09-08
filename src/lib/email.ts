@@ -1,31 +1,26 @@
-import nodemailer from 'nodemailer'
+import { Resend } from 'resend'
 import { env } from '../config/env'
 
-// Kirim email transactional (mis. konfirmasi pendaftaran KOL) lewat Gmail/Google Workspace
-// SMTP milik AzeraKOL (hello@azerakol.id). Butuh App Password (bukan password akun biasa),
-// di-generate dari Google Account -> Security -> App passwords (perlu 2-Step Verification aktif).
-const transporter = env.email.user && env.email.pass
-  ? nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
-      auth: { user: env.email.user, pass: env.email.pass },
-    })
-  : null
+// Kirim email transactional (mis. konfirmasi pendaftaran KOL) lewat Resend.
+// RESEND_FROM_EMAIL default ke sandbox address Resend (onboarding@resend.dev) yang jalan
+// tanpa verifikasi domain — ganti ke alamat di domain azerakol.id (mis. "AzeraKOL <hello@azerakol.id>")
+// setelah domain-nya diverifikasi di dashboard Resend.
+const resend = env.resend.apiKey ? new Resend(env.resend.apiKey) : null
 
 /**
  * Best-effort — dipanggil fire-and-forget dari route (jangan di-await secara blocking di response
  * utama), supaya kegagalan kirim email tidak menggagalkan alur pendaftaran/aksi utama.
  */
 export async function sendEmail(to: string, subject: string, html: string): Promise<void> {
-  if (!transporter) {
-    console.error('Email not configured: EMAIL_USER/EMAIL_PASS kosong, skip kirim ke', to)
+  if (!resend) {
+    console.error('Email not configured: RESEND_API_KEY kosong, skip kirim ke', to)
     return
   }
-  await transporter.sendMail({
-    from: `"AzeraKOL" <${env.email.user}>`,
+  const { error } = await resend.emails.send({
+    from: env.resend.fromEmail,
     to,
     subject,
     html,
   })
+  if (error) throw new Error(error.message)
 }
