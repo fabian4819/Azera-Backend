@@ -25,6 +25,11 @@ export const env = {
 
   waNumber: process.env.WA_NUMBER || '',
 
+  email: {
+    user: process.env.EMAIL_USER || '',
+    pass: process.env.EMAIL_PASS || '',
+  },
+
   ai: {
     textProvider: process.env.AI_TEXT_PROVIDER || 'deepseek',
     visionProvider: process.env.AI_VISION_PROVIDER || 'gemini',

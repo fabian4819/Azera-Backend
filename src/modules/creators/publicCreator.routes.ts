@@ -15,13 +15,13 @@ router.post('/register', async (req: Request, res: Response) => {
     await connectDB()
     const tenant = await getDefaultTenant()
     const {
-      name, phone, gender, domicile, socials, activities, niches, nicheOther,
+      name, phone, email, gender, domicile, socials, activities, niches, nicheOther,
       contentStyles, contentStyleOther, bankAccount, npwp,
       rateEstimateType, rateEstimateAmount, rateNegotiable, mediaKitUrl, portfolioLink,
     } = req.body
 
-    if (!name || !phone || !gender) {
-      res.status(400).json({ message: 'Nama, nomor WA, dan jenis kelamin wajib diisi' })
+    if (!name || !phone || !email || !gender) {
+      res.status(400).json({ message: 'Nama, nomor WA, email, dan jenis kelamin wajib diisi' })
       return
     }
 
@@ -33,7 +33,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     creator = await Creator.create({
       tenantId: tenant._id,
-      name, phone, gender, domicile,
+      name, phone, email, gender, domicile,
       socials: socials || [],
       activities: activities || [],
       niches: niches || [],
