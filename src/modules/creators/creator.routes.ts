@@ -3,6 +3,7 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import Creator from './creator.model'
 import CreatorHistory from './creatorHistory.model'
+import SocialSnapshot from '../extension/socialSnapshot.model'
 import { computePerformanceScore } from './performanceScore.service'
 
 const router = Router()
@@ -34,7 +35,9 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       .populate('brandId', 'namaBrand')
       .populate('campaignId', 'name')
       .sort({ createdAt: -1 })
-    res.json({ creator, scoreBreakdown, history })
+    const snapshots = await SocialSnapshot.find({ tenantId: req.auth!.tenantId, creatorId: creator._id })
+      .sort({ createdAt: 1 })
+    res.json({ creator, scoreBreakdown, history, snapshots })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

@@ -31,12 +31,27 @@ import assetRouter from './modules/assets/asset.routes'
 import publicCreatorRouter from './modules/creators/publicCreator.routes'
 import publicCaseStudyRouter from './modules/documents/publicCaseStudy.routes'
 import { picAuthRouter, picPortalRouter, picAdminRouter } from './modules/pic/pic.routes'
+import extensionRouter from './modules/extension/extension.routes'
+import extensionAdminRouter from './modules/extension/extensionAdmin.routes'
 import { connectWhatsApp } from './lib/baileys'
 import { startCronJobs } from './lib/cron'
 
 const app = express()
 
 app.use(helmet())
+
+// Ekstensi KOL Lister memanggil dari origin `chrome-extension://<id>` (atau tanpa
+// origin dari service worker). Route `/api/ext/*` di-auth pakai kode sambungan
+// jangka panjang di header, bukan cookie — jadi CORS terbuka aman di sini
+// (browser tidak auto-attach header itu, tidak ada risiko CSRF). Harus terdaftar
+// SEBELUM cors global supaya preflight OPTIONS-nya tidak dijawab dengan origin ketat.
+app.use(
+  '/api/ext',
+  cors({ origin: true, allowedHeaders: ['Content-Type', 'X-Azera-Ext-Token'] }),
+  express.json(),
+  extensionRouter
+)
+
 app.use(cors({ origin: env.clientOrigin }))
 app.use(express.json())
 
@@ -77,6 +92,9 @@ app.use('/api/admin/lead-bot-templates', leadBotTemplateRouter)
 app.use('/api/admin', assetRouter)
 app.use('/api/creators', publicCreatorRouter)
 app.use('/api/portfolio', publicCaseStudyRouter)
+
+// Ekstensi KOL Lister — admin: kelola kode sambungan, KOL Radar, capture intent
+app.use('/api/admin/extension', extensionAdminRouter)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 
