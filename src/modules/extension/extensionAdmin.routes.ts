@@ -23,7 +23,8 @@ const PROFILE_URL: Record<SocialPlatform, (h: string) => string> = {
 router.get('/tokens', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const tokens = await ExtensionToken.find({ tenantId: req.auth!.tenantId })
+    // kode yang sudah dicabut tetap disimpan (audit) tapi tidak ditampilkan lagi
+    const tokens = await ExtensionToken.find({ tenantId: req.auth!.tenantId, revokedAt: null })
       .populate('createdByUserId', 'name')
       .sort({ createdAt: -1 })
     res.json(tokens.map((t) => ({
