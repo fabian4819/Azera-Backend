@@ -60,7 +60,7 @@ export interface ISocialSnapshot extends Document {
   outlierRatio?: number
   roundedNumbers?: boolean
 
-  /** rincian per post di sampel */
+  /** rincian per post (semua yang dikumpulkan ekstensi, maks 60, terbaru dulu) */
   sampleRows?: Array<{
     post?: string
     url?: string
@@ -68,6 +68,7 @@ export interface ISocialSnapshot extends Document {
     approxDate?: boolean
     format?: string
     title?: string
+    thumb?: string
     likes?: number | null
     comments?: number | null
     views?: number | null
@@ -139,6 +140,7 @@ const SocialSnapshotSchema = new Schema<ISocialSnapshot>(
           approxDate: Boolean,
           format: String,
           title: String,
+          thumb: String,
           likes: Number,
           comments: Number,
           views: Number,

@@ -46,6 +46,7 @@ export interface SampleRowInput {
   ts_perkiraan?: boolean
   format?: string
   judul?: string
+  thumb?: string
   likes?: number | null
   comments?: number | null
   views?: number | null
@@ -159,13 +160,14 @@ export async function ingestSnapshot(
   const missing = CORE.filter((k) => metrics[k] === undefined)
 
   const sampleRows = Array.isArray(akun.sample_rows)
-    ? akun.sample_rows.slice(0, 30).map((r) => ({
+    ? akun.sample_rows.slice(0, 60).map((r) => ({
         post: r.post || undefined,
         url: r.url || undefined,
         date: r.tanggal || undefined,
         approxDate: !!r.ts_perkiraan,
         format: r.format || undefined,
         title: r.judul || undefined,
+        thumb: r.thumb || undefined,
         likes: numOrNull(r.likes),
         comments: numOrNull(r.comments),
         views: numOrNull(r.views),
