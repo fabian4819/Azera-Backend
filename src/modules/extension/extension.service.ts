@@ -7,8 +7,20 @@ import SocialSnapshot, { ISocialSnapshot, SnapshotPlatform, SNAPSHOT_PLATFORMS }
 export const LINKABLE_PLATFORMS: SocialPlatform[] = ['instagram', 'tiktok', 'threads', 'x']
 export { SNAPSHOT_PLATFORMS }
 
+/**
+ * Handle sosmed jadi bentuk kanonik untuk dicocokkan:
+ *  "@Handle" / "handle/" / " handle " / "https://instagram.com/handle/?hl=id"
+ *  / "tiktok.com/@handle"  ->  "handle"
+ */
 export function normalizeHandle(input: string): string {
-  return String(input || '').trim().replace(/^@/, '').replace(/\/+$/, '').toLowerCase()
+  let s = String(input || '').trim()
+  if (/\//.test(s)) {
+    // ambil segmen path terakhir yang tidak kosong (buang host + query)
+    s = s.split(/[?#]/)[0].replace(/\/+$/, '')
+    const seg = s.split('/').filter(Boolean)
+    s = seg[seg.length - 1] || ''
+  }
+  return s.replace(/^@/, '').toLowerCase()
 }
 
 /** samakan link post: buang query, trailing slash, host bervariasi (vt.tiktok, m.) */
@@ -168,10 +180,14 @@ export async function ingestSnapshot(
   if (opts.forceCreatorId) {
     creator = await Creator.findOne({ _id: opts.forceCreatorId, tenantId })
   } else if (canLink) {
-    creator = await Creator.findOne({
-      tenantId,
-      socials: { $elemMatch: { platform, username: new RegExp(`^${escapeRegex(username)}$`, 'i') } },
-    })
+    // Pencocokan: username akun sosial (platform + handle). Dinormalkan di kedua
+    // sisi — stored bisa "@Handle", "handle/", "instagram.com/handle", spasi —
+    // jadi perbandingannya di JS, bukan regex query.
+    const kandidat = await Creator.find({ tenantId, 'socials.platform': platform }).select('name socials')
+    creator =
+      kandidat.find((c) =>
+        c.socials.some((s) => s.platform === platform && normalizeHandle(s.username) === username)
+      ) || null
   }
 
   const priorCount = await SocialSnapshot.countDocuments({ tenantId, platform, username })
@@ -232,8 +248,4 @@ export async function findSubmissionsByPostUrl(tenantId: string, postUrl: string
     .sort({ createdAt: -1 })
     .limit(300)
   return subs.filter((s) => s.link && normalizePostUrl(s.link) === target)
-}
-
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

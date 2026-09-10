@@ -216,7 +216,7 @@ router.post('/snapshots/:id/link', async (req: AuthRequest, res: Response) => {
       creator = await Creator.findOne({ _id: req.body.creatorId, tenantId: req.auth!.tenantId })
       if (!creator) { res.status(404).json({ message: 'Creator tidak ditemukan' }); return }
       const exists = creator.socials.some(
-        (s) => s.platform === snap.platform && s.username.toLowerCase() === snap.username
+        (s) => s.platform === snap.platform && normalizeHandle(s.username) === snap.username
       )
       if (!exists) {
         creator.socials.push({
