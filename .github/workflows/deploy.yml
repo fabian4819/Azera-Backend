@@ -4,6 +4,12 @@ on:
   push:
     branches: [main]
 
+# Dua push berdekatan tidak boleh men-deploy bersamaan: recreate container yang
+# tumpang-tindih bikin konflik nama ("name is already in use"). Antri, jangan batalkan.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   IMAGE: ghcr.io/${{ github.repository_owner }}/azera-backend
 
@@ -43,6 +49,13 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
+            set -e
             cd ~/azera-deploy
             docker compose pull
-            docker compose up -d
+            if ! docker compose up -d --remove-orphans; then
+              echo "compose up gagal — membersihkan container nyangkut lalu ulang"
+              docker compose down --remove-orphans || true
+              docker ps -aq --filter "name=azera-deploy" | xargs -r docker rm -f
+              docker compose up -d
+            fi
+            docker image prune -f
