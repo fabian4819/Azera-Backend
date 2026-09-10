@@ -2,6 +2,7 @@ import { connectDB } from '../../db/connect'
 import { BRAND_JASA_OPTIONS, BRAND_BUDGET_OPTIONS, BrandJasa } from '../../models/Brand'
 import { createBrandInquiry } from '../brands/brand.service'
 import { sendDirectMessage } from '../../lib/baileys'
+import { BotId } from './waTemplate.model'
 import { getLeadBotTemplate } from './leadBotTemplate.service'
 import { renderTemplate } from './template.service'
 
@@ -9,9 +10,10 @@ import { renderTemplate } from './template.service'
  * Bot percakapan WhatsApp untuk lead masuk (belum jadi klien/creator terdaftar) —
  * beda dari trigger AD-30/31 yang mengirim notifikasi ke Creator/Client yang
  * SUDAH ada di sistem. Ini menyapa siapa pun yang chat nomor bisnis, lalu
- * mengarahkan ke salah satu dari 3 jalur: daftar Brand (isi form template
- * sekali kirim), daftar KOL (redirect ke link form web), atau Support
- * (serah-terima ke admin).
+ * langsung ke satu jalur tergantung bot mana: bot `partnership` → form daftar
+ * Brand (isi template sekali kirim); bot `creator` → redirect ke link form
+ * pendaftaran KOL. Keduanya: ketik "support"/"admin" → serah-terima ke admin
+ * (bot diam 12 jam). Tidak ada menu 1/2/3 — pemisahan sudah di level nomor.
  *
  * Wording pesan (sapaan, menu, dst) diambil dari `LeadBotTemplate` — admin bisa
  * edit lewat `/admin/lead-bot-templates`. Yang TIDAK bisa diadmin-edit (lihat
@@ -70,7 +72,9 @@ type BrandDraft = Partial<{
   timeline: string
 }>
 
-type SessionMode = 'menu' | 'brand_template' | 'support'
+// partnership bot langsung ke alur form Brand; creator bot cuma balas link daftar KOL.
+// Tidak ada menu 1/2/3 lagi — tiap nomor bot punya satu tujuan.
+type SessionMode = 'brand_template' | 'creator_idle' | 'support'
 
 interface Session {
   mode: SessionMode
@@ -175,71 +179,67 @@ const FIELD_DEFS: FieldDef[] = [
 
 const sessions = new Map<string, Session>()
 
-function newMenuSession(now: number): Session {
-  return { mode: 'menu', updatedAt: now }
+const sessionKey = (bot: BotId, jid: string) => `${bot}:${jid}`
+
+// Cocok hanya kalau pesan MEMANG cuma kata kunci ini (bukan substring) — supaya isian
+// form Brand yang kebetulan memuat "admin"/"support" tidak salah lempar ke mode support.
+const SUPPORT_WORDS = ['support', 'admin', 'bantuan', 'butuh bantuan']
+const wantsSupport = (lower: string) => SUPPORT_WORDS.includes(lower)
+
+async function enterSupport(bot: BotId, jid: string, now: number): Promise<void> {
+  sessions.set(sessionKey(bot, jid), { mode: 'support', updatedAt: now })
+  await sendDirectMessage(bot, jid, await getLeadBotTemplate('support'))
 }
 
-export async function handleIncomingMessage(jid: string, rawText: string): Promise<void> {
+export async function handleIncomingMessage(bot: BotId, jid: string, rawText: string): Promise<void> {
   const text = rawText.trim()
   if (!text) return
   await connectDB()
   const now = Date.now()
   const lower = text.toLowerCase()
+  const key = sessionKey(bot, jid)
 
-  let session = sessions.get(jid)
+  let session = sessions.get(key)
 
-  // Setelah pilih Support, bot diam total (kecuali user minta "menu") — admin yang ambil alih manual.
+  // Setelah pilih Support, bot diam total (kecuali user ketik menu/batal) — admin yang ambil alih manual.
   if (session?.mode === 'support' && now - session.updatedAt < SUPPORT_SILENCE_MS && !['menu', 'batal', 'cancel'].includes(lower)) {
     session.updatedAt = now
     return
   }
 
-  if (['menu', 'batal', 'cancel'].includes(lower)) {
-    session = newMenuSession(now)
-    sessions.set(jid, session)
-    await sendDirectMessage(jid, await getLeadBotTemplate('menu'))
+  if (wantsSupport(lower)) {
+    await enterSupport(bot, jid, now)
     return
   }
 
-  if (!session || now - session.updatedAt > SESSION_TTL_MS) {
-    session = newMenuSession(now)
-    sessions.set(jid, session)
-    const [greeting, menu] = await Promise.all([getLeadBotTemplate('greeting'), getLeadBotTemplate('menu')])
-    await sendDirectMessage(jid, `${greeting}\n\n${menu}`)
+  const expired = !session || now - session.updatedAt > SESSION_TTL_MS
+  const reset = ['menu', 'batal', 'cancel', 'mulai', 'start'].includes(lower)
+
+  if (bot === 'creator') {
+    // Creator bot: satu tujuan — arahkan ke form pendaftaran KOL. Tidak menampung data lewat chat.
+    if (expired || reset || session?.mode !== 'creator_idle') {
+      sessions.set(key, { mode: 'creator_idle', updatedAt: now })
+      const [greeting, tpl] = await Promise.all([getLeadBotTemplate('greeting'), getLeadBotTemplate('kol_redirect')])
+      await sendDirectMessage(bot, jid, `${greeting}\n\n${renderTemplate(tpl, { link: KOL_REGISTER_URL })}`)
+    } else {
+      session.updatedAt = now
+      await sendDirectMessage(bot, jid, renderTemplate(await getLeadBotTemplate('kol_redirect'), { link: KOL_REGISTER_URL }))
+    }
     return
   }
 
-  session.updatedAt = now
-
-  if (session.mode === 'menu') {
-    await handleMenuChoice(jid, session, lower)
-  } else if (session.mode === 'brand_template') {
-    await handleBrandTemplateReply(jid, text)
-  }
-}
-
-async function handleMenuChoice(jid: string, session: Session, lower: string): Promise<void> {
-  if (lower === '1' || lower.includes('brand')) {
-    session.mode = 'brand_template'
-    await sendDirectMessage(jid, await buildBrandTemplateMessage())
+  // partnership bot: langsung alur form Brand.
+  if (expired || reset) {
+    sessions.set(key, { mode: 'brand_template', updatedAt: now })
+    const greeting = await getLeadBotTemplate('greeting')
+    await sendDirectMessage(bot, jid, `${greeting}\n\n${await buildBrandTemplateMessage()}`)
     return
   }
 
-  if (lower === '2' || lower.includes('kol') || lower.includes('creator') || lower.includes('kreator')) {
-    sessions.delete(jid)
-    const tpl = await getLeadBotTemplate('kol_redirect')
-    await sendDirectMessage(jid, renderTemplate(tpl, { link: KOL_REGISTER_URL }))
-    return
+  session!.updatedAt = now
+  if (session!.mode === 'brand_template') {
+    await handleBrandTemplateReply(bot, jid, text)
   }
-
-  if (lower === '3' || lower.includes('support') || lower.includes('bantuan')) {
-    session.mode = 'support'
-    await sendDirectMessage(jid, await getLeadBotTemplate('support'))
-    return
-  }
-
-  const menu = await getLeadBotTemplate('menu')
-  await sendDirectMessage(jid, `Mohon pilih salah satu ya kak 🙏\n\n${menu}`)
 }
 
 /** Cari baris yang jadi awal tiap field, lalu ambil semua teks sampai baris label field berikutnya (dukung isian multi-baris, mis. Campaign Brief panjang) */
@@ -277,10 +277,10 @@ function parseBrandTemplate(text: string): { draft: BrandDraft; missing: string[
   return { draft, missing, invalid, matchedAny: marks.length > 0 }
 }
 
-async function handleBrandTemplateReply(jid: string, text: string): Promise<void> {
+async function handleBrandTemplateReply(bot: BotId, jid: string, text: string): Promise<void> {
   const lower = text.toLowerCase()
   if (['format', 'template', 'ulang'].includes(lower)) {
-    await sendDirectMessage(jid, await buildBrandTemplateMessage())
+    await sendDirectMessage(bot, jid, await buildBrandTemplateMessage())
     return
   }
 
@@ -288,7 +288,7 @@ async function handleBrandTemplateReply(jid: string, text: string): Promise<void
 
   if (!matchedAny) {
     const intro = await getLeadBotTemplate('brand_wrong_format')
-    await sendDirectMessage(jid, `${intro}\n\n${await buildBrandTemplateMessage()}`)
+    await sendDirectMessage(bot, jid, `${intro}\n\n${await buildBrandTemplateMessage()}`)
     return
   }
 
@@ -298,15 +298,15 @@ async function handleBrandTemplateReply(jid: string, text: string): Promise<void
     missing.forEach((m) => lines.push(`- ${m}: wajib diisi`))
     invalid.forEach((m) => lines.push(`- ${m}`))
     lines.push('', 'Silakan kirim ulang format lengkapnya ya (boleh copy dari pesan kamu sebelumnya lalu diperbaiki). Ketik *format* kalau mau template kosong lagi.')
-    await sendDirectMessage(jid, lines.join('\n'))
+    await sendDirectMessage(bot, jid, lines.join('\n'))
     return
   }
 
-  await finalizeBrandLead(jid, draft)
-  sessions.delete(jid)
+  await finalizeBrandLead(bot, jid, draft)
+  sessions.delete(sessionKey(bot, jid))
 }
 
-async function finalizeBrandLead(jid: string, draft: BrandDraft): Promise<void> {
+async function finalizeBrandLead(bot: BotId, jid: string, draft: BrandDraft): Promise<void> {
   const jasaLabel = BRAND_JASA_OPTIONS.find((o) => o.key === draft.jasa)?.label || ''
 
   await createBrandInquiry(
@@ -333,5 +333,5 @@ async function finalizeBrandLead(jid: string, draft: BrandDraft): Promise<void> 
     timelineLine: draft.timeline ? `Timeline: ${draft.timeline}\n` : '',
   })
 
-  await sendDirectMessage(jid, message)
+  await sendDirectMessage(bot, jid, message)
 }

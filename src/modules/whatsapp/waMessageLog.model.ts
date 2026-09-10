@@ -1,11 +1,12 @@
 import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
-import { WA_TRIGGERS, WaTrigger } from './waTemplate.model'
+import { WA_TRIGGERS, WaTrigger, BOT_IDS, BotId } from './waTemplate.model'
 
 export type WaMessageStatus = 'queued' | 'sent' | 'failed'
 
 export interface IWaMessageLog extends Document {
   tenantId: Types.ObjectId
+  bot: BotId
   trigger: WaTrigger
   to: string
   payload: string
@@ -19,6 +20,7 @@ export interface IWaMessageLog extends Document {
 
 const WaMessageLogSchema = new Schema<IWaMessageLog>(
   {
+    bot: { type: String, enum: BOT_IDS, required: true },
     trigger: { type: String, enum: WA_TRIGGERS, required: true },
     to: { type: String, required: true },
     payload: { type: String, required: true },
@@ -32,6 +34,6 @@ const WaMessageLogSchema = new Schema<IWaMessageLog>(
 )
 
 withTenant(WaMessageLogSchema)
-WaMessageLogSchema.index({ tenantId: 1, createdAt: -1 })
+WaMessageLogSchema.index({ tenantId: 1, bot: 1, createdAt: -1 })
 
 export default mongoose.model<IWaMessageLog>('WaMessageLog', WaMessageLogSchema)

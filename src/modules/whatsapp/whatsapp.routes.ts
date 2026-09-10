@@ -1,8 +1,9 @@
-import { Router, Response } from 'express'
+import { Router, Response, NextFunction } from 'express'
 import QRCode from 'qrcode'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { connectWhatsApp, logoutWhatsApp, getWaStatus, getWaQr, enqueueWaMessage, sendManualReply } from '../../lib/baileys'
+import { BOT_IDS, BotId } from './waTemplate.model'
 import WaMessageLog from './waMessageLog.model'
 import WaContact from './waContact.model'
 import WaChatMessage from './waChatMessage.model'
@@ -10,13 +11,29 @@ import WaChatMessage from './waChatMessage.model'
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin'))
 
+// Semua route WA berada di bawah /:bot (partnership | creator) — dua koneksi Baileys terpisah.
+function resolveBot(req: AuthRequest, res: Response, next: NextFunction) {
+  const bot = req.params.bot as BotId
+  if (!BOT_IDS.includes(bot)) {
+    res.status(400).json({ message: `Bot tidak dikenal: ${req.params.bot}` })
+    return
+  }
+  ;(req as AuthRequest & { bot: BotId }).bot = bot
+  next()
+}
+const bots = Router({ mergeParams: true })
+bots.use(resolveBot)
+router.use('/:bot', bots)
+
+const botOf = (req: AuthRequest) => (req as AuthRequest & { bot: BotId }).bot
+
 // AD-29: status koneksi Baileys (disconnected/connecting/qr/connected)
-router.get('/status', (req: AuthRequest, res: Response) => {
-  res.json(getWaStatus())
+bots.get('/status', (req: AuthRequest, res: Response) => {
+  res.json(getWaStatus(botOf(req)))
 })
 
-router.get('/qr', async (req: AuthRequest, res: Response) => {
-  const qr = getWaQr()
+bots.get('/qr', async (req: AuthRequest, res: Response) => {
+  const qr = getWaQr(botOf(req))
   if (!qr) { res.json({ qr: null }); return }
   if (req.query.format === 'terminal') {
     const ascii = await QRCode.toString(qr, { type: 'terminal', small: true })
@@ -27,29 +44,30 @@ router.get('/qr', async (req: AuthRequest, res: Response) => {
   res.json({ qr: dataUrl })
 })
 
-router.post('/connect', async (req: AuthRequest, res: Response) => {
-  connectWhatsApp().catch((err) => console.error('WA connect error:', err))
-  res.json(getWaStatus())
+bots.post('/connect', async (req: AuthRequest, res: Response) => {
+  connectWhatsApp(botOf(req)).catch((err) => console.error('WA connect error:', err))
+  res.json(getWaStatus(botOf(req)))
 })
 
 // Logout — hapus auth state supaya bisa pairing ulang (mis. ganti dari nomor testing ke nomor client)
-router.post('/logout', async (req: AuthRequest, res: Response) => {
-  await logoutWhatsApp()
-  res.json(getWaStatus())
+bots.post('/logout', async (req: AuthRequest, res: Response) => {
+  await logoutWhatsApp(botOf(req))
+  res.json(getWaStatus(botOf(req)))
 })
 
-router.get('/logs', async (req: AuthRequest, res: Response) => {
+bots.get('/logs', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const logs = await WaMessageLog.find({ tenantId: req.auth!.tenantId }).sort({ createdAt: -1 }).limit(100)
+    const logs = await WaMessageLog.find({ tenantId: req.auth!.tenantId, bot: botOf(req) }).sort({ createdAt: -1 }).limit(100)
     res.json(logs)
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
 })
 
-// Kirim pesan uji manual — dipakai untuk verifikasi pairing (AD-29), juga berguna untuk broadcast ad-hoc (AD-31)
-router.post('/test-send', async (req: AuthRequest, res: Response) => {
+// Kirim pesan uji manual — dipakai untuk verifikasi pairing (AD-29). `bot` override supaya benar-benar
+// lewat koneksi bot yang dipilih (bukan diarahkan lewat audience trigger).
+bots.post('/test-send', async (req: AuthRequest, res: Response) => {
   try {
     const { to, message } = req.body as { to?: string; message?: string }
     if (!to || !message) { res.status(400).json({ message: 'to dan message wajib diisi' }); return }
@@ -59,6 +77,7 @@ router.post('/test-send', async (req: AuthRequest, res: Response) => {
       trigger: 'broadcast_campaign',
       to,
       payload: message,
+      bot: botOf(req),
     })
     res.status(201).json(log)
   } catch (err) {
@@ -68,20 +87,20 @@ router.post('/test-send', async (req: AuthRequest, res: Response) => {
 
 // ── Inbox (percakapan penuh, beda dari /logs yang cuma pesan trigger otomatis) ──
 
-router.get('/contacts', async (req: AuthRequest, res: Response) => {
+bots.get('/contacts', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const contacts = await WaContact.find({ tenantId: req.auth!.tenantId }).sort({ lastMessageAt: -1 })
+    const contacts = await WaContact.find({ tenantId: req.auth!.tenantId, bot: botOf(req) }).sort({ lastMessageAt: -1 })
     res.json(contacts)
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
 })
 
-router.get('/contacts/:jid/messages', async (req: AuthRequest, res: Response) => {
+bots.get('/contacts/:jid/messages', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const messages = await WaChatMessage.find({ tenantId: req.auth!.tenantId, jid: req.params.jid })
+    const messages = await WaChatMessage.find({ tenantId: req.auth!.tenantId, bot: botOf(req), jid: req.params.jid })
       .sort({ createdAt: 1 })
       .limit(500)
     res.json(messages)
@@ -90,15 +109,15 @@ router.get('/contacts/:jid/messages', async (req: AuthRequest, res: Response) =>
   }
 })
 
-router.post('/contacts/:jid/reply', async (req: AuthRequest, res: Response) => {
+bots.post('/contacts/:jid/reply', async (req: AuthRequest, res: Response) => {
   try {
     const { text } = req.body as { text?: string }
     if (!text) { res.status(400).json({ message: 'text wajib diisi' }); return }
     await connectDB()
-    await sendManualReply(req.params.jid, text)
+    await sendManualReply(botOf(req), req.params.jid, text)
     // Admin ambil alih chat manual — pause bot biar tidak nimpali balasan otomatis
     await WaContact.findOneAndUpdate(
-      { tenantId: req.auth!.tenantId, jid: req.params.jid },
+      { tenantId: req.auth!.tenantId, bot: botOf(req), jid: req.params.jid },
       { $set: { botPaused: true } },
       { upsert: true }
     )
@@ -108,11 +127,11 @@ router.post('/contacts/:jid/reply', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.post('/contacts/:jid/read', async (req: AuthRequest, res: Response) => {
+bots.post('/contacts/:jid/read', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     await WaContact.findOneAndUpdate(
-      { tenantId: req.auth!.tenantId, jid: req.params.jid },
+      { tenantId: req.auth!.tenantId, bot: botOf(req), jid: req.params.jid },
       { $set: { unreadCount: 0 } }
     )
     res.json({ success: true })
@@ -121,12 +140,12 @@ router.post('/contacts/:jid/read', async (req: AuthRequest, res: Response) => {
   }
 })
 
-router.post('/contacts/:jid/bot-pause', async (req: AuthRequest, res: Response) => {
+bots.post('/contacts/:jid/bot-pause', async (req: AuthRequest, res: Response) => {
   try {
     const { paused } = req.body as { paused?: boolean }
     await connectDB()
     const contact = await WaContact.findOneAndUpdate(
-      { tenantId: req.auth!.tenantId, jid: req.params.jid },
+      { tenantId: req.auth!.tenantId, bot: botOf(req), jid: req.params.jid },
       { $set: { botPaused: !!paused } },
       { new: true, upsert: true }
     )

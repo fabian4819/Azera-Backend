@@ -28,6 +28,13 @@ export const WA_TRIGGERS = [
 export type WaTrigger = (typeof WA_TRIGGERS)[number]
 export type WaAudience = 'creator' | 'client'
 
+/** Dua bot WhatsApp terpisah — nomor & pairing sendiri-sendiri (docs/superpowers/specs/2026-09-10-whatsapp-dual-bot-design.md) */
+export const BOT_IDS = ['partnership', 'creator'] as const
+export type BotId = (typeof BOT_IDS)[number]
+
+/** Trigger outbound diarahkan ke bot sesuai audience template-nya */
+export const audienceToBot: Record<WaAudience, BotId> = { client: 'partnership', creator: 'creator' }
+
 export interface IWaTemplate extends Document {
   tenantId: Types.ObjectId
   trigger: WaTrigger

@@ -33,7 +33,8 @@ import publicCaseStudyRouter from './modules/documents/publicCaseStudy.routes'
 import { picAuthRouter, picPortalRouter, picAdminRouter } from './modules/pic/pic.routes'
 import extensionRouter from './modules/extension/extension.routes'
 import extensionAdminRouter from './modules/extension/extensionAdmin.routes'
-import { connectWhatsApp } from './lib/baileys'
+import { connectAllBots } from './lib/baileys'
+import { backfillBotDiscriminator } from './modules/whatsapp/waChat.service'
 import { startCronJobs } from './lib/cron'
 
 const app = express()
@@ -100,9 +101,12 @@ app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))
 
 app.listen(env.port, () => console.log(`Server running on port ${env.port}`))
 
-// Resume sesi Baileys tersimpan (kalau ada) saat server start; kalau belum pernah pairing,
-// otomatis masuk state 'qr' menunggu admin scan di halaman WhatsApp.
-connectWhatsApp().catch((err) => console.error('Baileys connect error:', err))
+// Resume sesi Baileys tersimpan (kalau ada) saat server start untuk kedua bot (partnership + creator);
+// kalau belum pernah pairing, otomatis masuk state 'qr' menunggu admin scan di halaman WhatsApp.
+// Backfill dulu field `bot` di data WA lama (sekali, idempoten) sebelum koneksi & sinkron index.
+backfillBotDiscriminator()
+  .catch((err) => console.error('WA bot backfill error:', err))
+  .finally(() => connectAllBots())
 
 // AD-31: reminder pembayaran client (H-7/H-3/H-1/jatuh tempo) + daily progress report 17:00
 startCronJobs()

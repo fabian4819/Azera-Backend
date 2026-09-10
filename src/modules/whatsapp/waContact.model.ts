@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
+import { BOT_IDS, BotId } from './waTemplate.model'
 
 /**
  * Satu thread percakapan WhatsApp (bukan grup — lihat baileys.ts, pesan grup tidak
@@ -8,6 +9,7 @@ import { withTenant } from '../../db/tenantPlugin'
  */
 export interface IWaContact extends Document {
   tenantId: Types.ObjectId
+  bot: BotId
   jid: string
   name?: string
   botPaused: boolean
@@ -20,6 +22,7 @@ export interface IWaContact extends Document {
 
 const WaContactSchema = new Schema<IWaContact>(
   {
+    bot: { type: String, enum: BOT_IDS, required: true },
     jid: { type: String, required: true },
     name: String,
     botPaused: { type: Boolean, default: false },
@@ -31,7 +34,7 @@ const WaContactSchema = new Schema<IWaContact>(
 )
 
 withTenant(WaContactSchema)
-WaContactSchema.index({ tenantId: 1, jid: 1 }, { unique: true })
-WaContactSchema.index({ tenantId: 1, lastMessageAt: -1 })
+WaContactSchema.index({ tenantId: 1, bot: 1, jid: 1 }, { unique: true })
+WaContactSchema.index({ tenantId: 1, bot: 1, lastMessageAt: -1 })
 
 export default mongoose.model<IWaContact>('WaContact', WaContactSchema)
