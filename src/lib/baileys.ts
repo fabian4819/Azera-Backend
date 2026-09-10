@@ -141,7 +141,7 @@ class WaBot {
           if (jid === 'status@broadcast') continue
           const text = extractMessageText(msg)
           if (!text) continue
-          recordIncomingMessage(this.id, jid, text, msg.key.id || undefined, msg.pushName || undefined).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
+          recordIncomingMessage(this.id, jid, text, msg.key.id || undefined, msg.pushName || undefined, phoneFromKey(jid, msg.key)).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
           isBotPaused(this.id, jid)
             .then((paused) => {
               if (!paused) handleIncomingMessage(this.id, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
@@ -155,9 +155,16 @@ class WaBot {
       sock.ev.on('messaging-history.set', ({ messages, contacts }) => {
         if (myGeneration !== this.generation) return
         const contactNames: Record<string, string> = {}
+        const contactPhones: Record<string, string> = {}
         for (const c of contacts) {
           const name = c.name || c.notify
           if (c.id && name) contactNames[c.id] = name
+          // c.id sering @lid — nomor asli ada di c.jid. Petakan dua-duanya supaya cocok dgn remoteJid pesan.
+          const pn = digitsOf(c.jid?.split('@')[0])
+          if (pn) {
+            if (c.id) contactPhones[c.id] = pn
+            if (c.lid) contactPhones[c.lid] = pn
+          }
         }
 
         const entries = []
@@ -167,6 +174,8 @@ class WaBot {
           const text = extractMessageText(msg)
           if (!text || !msg.key.id) continue
           const seconds = typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Number(msg.messageTimestamp) || 0
+          const pn = phoneFromKey(jid, msg.key)
+          if (pn && !contactPhones[jid]) contactPhones[jid] = pn
           entries.push({
             jid,
             direction: (msg.key.fromMe ? 'out' : 'in') as 'in' | 'out',
@@ -177,7 +186,7 @@ class WaBot {
         }
 
         if (entries.length) {
-          backfillHistory(this.id, entries, contactNames).catch((err) => console.error(`WA[${this.id}] history sync error:`, err))
+          backfillHistory(this.id, entries, contactNames, contactPhones).catch((err) => console.error(`WA[${this.id}] history sync error:`, err))
         }
       })
     } finally {
@@ -280,6 +289,18 @@ function extractMessageText(msg: proto.IWebMessageInfo): string | null {
   const m = msg.message
   if (!m) return null
   return m.conversation || m.extendedTextMessage?.text || m.buttonsResponseMessage?.selectedDisplayText || null
+}
+
+function digitsOf(s?: string | null): string | undefined {
+  const d = (s || '').replace(/\D/g, '')
+  return d.length >= 8 ? d : undefined
+}
+
+// WhatsApp generasi baru pakai remoteJid @lid (ID anonim, bukan nomor). Nomor asli lawan bicara
+// ada di key.senderPn. Kalau remoteJid sendiri sudah @s.whatsapp.net, itu langsung nomornya.
+function phoneFromKey(remoteJid: string, key: proto.IMessageKey & { senderPn?: string | null }): string | undefined {
+  if (remoteJid.endsWith('@s.whatsapp.net')) return digitsOf(remoteJid.split('@')[0])
+  return digitsOf(key.senderPn?.split('@')[0])
 }
 
 // `to` bisa berupa nomor HP biasa (dikirim 1:1) ATAU JID grup WhatsApp (mis. "12036301234567890@g.us")

@@ -11,6 +11,8 @@ export interface IWaContact extends Document {
   tenantId: Types.ObjectId
   bot: BotId
   jid: string
+  /** Nomor WA asli (digit, mis. "6281234567890"). `jid` sendiri bisa berupa @lid (ID anonim) yang bukan nomor. */
+  phone?: string
   name?: string
   botPaused: boolean
   lastMessageAt: Date
@@ -24,6 +26,7 @@ const WaContactSchema = new Schema<IWaContact>(
   {
     bot: { type: String, enum: BOT_IDS, required: true },
     jid: { type: String, required: true },
+    phone: String,
     name: String,
     botPaused: { type: Boolean, default: false },
     lastMessageAt: { type: Date, default: Date.now },

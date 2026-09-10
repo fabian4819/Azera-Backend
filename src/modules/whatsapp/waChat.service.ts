@@ -23,7 +23,7 @@ export async function backfillBotDiscriminator() {
   ])
 }
 
-export async function recordIncomingMessage(bot: BotId, jid: string, text: string, messageId?: string, pushName?: string) {
+export async function recordIncomingMessage(bot: BotId, jid: string, text: string, messageId?: string, pushName?: string, phone?: string) {
   await connectDB()
   const tenant = await getDefaultTenant()
   await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId })
@@ -34,6 +34,7 @@ export async function recordIncomingMessage(bot: BotId, jid: string, text: strin
         lastMessageAt: new Date(),
         lastMessagePreview: text.slice(0, PREVIEW_LEN),
         ...(pushName ? { name: pushName } : {}),
+        ...(phone ? { phone } : {}),
       },
       $inc: { unreadCount: 1 },
       $setOnInsert: { botPaused: false },
@@ -76,7 +77,12 @@ interface HistoryEntry {
  * bisa ratusan/ribuan pesan sekaligus, jadi ditulis pakai bulk write, bukan satu-satu. Upsert by
  * messageId supaya aman kalau event ini sampai terkirim ulang (reconnect dsb), tidak dobel.
  */
-export async function backfillHistory(bot: BotId, entries: HistoryEntry[], contactNames: Record<string, string>) {
+export async function backfillHistory(
+  bot: BotId,
+  entries: HistoryEntry[],
+  contactNames: Record<string, string>,
+  contactPhones: Record<string, string> = {}
+) {
   if (!entries.length) return
   await connectDB()
   const tenant = await getDefaultTenant()
@@ -119,6 +125,7 @@ export async function backfillHistory(bot: BotId, entries: HistoryEntry[], conta
           $set: {
             ...(isNewer ? { lastMessageAt: e.timestamp, lastMessagePreview: e.text.slice(0, PREVIEW_LEN) } : {}),
             ...(contactNames[jid] ? { name: contactNames[jid] } : {}),
+            ...(contactPhones[jid] ? { phone: contactPhones[jid] } : {}),
           },
         },
         upsert: true,
