@@ -22,7 +22,8 @@ const PROFILE_URL: Record<SocialPlatform, (h: string) => string> = {
 // alih-alih benar-benar kosong. Jangan dipakai bikin link — hasilnya nyasar/404.
 const PLACEHOLDER_HANDLES = new Set(['-', '0', 'a', 'na', 'n/a', 'tidakada', 'tidak ada', 'belum ada', 'none', 'null', 'xx'])
 function isRealHandle(h: string): boolean {
-  return h.length >= 2 && !PLACEHOLDER_HANDLES.has(h.toLowerCase())
+  if (h.length < 2 || PLACEHOLDER_HANDLES.has(h.toLowerCase())) return false
+  return /^[a-zA-Z0-9._-]+$/.test(h)
 }
 
 /* ---------------- Kode sambungan ---------------- */
