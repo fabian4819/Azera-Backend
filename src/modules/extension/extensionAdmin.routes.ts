@@ -288,7 +288,9 @@ router.post('/capture-intents', async (req: AuthRequest, res: Response) => {
         return
       }
       handle = normalizeHandle(acct.username)
-      targetUrl = acct.profileUrl || PROFILE_URL[platform](handle)
+      // Selalu bangun dari handle, bukan acct.profileUrl (yang sering diketik manual
+      // tanpa "@" wajib TikTok/Threads dan berakhir 404 / nyasar ke halaman search).
+      targetUrl = PROFILE_URL[platform](handle)
       label = `Tarik metrik profil ${creator.name} (@${handle})`
     } else {
       const sub = await Submission.findOne({ _id: submissionId, tenantId: req.auth!.tenantId }).populate('creatorId', 'name')
