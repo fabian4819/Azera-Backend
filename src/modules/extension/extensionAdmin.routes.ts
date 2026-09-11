@@ -18,6 +18,13 @@ const PROFILE_URL: Record<SocialPlatform, (h: string) => string> = {
   x: (h) => `https://x.com/${h}`,
 }
 
+// Data historis kadang isi "-", "0", "A", "tidakada" dsb sebagai penanda "belum diisi"
+// alih-alih benar-benar kosong. Jangan dipakai bikin link — hasilnya nyasar/404.
+const PLACEHOLDER_HANDLES = new Set(['-', '0', 'a', 'na', 'n/a', 'tidakada', 'tidak ada', 'belum ada', 'none', 'null', 'xx'])
+function isRealHandle(h: string): boolean {
+  return h.length >= 2 && !PLACEHOLDER_HANDLES.has(h.toLowerCase())
+}
+
 /* ---------------- Kode sambungan ---------------- */
 
 router.get('/tokens', async (req: AuthRequest, res: Response) => {
@@ -288,6 +295,10 @@ router.post('/capture-intents', async (req: AuthRequest, res: Response) => {
         return
       }
       handle = normalizeHandle(acct.username)
+      if (!isRealHandle(handle)) {
+        res.status(400).json({ message: `Username ${platform} creator ini belum valid ("${acct.username}") — perbaiki dulu di profil creator` })
+        return
+      }
       // Selalu bangun dari handle, bukan acct.profileUrl (yang sering diketik manual
       // tanpa "@" wajib TikTok/Threads dan berakhir 404 / nyasar ke halaman search).
       targetUrl = PROFILE_URL[platform](handle)
