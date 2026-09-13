@@ -3,17 +3,25 @@ import { BRAND_JASA_OPTIONS, BRAND_BUDGET_OPTIONS, BrandJasa } from '../../model
 import { createBrandInquiry } from '../brands/brand.service'
 import { sendDirectMessage } from '../../lib/baileys'
 import { BotId } from './waTemplate.model'
+import { hasBotEngaged, markBotEngaged } from './waChat.service'
 import { getLeadBotTemplate } from './leadBotTemplate.service'
 import { renderTemplate } from './template.service'
 
 /**
  * Bot percakapan WhatsApp untuk lead masuk (belum jadi klien/creator terdaftar) —
  * beda dari trigger AD-30/31 yang mengirim notifikasi ke Creator/Client yang
- * SUDAH ada di sistem. Ini menyapa siapa pun yang chat nomor bisnis, lalu
- * langsung ke satu jalur tergantung bot mana: bot `partnership` → form daftar
- * Brand (isi template sekali kirim); bot `creator` → redirect ke link form
- * pendaftaran KOL. Keduanya: ketik "support"/"admin" → serah-terima ke admin
- * (bot diam 12 jam). Tidak ada menu 1/2/3 — pemisahan sudah di level nomor.
+ * SUDAH ada di sistem. Ini menyapa nomor yang chat pertama kali ke salah satu bot,
+ * lalu kasih 2 pilihan: (1) daftar info Campaign/Brand (bot `partnership`) atau
+ * daftar sebagai KOL/Creator (bot `creator`); (2) langsung terhubung ke admin
+ * (bot balas "mohon ditunggu" lalu diam, admin ambil alih manual).
+ *
+ * Bot HANYA merespon di chat pertama nomor tsb (per bot) — `WaContact.botEngaged`
+ * ditandai begitu sapaan pertama terkirim. Nomor yang sudah pernah disapa dibiarkan
+ * diam permanen kalau mereka chat lagi di luar sesi yang sedang berjalan (idle
+ * >30 menit) — tidak ada kata kunci reset. Konsekuensi: kalau server restart di
+ * tengah sesi yang belum selesai (sapaan sudah terkirim tapi lead belum pilih
+ * menu/isi form), lead itu jadi tidak dapat balasan lagi — trade-off yang diterima,
+ * sama seperti sesi in-memory lain di modul ini.
  *
  * Wording pesan (sapaan, menu, dst) diambil dari `LeadBotTemplate` — admin bisa
  * edit lewat `/admin/lead-bot-templates`. Yang TIDAK bisa diadmin-edit (lihat
@@ -24,8 +32,7 @@ import { renderTemplate } from './template.service'
 
 const KOL_REGISTER_URL = 'https://azerakol.id/kol/register'
 
-const SESSION_TTL_MS = 30 * 60 * 1000 // sesi idle 30 menit → reset ke menu utama
-const SUPPORT_SILENCE_MS = 12 * 60 * 60 * 1000 // setelah pilih Support, bot diam 12 jam biar admin yang balas manual
+const SESSION_TTL_MS = 30 * 60 * 1000 // idle 30 menit = sesi/percakapan ini dianggap selesai
 
 const JASA_LIST = BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`).join('\n')
 const BUDGET_LIST = BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range} — ${o.label}`).join('\n')
@@ -72,9 +79,7 @@ type BrandDraft = Partial<{
   timeline: string
 }>
 
-// partnership bot langsung ke alur form Brand; creator bot cuma balas link daftar KOL.
-// Tidak ada menu 1/2/3 lagi — tiap nomor bot punya satu tujuan.
-type SessionMode = 'brand_template' | 'creator_idle' | 'support'
+type SessionMode = 'menu' | 'brand_template' | 'support'
 
 interface Session {
   mode: SessionMode
@@ -181,14 +186,10 @@ const sessions = new Map<string, Session>()
 
 const sessionKey = (bot: BotId, jid: string) => `${bot}:${jid}`
 
-// Cocok hanya kalau pesan MEMANG cuma kata kunci ini (bukan substring) — supaya isian
-// form Brand yang kebetulan memuat "admin"/"support" tidak salah lempar ke mode support.
-const SUPPORT_WORDS = ['support', 'admin', 'bantuan', 'butuh bantuan']
-const wantsSupport = (lower: string) => SUPPORT_WORDS.includes(lower)
-
-async function enterSupport(bot: BotId, jid: string, now: number): Promise<void> {
-  sessions.set(sessionKey(bot, jid), { mode: 'support', updatedAt: now })
-  await sendDirectMessage(bot, jid, await getLeadBotTemplate('support'))
+async function buildMenuMessage(bot: BotId): Promise<string> {
+  const tpl = await getLeadBotTemplate('menu')
+  const option1 = bot === 'creator' ? 'Daftar sebagai KOL/Creator' : 'Daftar informasi Campaign/Brand'
+  return renderTemplate(tpl, { option1 })
 }
 
 export async function handleIncomingMessage(bot: BotId, jid: string, rawText: string): Promise<void> {
@@ -199,47 +200,53 @@ export async function handleIncomingMessage(bot: BotId, jid: string, rawText: st
   const lower = text.toLowerCase()
   const key = sessionKey(bot, jid)
 
-  let session = sessions.get(key)
+  const session = sessions.get(key)
+  const sessionActive = !!session && now - session.updatedAt <= SESSION_TTL_MS
 
-  // Setelah pilih Support, bot diam total (kecuali user ketik menu/batal) — admin yang ambil alih manual.
-  if (session?.mode === 'support' && now - session.updatedAt < SUPPORT_SILENCE_MS && !['menu', 'batal', 'cancel'].includes(lower)) {
-    session.updatedAt = now
-    return
-  }
+  if (!sessionActive) {
+    // Bukan lanjutan percakapan yang sedang berjalan — nomor ini sudah pernah disapa
+    // bot sebelumnya? Kalau ya, bot nonaktif permanen untuk nomor ini (tidak ada reset).
+    if (await hasBotEngaged(bot, jid)) return
 
-  if (wantsSupport(lower)) {
-    await enterSupport(bot, jid, now)
-    return
-  }
-
-  const expired = !session || now - session.updatedAt > SESSION_TTL_MS
-  const reset = ['menu', 'batal', 'cancel', 'mulai', 'start'].includes(lower)
-
-  if (bot === 'creator') {
-    // Creator bot: satu tujuan — arahkan ke form pendaftaran KOL. Tidak menampung data lewat chat.
-    if (expired || reset || session?.mode !== 'creator_idle') {
-      sessions.set(key, { mode: 'creator_idle', updatedAt: now })
-      const [greeting, tpl] = await Promise.all([getLeadBotTemplate('greeting'), getLeadBotTemplate('kol_redirect')])
-      await sendDirectMessage(bot, jid, `${greeting}\n\n${renderTemplate(tpl, { link: KOL_REGISTER_URL })}`)
-    } else {
-      session.updatedAt = now
-      await sendDirectMessage(bot, jid, renderTemplate(await getLeadBotTemplate('kol_redirect'), { link: KOL_REGISTER_URL }))
-    }
-    return
-  }
-
-  // partnership bot: langsung alur form Brand.
-  if (expired || reset) {
-    sessions.set(key, { mode: 'brand_template', updatedAt: now })
+    sessions.set(key, { mode: 'menu', updatedAt: now })
+    await markBotEngaged(bot, jid)
     const greeting = await getLeadBotTemplate('greeting')
-    await sendDirectMessage(bot, jid, `${greeting}\n\n${await buildBrandTemplateMessage()}`)
+    await sendDirectMessage(bot, jid, `${greeting}\n\n${await buildMenuMessage(bot)}`)
     return
   }
 
-  session!.updatedAt = now
-  if (session!.mode === 'brand_template') {
+  session.updatedAt = now
+  if (session.mode === 'menu') {
+    await handleMenuChoice(bot, jid, session, lower)
+  } else if (session.mode === 'brand_template') {
     await handleBrandTemplateReply(bot, jid, text)
   }
+  // mode 'support': diam — admin yang balas manual, lihat WhatsAppInbox.
+}
+
+async function handleMenuChoice(bot: BotId, jid: string, session: Session, lower: string): Promise<void> {
+  const wantsOption1 = lower === '1' || lower.includes('daftar') || lower.includes('campaign') || lower.includes('brand') || lower.includes('kol') || lower.includes('creator') || lower.includes('kreator')
+  const wantsOption2 = lower === '2' || lower.includes('admin') || lower.includes('support') || lower.includes('bantuan')
+
+  if (wantsOption1) {
+    if (bot === 'creator') {
+      sessions.delete(sessionKey(bot, jid))
+      const tpl = await getLeadBotTemplate('kol_redirect')
+      await sendDirectMessage(bot, jid, renderTemplate(tpl, { link: KOL_REGISTER_URL }))
+      return
+    }
+    session.mode = 'brand_template'
+    await sendDirectMessage(bot, jid, await buildBrandTemplateMessage())
+    return
+  }
+
+  if (wantsOption2) {
+    session.mode = 'support'
+    await sendDirectMessage(bot, jid, await getLeadBotTemplate('support'))
+    return
+  }
+
+  await sendDirectMessage(bot, jid, `Mohon pilih salah satu ya kak 🙏\n\n${await buildMenuMessage(bot)}`)
 }
 
 /** Cari baris yang jadi awal tiap field, lalu ambil semua teks sampai baris label field berikutnya (dukung isian multi-baris, mis. Campaign Brief panjang) */

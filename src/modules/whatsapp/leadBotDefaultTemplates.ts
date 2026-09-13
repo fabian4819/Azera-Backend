@@ -14,14 +14,15 @@ export const LEAD_BOT_DEFAULTS: Record<LeadBotTrigger, LeadBotTemplateDefault> =
     description: 'Dikirim sekali di awal, sebelum menu utama, saat lead baru pertama kali chat (atau sesi lama sudah kadaluarsa).',
   },
   menu: {
-    label: 'Menu Utama',
+    label: 'Menu Utama (2 pilihan)',
     body:
       'Ada yang bisa kami bantu? Silakan pilih:\n' +
-      '1️⃣ Daftar Brand (mau bikin campaign)\n' +
-      '2️⃣ Daftar KOL/Creator\n' +
-      '3️⃣ Butuh bantuan lain (Support)\n\n' +
-      'Balas dengan angka 1, 2, atau 3.',
-    description: 'Menu pilihan 1/2/3. Bot menentukan pilihan dari angka atau kata kunci yang diketik lead, bukan dari isi teks ini — jadi bebas diubah wordingnya asal jelas.',
+      '1️⃣ {{option1}}\n' +
+      '2️⃣ Langsung terhubung ke Admin\n\n' +
+      'Balas dengan angka 1 atau 2 ya kak.',
+    description:
+      'Menu 2 pilihan, dikirim sekali setelah sapaan awal (chat pertama nomor ini saja). {{option1}} otomatis diisi sesuai bot: "Daftar informasi Campaign/Brand" (bot Partnership) atau "Daftar sebagai KOL/Creator" (bot Creator) — jangan hapus placeholder-nya. Bot menentukan pilihan dari angka atau kata kunci yang diketik lead, bukan dari isi teks ini.',
+    placeholders: ['option1'],
   },
   brand_intro: {
     label: 'Pembuka Form Brand',

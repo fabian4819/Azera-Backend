@@ -64,6 +64,24 @@ export async function isBotPaused(bot: BotId, jid: string): Promise<boolean> {
   return contact?.botPaused ?? false
 }
 
+/** Nomor ini sudah pernah disapa bot lead-intake sebelumnya? (leadBot.service.ts — bot cuma merespon di chat pertama) */
+export async function hasBotEngaged(bot: BotId, jid: string): Promise<boolean> {
+  await connectDB()
+  const tenant = await getDefaultTenant()
+  const contact = await WaContact.findOne({ tenantId: tenant._id, bot, jid })
+  return contact?.botEngaged ?? false
+}
+
+export async function markBotEngaged(bot: BotId, jid: string): Promise<void> {
+  await connectDB()
+  const tenant = await getDefaultTenant()
+  await WaContact.findOneAndUpdate(
+    { tenantId: tenant._id, bot, jid },
+    { $set: { botEngaged: true }, $setOnInsert: { botPaused: false, unreadCount: 0 } },
+    { upsert: true }
+  )
+}
+
 interface HistoryEntry {
   jid: string
   direction: WaChatDirection

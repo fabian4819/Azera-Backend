@@ -15,6 +15,9 @@ export interface IWaContact extends Document {
   phone?: string
   name?: string
   botPaused: boolean
+  /** true kalau bot lead-intake (leadBot.service.ts) sudah pernah menyapa nomor ini —
+   * dipakai supaya bot cuma merespon di chat pertama, nomor lama dibiarkan diam. */
+  botEngaged: boolean
   lastMessageAt: Date
   lastMessagePreview: string
   unreadCount: number
@@ -29,6 +32,7 @@ const WaContactSchema = new Schema<IWaContact>(
     phone: String,
     name: String,
     botPaused: { type: Boolean, default: false },
+    botEngaged: { type: Boolean, default: false },
     lastMessageAt: { type: Date, default: Date.now },
     lastMessagePreview: { type: String, default: '' },
     unreadCount: { type: Number, default: 0 },
