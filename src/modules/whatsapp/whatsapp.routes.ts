@@ -5,6 +5,7 @@ import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { connectWhatsApp, logoutWhatsApp, getWaStatus, getWaQr, enqueueWaMessage, sendManualReply } from '../../lib/baileys'
 import { BOT_IDS, BotId } from './waTemplate.model'
 import { resetBotEngagement } from './waChat.service'
+import { clearLeadBotSession } from './leadBot.service'
 import WaMessageLog from './waMessageLog.model'
 import WaContact from './waContact.model'
 import WaChatMessage from './waChatMessage.model'
@@ -147,6 +148,7 @@ bots.post('/contacts/:jid/reset-bot', async (req: AuthRequest, res: Response) =>
   try {
     await connectDB()
     const contact = await resetBotEngagement(botOf(req), req.params.jid)
+    clearLeadBotSession(botOf(req), req.params.jid) // sesi in-memory tidak punya TTL lagi — buang manual biar tidak nyangkut
     res.json(contact)
   } catch {
     res.status(500).json({ message: 'Server error' })

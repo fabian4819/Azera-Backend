@@ -12,7 +12,7 @@ import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
 import { WaTrigger, BotId, BOT_IDS, audienceToBot } from '../modules/whatsapp/waTemplate.model'
 import { DEFAULT_TEMPLATES } from '../modules/whatsapp/defaultTemplates'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
-import { recordIncomingMessage, recordOutgoingMessage, isBotPaused, backfillHistory } from '../modules/whatsapp/waChat.service'
+import { recordIncomingMessage, recordOutgoingMessage, backfillHistory } from '../modules/whatsapp/waChat.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
 const SEND_DELAY_MS = 3000 // jarak antar pesan — mitigasi risiko banned (AD-29)
@@ -142,11 +142,9 @@ class WaBot {
           const text = extractMessageText(msg)
           if (!text) continue
           recordIncomingMessage(this.id, jid, text, msg.key.id || undefined, msg.pushName || undefined, phoneFromKey(jid, msg.key)).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
-          isBotPaused(this.id, jid)
-            .then((paused) => {
-              if (!paused) handleIncomingMessage(this.id, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
-            })
-            .catch((err) => console.error(`WA[${this.id}] bot-pause check error:`, err))
+          // Pengecekan bot-paused sekarang di dalam handleIncomingMessage (leadBot.service.ts) —
+          // supaya pesan berformat template Brand tetap diproses meski nomor ini di-pause admin.
+          handleIncomingMessage(this.id, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
         }
       })
 

@@ -3,7 +3,7 @@ import { BRAND_JASA_OPTIONS, BRAND_BUDGET_OPTIONS, BrandJasa } from '../../model
 import { createBrandInquiry } from '../brands/brand.service'
 import { sendDirectMessage } from '../../lib/baileys'
 import { BotId } from './waTemplate.model'
-import { hasBotEngaged, markBotEngaged } from './waChat.service'
+import { hasBotEngaged, markBotEngaged, isBotPaused } from './waChat.service'
 import { getLeadBotTemplate } from './leadBotTemplate.service'
 import { renderTemplate } from './template.service'
 
@@ -17,11 +17,15 @@ import { renderTemplate } from './template.service'
  *
  * Bot HANYA merespon di chat pertama nomor tsb (per bot) — `WaContact.botEngaged`
  * ditandai begitu sapaan pertama terkirim. Nomor yang sudah pernah disapa dibiarkan
- * diam permanen kalau mereka chat lagi di luar sesi yang sedang berjalan (idle
- * >30 menit) — tidak ada kata kunci reset. Konsekuensi: kalau server restart di
- * tengah sesi yang belum selesai (sapaan sudah terkirim tapi lead belum pilih
- * menu/isi form), lead itu jadi tidak dapat balasan lagi — trade-off yang diterima,
- * sama seperti sesi in-memory lain di modul ini.
+ * diam permanen kalau mereka chat lagi (sesi TIDAK punya batas waktu — sekali
+ * disapa, status "aktif/nonaktif"-nya tetap sampai admin klik "Aktifkan lagi" di
+ * Inbox atau server restart). Tidak ada kata kunci reset dari sisi lead.
+ *
+ * Pengecualian: pesan yang formatnya sudah persis seperti isian template Brand
+ * (label field cocok, lihat `parseBrandTemplate`) TETAP diproses apa pun status
+ * bot untuk nomor itu (nonaktif/di-pause admin) — supaya kalau admin secara manual
+ * minta lead kirim format itu (chat sudah "mati" di sisi bot), pesannya tetap
+ * masuk sebagai pendaftaran, bukan cuma nongkrong di Inbox tanpa diproses.
  *
  * Wording pesan (sapaan, menu, dst) diambil dari `LeadBotTemplate` — admin bisa
  * edit lewat `/admin/lead-bot-templates`. Yang TIDAK bisa diadmin-edit (lihat
@@ -31,8 +35,6 @@ import { renderTemplate } from './template.service'
  */
 
 const KOL_REGISTER_URL = 'https://azerakol.id/kol/register'
-
-const SESSION_TTL_MS = 30 * 60 * 1000 // idle 30 menit = sesi/percakapan ini dianggap selesai
 
 const JASA_LIST = BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`).join('\n')
 const BUDGET_LIST = BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range} — ${o.label}`).join('\n')
@@ -83,7 +85,6 @@ type SessionMode = 'menu' | 'brand_template' | 'support'
 
 interface Session {
   mode: SessionMode
-  updatedAt: number
 }
 
 interface FieldDef {
@@ -186,6 +187,12 @@ const sessions = new Map<string, Session>()
 
 const sessionKey = (bot: BotId, jid: string) => `${bot}:${jid}`
 
+/** Dipanggil saat admin klik "Aktifkan lagi" di Inbox — buang state sesi yang nyangkut
+ * (mis. masih mode 'support'/'brand_template' lama) supaya chat berikutnya benar-benar mulai dari sapaan. */
+export function clearLeadBotSession(bot: BotId, jid: string): void {
+  sessions.delete(sessionKey(bot, jid))
+}
+
 async function buildMenuMessage(bot: BotId): Promise<string> {
   const tpl = await getLeadBotTemplate('menu')
   const option1 = bot === 'creator' ? 'Daftar sebagai KOL/Creator' : 'Daftar informasi Campaign/Brand'
@@ -196,26 +203,33 @@ export async function handleIncomingMessage(bot: BotId, jid: string, rawText: st
   const text = rawText.trim()
   if (!text) return
   await connectDB()
-  const now = Date.now()
   const lower = text.toLowerCase()
   const key = sessionKey(bot, jid)
-
   const session = sessions.get(key)
-  const sessionActive = !!session && now - session.updatedAt <= SESSION_TTL_MS
 
-  if (!sessionActive) {
-    // Bukan lanjutan percakapan yang sedang berjalan — nomor ini sudah pernah disapa
-    // bot sebelumnya? Kalau ya, bot nonaktif permanen untuk nomor ini (tidak ada reset).
+  // Pengecualian di atas segalanya: pesan yang sudah berbentuk isian template Brand tetap
+  // diproses meski bot nonaktif/di-pause untuk nomor ini — lihat catatan di kepala file.
+  if (bot === 'partnership' && parseBrandTemplate(text).matchedAny) {
+    sessions.set(key, { mode: 'brand_template' })
+    await markBotEngaged(bot, jid)
+    await handleBrandTemplateReply(bot, jid, text)
+    return
+  }
+
+  if (await isBotPaused(bot, jid)) return
+
+  if (!session) {
+    // Belum ada percakapan yang sedang berjalan — nomor ini sudah pernah disapa bot
+    // sebelumnya? Kalau ya, bot nonaktif untuk nomor ini sampai admin klik "Aktifkan lagi".
     if (await hasBotEngaged(bot, jid)) return
 
-    sessions.set(key, { mode: 'menu', updatedAt: now })
+    sessions.set(key, { mode: 'menu' })
     await markBotEngaged(bot, jid)
     const greeting = await getLeadBotTemplate('greeting')
     await sendDirectMessage(bot, jid, `${greeting}\n\n${await buildMenuMessage(bot)}`)
     return
   }
 
-  session.updatedAt = now
   if (session.mode === 'menu') {
     await handleMenuChoice(bot, jid, session, lower)
   } else if (session.mode === 'brand_template') {
