@@ -82,6 +82,18 @@ export async function markBotEngaged(bot: BotId, jid: string): Promise<void> {
   )
 }
 
+/** Admin klik "Aktifkan lagi" di Inbox — nomor ini dianggap belum pernah dilayani bot lagi,
+ * chat berikutnya dari nomor ini dapat sapaan + menu dari awal. */
+export async function resetBotEngagement(bot: BotId, jid: string) {
+  await connectDB()
+  const tenant = await getDefaultTenant()
+  return WaContact.findOneAndUpdate(
+    { tenantId: tenant._id, bot, jid },
+    { $set: { botEngaged: false, botPaused: false } },
+    { new: true, upsert: true }
+  )
+}
+
 interface HistoryEntry {
   jid: string
   direction: WaChatDirection

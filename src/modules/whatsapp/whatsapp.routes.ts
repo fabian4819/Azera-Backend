@@ -4,6 +4,7 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { connectWhatsApp, logoutWhatsApp, getWaStatus, getWaQr, enqueueWaMessage, sendManualReply } from '../../lib/baileys'
 import { BOT_IDS, BotId } from './waTemplate.model'
+import { resetBotEngagement } from './waChat.service'
 import WaMessageLog from './waMessageLog.model'
 import WaContact from './waContact.model'
 import WaChatMessage from './waChatMessage.model'
@@ -135,6 +136,18 @@ bots.post('/contacts/:jid/read', async (req: AuthRequest, res: Response) => {
       { $set: { unreadCount: 0 } }
     )
     res.json({ success: true })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Admin klik "Aktifkan lagi" — nomor ini dianggap belum pernah dilayani bot (leadBot.service.ts
+// hanya merespon chat pertama per nomor), sekaligus lepas bot-pause kalau admin sempat ambil alih manual.
+bots.post('/contacts/:jid/reset-bot', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const contact = await resetBotEngagement(botOf(req), req.params.jid)
+    res.json(contact)
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
