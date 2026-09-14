@@ -92,7 +92,15 @@ class WaBot {
   }
 
   async connect(): Promise<void> {
-    if (this.connecting || this.status === 'connected') return
+    // Guard lama cuma cek `connecting` (yang balik false lagi begitu socket selesai DIBUAT, jauh
+    // sebelum benar-benar 'open'/'close') dan `status==='connected'` — ada celah: selama status masih
+    // 'connecting'/'qr' (socket sudah hidup, belum sempat 'connected'), panggilan connect() lain (mis.
+    // reconnect timer nyusul admin klik "Hubungkan", atau race serupa) bisa lolos dan bikin socket KEDUA
+    // yang pakai auth session SAMA secara bersamaan — dua socket rebutan ratchet Signal yang sama itu
+    // yang bikin sesi korup ("Bad MAC" / "Key used already or never filled" di log, pesan jadi dobel
+    // karena WhatsApp resend pesan yang gagal di-ack bersih). Fix: block juga kalau `this.sock` masih ada,
+    // apa pun status koneksinya — cuma boleh socket baru kalau yang lama sudah benar2 ditutup (sock=null).
+    if (this.connecting || this.sock) return
     this.connecting = true
     this.status = 'connecting'
     const myGeneration = ++this.generation
@@ -126,12 +134,14 @@ class WaBot {
           this.status = 'connected'
           this.currentQr = null
           this.connectedNumber = sock.user?.id?.split(':')[0] ?? null
+          console.log(`WA[${this.id}] connected as ${this.connectedNumber}`)
         }
 
         if (connection === 'close') {
           const statusCode = (lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output
             ?.statusCode
           const loggedOut = statusCode === DisconnectReason.loggedOut
+          console.log(`WA[${this.id}] connection closed (statusCode=${statusCode}, loggedOut=${loggedOut})`)
           this.status = 'disconnected'
           this.currentQr = null
           this.sock = null
@@ -144,6 +154,7 @@ class WaBot {
             fs.rm(this.authDir, { recursive: true, force: true }).catch((err) => console.error(`WA[${this.id}] rm auth dir error:`, err))
           } else {
             setTimeout(() => {
+              console.log(`WA[${this.id}] reconnecting...`)
               this.connect().catch((err) => console.error(`WA[${this.id}] reconnect error:`, err))
             }, RECONNECT_DELAY_MS)
           }
