@@ -1,16 +1,21 @@
 import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
-import WaContact from './waContact.model'
+import WaContact, { IWaContact } from './waContact.model'
 import WaChatMessage, { WaChatDirection } from './waChatMessage.model'
 import WaMessageLog from './waMessageLog.model'
 import { BotId } from './waTemplate.model'
+import type { FilterQuery, UpdateQuery } from 'mongoose'
 
 const PREVIEW_LEN = 80
 
 /**
  * Sebelum pemisahan dua bot, semua data WA milik satu nomor (nomor lead/partnership).
- * Baris lama tidak punya field `bot` — set ke 'partnership' sekali saat startup, sebelum
- * index unik `{ tenantId, bot, jid }` disinkronkan. Idempoten (filter $exists:false).
+ * Baris lama tidak punya field `bot` — set ke 'partnership' sekali saat startup. Juga
+ * `syncIndexes()` di sini — Mongoose otomatis BIKIN index baru yang dideklarasikan di schema
+ * (mis. unique `{tenantId,bot,jid}`) tapi TIDAK otomatis HAPUS index lama yang sudah tidak
+ * dipakai (mis. unique `{tenantId,jid}` dari sebelum pemisahan bot). Kalau dibiarkan, dua-duanya
+ * aktif sekaligus — index lama itu masih memblokir insert concurrent (mis. beberapa pesan grup
+ * yang ramai masuk nyaris bersamaan) walau secara logic sudah valid di index yang baru.
  */
 export async function backfillBotDiscriminator() {
   await connectDB()
@@ -21,6 +26,28 @@ export async function backfillBotDiscriminator() {
     WaChatMessage.collection.updateMany(filter, patch),
     WaMessageLog.collection.updateMany(filter, patch),
   ])
+  await Promise.all([WaContact.syncIndexes(), WaChatMessage.syncIndexes(), WaMessageLog.syncIndexes()])
+}
+
+/** `findOneAndUpdate(..., {upsert:true})` biasa TIDAK aman kalau dua pesan buat kontak yang SAMA
+ * (jid) datang nyaris bersamaan — keduanya bisa sama-sama tidak menemukan doc lalu sama-sama coba
+ * insert, yang kalah kena error duplicate key. Ini gampang kejadian di grup yang ramai (banyak
+ * pesan berturut-turut), jauh lebih jarang di chat 1:1. Retry sekali: percobaan kedua pasti
+ * ketemu doc yang barusan dibikin lawannya, jadi update biasa, bukan insert lagi.
+ */
+async function upsertWaContact(
+  filter: FilterQuery<IWaContact>,
+  update: UpdateQuery<IWaContact>,
+  opts: { new?: boolean } = {}
+) {
+  try {
+    return await WaContact.findOneAndUpdate(filter, update, { upsert: true, ...opts })
+  } catch (err) {
+    if ((err as { code?: number }).code === 11000) {
+      return WaContact.findOneAndUpdate(filter, update, { upsert: true, ...opts })
+    }
+    throw err
+  }
 }
 
 interface RecordIncomingOpts {
@@ -38,7 +65,7 @@ export async function recordIncomingMessage(bot: BotId, jid: string, text: strin
   await connectDB()
   const tenant = await getDefaultTenant()
   await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId: opts.messageId, senderName: opts.senderName, senderPhone: opts.senderPhone })
-  await WaContact.findOneAndUpdate(
+  await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
     {
       $set: {
@@ -49,8 +76,7 @@ export async function recordIncomingMessage(bot: BotId, jid: string, text: strin
       },
       $inc: { unreadCount: 1 },
       $setOnInsert: { botPaused: false },
-    },
-    { upsert: true }
+    }
   )
 }
 
@@ -58,13 +84,12 @@ export async function recordOutgoingMessage(bot: BotId, jid: string, text: strin
   await connectDB()
   const tenant = await getDefaultTenant()
   await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'out', text, messageId: opts.messageId })
-  await WaContact.findOneAndUpdate(
+  await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
     {
       $set: { lastMessageAt: new Date(), lastMessagePreview: text.slice(0, PREVIEW_LEN) },
       $setOnInsert: { botPaused: false, unreadCount: 0 },
-    },
-    { upsert: true }
+    }
   )
 }
 
@@ -73,10 +98,9 @@ export async function recordOutgoingMessage(bot: BotId, jid: string, text: strin
 export async function pauseBotForContact(bot: BotId, jid: string): Promise<void> {
   await connectDB()
   const tenant = await getDefaultTenant()
-  await WaContact.findOneAndUpdate(
+  await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
-    { $set: { botPaused: true }, $setOnInsert: { unreadCount: 0 } },
-    { upsert: true }
+    { $set: { botPaused: true }, $setOnInsert: { unreadCount: 0 } }
   )
 }
 
@@ -98,10 +122,9 @@ export async function hasBotEngaged(bot: BotId, jid: string): Promise<boolean> {
 export async function markBotEngaged(bot: BotId, jid: string): Promise<void> {
   await connectDB()
   const tenant = await getDefaultTenant()
-  await WaContact.findOneAndUpdate(
+  await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
-    { $set: { botEngaged: true }, $setOnInsert: { botPaused: false, unreadCount: 0 } },
-    { upsert: true }
+    { $set: { botEngaged: true }, $setOnInsert: { botPaused: false, unreadCount: 0 } }
   )
 }
 
@@ -110,10 +133,10 @@ export async function markBotEngaged(bot: BotId, jid: string): Promise<void> {
 export async function resetBotEngagement(bot: BotId, jid: string) {
   await connectDB()
   const tenant = await getDefaultTenant()
-  return WaContact.findOneAndUpdate(
+  return upsertWaContact(
     { tenantId: tenant._id, bot, jid },
     { $set: { botEngaged: false, botPaused: false } },
-    { new: true, upsert: true }
+    { new: true }
   )
 }
 
