@@ -175,7 +175,7 @@ class WaBot {
 
           if (isGroup) {
             this.resolveGroupName(jid)
-              .then((name) => recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined }))
+              .then((name) => recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined, senderPhone: participantPhoneFromKey(msg.key) }))
               .catch((err) => console.error(`WA[${this.id}] save group incoming error:`, err))
             continue // pesan grup tidak dilempar ke leadBot.service — brand/KOL adalah alur 1:1
           }
@@ -231,6 +231,7 @@ class WaBot {
             messageId: msg.key.id,
             timestamp: seconds ? new Date(seconds * 1000) : new Date(),
             senderName: isGroup ? msg.pushName || undefined : undefined,
+            senderPhone: isGroup ? participantPhoneFromKey(msg.key) : undefined,
           })
         }
 
@@ -353,6 +354,16 @@ function digitsOf(s?: string | null): string | undefined {
 function phoneFromKey(remoteJid: string, key: proto.IMessageKey & { senderPn?: string | null }): string | undefined {
   if (remoteJid.endsWith('@s.whatsapp.net')) return digitsOf(remoteJid.split('@')[0])
   return digitsOf(key.senderPn?.split('@')[0])
+}
+
+// Sama seperti phoneFromKey, tapi untuk PENGIRIM DI DALAM GRUP — remoteJid pesan grup adalah jid
+// grupnya sendiri, bukan pengirim, jadi identitas pengirim harus dari key.participant (bisa juga @lid)
+// + key.participantPn sebagai nomor aslinya.
+function participantPhoneFromKey(key: proto.IMessageKey & { participantPn?: string | null }): string | undefined {
+  const participant = key.participant
+  if (!participant) return undefined
+  if (participant.endsWith('@s.whatsapp.net')) return digitsOf(participant.split('@')[0])
+  return digitsOf(key.participantPn?.split('@')[0])
 }
 
 // `to` bisa berupa nomor HP biasa (dikirim 1:1) ATAU JID grup WhatsApp (mis. "12036301234567890@g.us")

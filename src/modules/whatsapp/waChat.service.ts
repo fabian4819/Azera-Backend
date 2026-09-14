@@ -30,12 +30,14 @@ interface RecordIncomingOpts {
   phone?: string
   /** Cuma untuk grup: nama pengirim pesan INI di dalam grup (lihat WaChatMessage.senderName) */
   senderName?: string
+  /** Cuma untuk grup: nomor WA pengirim pesan INI di dalam grup (lihat WaChatMessage.senderPhone) */
+  senderPhone?: string
 }
 
 export async function recordIncomingMessage(bot: BotId, jid: string, text: string, opts: RecordIncomingOpts = {}) {
   await connectDB()
   const tenant = await getDefaultTenant()
-  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId: opts.messageId, senderName: opts.senderName })
+  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId: opts.messageId, senderName: opts.senderName, senderPhone: opts.senderPhone })
   await WaContact.findOneAndUpdate(
     { tenantId: tenant._id, bot, jid },
     {
@@ -121,8 +123,9 @@ interface HistoryEntry {
   text: string
   messageId: string
   timestamp: Date
-  /** Cuma untuk grup — nama pengirim pesan ini */
+  /** Cuma untuk grup — nama & nomor pengirim pesan ini */
   senderName?: string
+  senderPhone?: string
 }
 
 /** Sinkronisasi riwayat chat lama (dikirim Baileys sekali lewat event 'messaging-history.set' saat

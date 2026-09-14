@@ -15,6 +15,8 @@ export interface IWaChatMessage extends Document {
   messageId?: string
   /** Nama pengirim DI DALAM grup (jid grup ada di field `jid` di atas) — kosong untuk chat 1:1. */
   senderName?: string
+  /** Nomor WA pengirim DI DALAM grup — kosong untuk chat 1:1 (nomornya sudah ada di WaContact.phone). */
+  senderPhone?: string
   createdAt: Date
 }
 
@@ -26,6 +28,7 @@ const WaChatMessageSchema = new Schema<IWaChatMessage>(
     text: { type: String, required: true },
     messageId: String,
     senderName: String,
+    senderPhone: String,
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 )
