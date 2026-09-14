@@ -23,18 +23,27 @@ export async function backfillBotDiscriminator() {
   ])
 }
 
-export async function recordIncomingMessage(bot: BotId, jid: string, text: string, messageId?: string, pushName?: string, phone?: string) {
+interface RecordIncomingOpts {
+  messageId?: string
+  /** Nama kontak (1:1) ATAU nama grup (subject) — jadi `WaContact.name` */
+  name?: string
+  phone?: string
+  /** Cuma untuk grup: nama pengirim pesan INI di dalam grup (lihat WaChatMessage.senderName) */
+  senderName?: string
+}
+
+export async function recordIncomingMessage(bot: BotId, jid: string, text: string, opts: RecordIncomingOpts = {}) {
   await connectDB()
   const tenant = await getDefaultTenant()
-  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId })
+  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId: opts.messageId, senderName: opts.senderName })
   await WaContact.findOneAndUpdate(
     { tenantId: tenant._id, bot, jid },
     {
       $set: {
         lastMessageAt: new Date(),
         lastMessagePreview: text.slice(0, PREVIEW_LEN),
-        ...(pushName ? { name: pushName } : {}),
-        ...(phone ? { phone } : {}),
+        ...(opts.name ? { name: opts.name } : {}),
+        ...(opts.phone ? { phone: opts.phone } : {}),
       },
       $inc: { unreadCount: 1 },
       $setOnInsert: { botPaused: false },
@@ -43,16 +52,28 @@ export async function recordIncomingMessage(bot: BotId, jid: string, text: strin
   )
 }
 
-export async function recordOutgoingMessage(bot: BotId, jid: string, text: string) {
+export async function recordOutgoingMessage(bot: BotId, jid: string, text: string, opts: { messageId?: string } = {}) {
   await connectDB()
   const tenant = await getDefaultTenant()
-  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'out', text })
+  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'out', text, messageId: opts.messageId })
   await WaContact.findOneAndUpdate(
     { tenantId: tenant._id, bot, jid },
     {
       $set: { lastMessageAt: new Date(), lastMessagePreview: text.slice(0, PREVIEW_LEN) },
       $setOnInsert: { botPaused: false, unreadCount: 0 },
     },
+    { upsert: true }
+  )
+}
+
+/** Admin balas langsung dari HP fisik (bukan lewat dashboard) — perlakukan sama seperti ambil alih
+ * manual dari Inbox: bot berhenti auto-respon untuk kontak ini. */
+export async function pauseBotForContact(bot: BotId, jid: string): Promise<void> {
+  await connectDB()
+  const tenant = await getDefaultTenant()
+  await WaContact.findOneAndUpdate(
+    { tenantId: tenant._id, bot, jid },
+    { $set: { botPaused: true }, $setOnInsert: { unreadCount: 0 } },
     { upsert: true }
   )
 }
@@ -100,6 +121,8 @@ interface HistoryEntry {
   text: string
   messageId: string
   timestamp: Date
+  /** Cuma untuk grup — nama pengirim pesan ini */
+  senderName?: string
 }
 
 /** Sinkronisasi riwayat chat lama (dikirim Baileys sekali lewat event 'messaging-history.set' saat

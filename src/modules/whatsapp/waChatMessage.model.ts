@@ -13,6 +13,8 @@ export interface IWaChatMessage extends Document {
   direction: WaChatDirection
   text: string
   messageId?: string
+  /** Nama pengirim DI DALAM grup (jid grup ada di field `jid` di atas) — kosong untuk chat 1:1. */
+  senderName?: string
   createdAt: Date
 }
 
@@ -23,6 +25,7 @@ const WaChatMessageSchema = new Schema<IWaChatMessage>(
     direction: { type: String, enum: ['in', 'out'], required: true },
     text: { type: String, required: true },
     messageId: String,
+    senderName: String,
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 )

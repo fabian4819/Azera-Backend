@@ -12,7 +12,7 @@ import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
 import { WaTrigger, BotId, BOT_IDS, audienceToBot } from '../modules/whatsapp/waTemplate.model'
 import { DEFAULT_TEMPLATES } from '../modules/whatsapp/defaultTemplates'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
-import { recordIncomingMessage, recordOutgoingMessage, backfillHistory } from '../modules/whatsapp/waChat.service'
+import { recordIncomingMessage, recordOutgoingMessage, backfillHistory, pauseBotForContact } from '../modules/whatsapp/waChat.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
 const SEND_DELAY_MS = 3000 // jarak antar pesan — mitigasi risiko banned (AD-29)
@@ -53,9 +53,34 @@ class WaBot {
   private readonly queue: QueueItem[] = []
   private processing = false
 
+  // Nama grup (subject) tidak ikut di setiap event pesan grup, cuma bisa didapat lewat
+  // sock.groupMetadata() (panggilan API terpisah) — di-cache di memori supaya tidak nge-hit
+  // API itu berulang-ulang untuk grup yang sama tiap pesan masuk.
+  private readonly groupNames = new Map<string, string>()
+
+  // Message id dari tiap pesan yang KITA kirim (dashboard/bot) — dicek di listener messages.upsert
+  // supaya echo pengiriman sendiri tidak dicatat dobel sebagai "pesan dari HP fisik". Diisi SYNCHRONOUS
+  // begitu sock.sendMessage() selesai (sebelum recordOutgoingMessage yang async), jadi tidak ada celah
+  // race seperti kalau pakai cek ke database. Entry dibuang begitu echo-nya terpakai (lihat delete() di listener).
+  private readonly sentMessageIds = new Set<string>()
+
   constructor(id: BotId) {
     this.id = id
     this.authDir = path.join(AUTH_ROOT, id)
+  }
+
+  private async resolveGroupName(jid: string): Promise<string | undefined> {
+    const cached = this.groupNames.get(jid)
+    if (cached) return cached
+    if (!this.sock) return undefined
+    try {
+      const meta = await this.sock.groupMetadata(jid)
+      if (meta.subject) this.groupNames.set(jid, meta.subject)
+      return meta.subject
+    } catch (err) {
+      console.error(`WA[${this.id}] groupMetadata error:`, err)
+      return undefined
+    }
   }
 
   getStatus() {
@@ -126,22 +151,36 @@ class WaBot {
       })
 
       // Lead bot: pesan masuk dari lawan bicara → jalur bot ini (brand template / redirect KOL / support).
-      // Diam untuk pesan grup, status broadcast, dan pesan dari diri sendiri (echo pengiriman lain).
+      // Grup direkam untuk visibilitas Inbox admin saja (TIDAK masuk alur lead bot — brand/KOL adalah
+      // percakapan 1:1). Pesan dari nomor bot sendiri (fromMe) direkam kalau BELUM pernah tercatat —
+      // itu tandanya dikirim langsung dari HP fisik, bukan echo dari kiriman dashboard/bot kita sendiri.
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (myGeneration !== this.generation) return
         if (type !== 'notify') return
         for (const msg of messages) {
           const jid = msg.key.remoteJid
-          if (!jid || msg.key.fromMe) continue
-          // Bantu cari JID grup: kirim pesan apa saja di grup target, lalu cek log server untuk JID-nya.
-          if (jid.endsWith('@g.us')) {
-            console.log(`WA[${this.id}] group message from ${jid}`)
-            continue
-          }
-          if (jid === 'status@broadcast') continue
+          if (!jid || jid === 'status@broadcast') continue
           const text = extractMessageText(msg)
           if (!text) continue
-          recordIncomingMessage(this.id, jid, text, msg.key.id || undefined, msg.pushName || undefined, phoneFromKey(jid, msg.key)).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
+          const isGroup = jid.endsWith('@g.us')
+
+          if (msg.key.fromMe) {
+            const messageId = msg.key.id
+            if (messageId && this.sentMessageIds.delete(messageId)) continue // echo dari kiriman kita sendiri (dashboard/bot) — sudah dicatat saat dikirim
+            recordOutgoingMessage(this.id, jid, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save phone-outgoing error:`, err))
+            // Admin balas manual dari HP = ambil alih chat, bot berhenti untuk kontak ini (tidak berlaku utk grup, tidak ada alur bot di grup)
+            if (!isGroup) pauseBotForContact(this.id, jid).catch((err) => console.error(`WA[${this.id}] auto-pause error:`, err))
+            continue
+          }
+
+          if (isGroup) {
+            this.resolveGroupName(jid)
+              .then((name) => recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined }))
+              .catch((err) => console.error(`WA[${this.id}] save group incoming error:`, err))
+            continue // pesan grup tidak dilempar ke leadBot.service — brand/KOL adalah alur 1:1
+          }
+
+          recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name: msg.pushName || undefined, phone: phoneFromKey(jid, msg.key) }).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
           // Pengecekan bot-paused sekarang di dalam handleIncomingMessage (leadBot.service.ts) —
           // supaya pesan berformat template Brand tetap diproses meski nomor ini di-pause admin.
           handleIncomingMessage(this.id, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
@@ -149,8 +188,10 @@ class WaBot {
       })
 
       // Sinkron riwayat chat lama yang sudah ada di WhatsApp SEBELUM device ini ditautkan —
-      // Baileys mengirim ini sekali (kadang dalam beberapa batch) setelah pairing sukses.
-      sock.ev.on('messaging-history.set', ({ messages, contacts }) => {
+      // Baileys mengirim ini sekali (kadang dalam beberapa batch) setelah pairing sukses. Termasuk
+      // grup sekarang — nama grup (subject) datang dari `chats`, BUKAN dari `contacts` (yang isinya
+      // orang, bukan grup).
+      sock.ev.on('messaging-history.set', ({ messages, contacts, chats }) => {
         if (myGeneration !== this.generation) return
         const contactNames: Record<string, string> = {}
         const contactPhones: Record<string, string> = {}
@@ -164,22 +205,32 @@ class WaBot {
             if (c.lid) contactPhones[c.lid] = pn
           }
         }
+        for (const c of chats) {
+          if (c.id && c.name) {
+            contactNames[c.id] = c.name
+            if (c.id.endsWith('@g.us')) this.groupNames.set(c.id, c.name) // isi cache grup sekalian
+          }
+        }
 
         const entries = []
         for (const msg of messages) {
           const jid = msg.key.remoteJid
-          if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') continue
+          if (!jid || jid === 'status@broadcast') continue
           const text = extractMessageText(msg)
           if (!text || !msg.key.id) continue
+          const isGroup = jid.endsWith('@g.us')
           const seconds = typeof msg.messageTimestamp === 'number' ? msg.messageTimestamp : Number(msg.messageTimestamp) || 0
-          const pn = phoneFromKey(jid, msg.key)
-          if (pn && !contactPhones[jid]) contactPhones[jid] = pn
+          if (!isGroup) {
+            const pn = phoneFromKey(jid, msg.key)
+            if (pn && !contactPhones[jid]) contactPhones[jid] = pn
+          }
           entries.push({
             jid,
             direction: (msg.key.fromMe ? 'out' : 'in') as 'in' | 'out',
             text,
             messageId: msg.key.id,
             timestamp: seconds ? new Date(seconds * 1000) : new Date(),
+            senderName: isGroup ? msg.pushName || undefined : undefined,
           })
         }
 
@@ -210,8 +261,9 @@ class WaBot {
   async sendDirect(to: string, text: string): Promise<void> {
     if (!this.sock || this.status !== 'connected') return
     try {
-      await this.sock.sendMessage(toJid(to), { text })
-      recordOutgoingMessage(this.id, to, text).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
+      const sent = await this.sock.sendMessage(toJid(to), { text })
+      if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
+      recordOutgoingMessage(this.id, to, text, { messageId: sent?.key.id || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
     } catch (err) {
       console.error(`WA[${this.id}] sendDirect error:`, err)
     }
@@ -220,8 +272,9 @@ class WaBot {
   /** Balasan manual admin dari inbox dashboard — error dilempar balik ke route (biar admin tahu kalau gagal). */
   async sendManual(jid: string, text: string): Promise<void> {
     if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
-    await this.sock.sendMessage(toJid(jid), { text })
-    await recordOutgoingMessage(this.id, jid, text)
+    const sent = await this.sock.sendMessage(toJid(jid), { text })
+    if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
+    await recordOutgoingMessage(this.id, jid, text, { messageId: sent?.key.id || undefined })
   }
 
   enqueue(logId: string, to: string, payload: string) {
@@ -236,9 +289,10 @@ class WaBot {
       const item = this.queue.shift()!
       try {
         if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
-        await this.sock.sendMessage(toJid(item.to), { text: item.payload })
+        const sent = await this.sock.sendMessage(toJid(item.to), { text: item.payload })
+        if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
         await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'sent', sentAt: new Date() })
-        recordOutgoingMessage(this.id, item.to, item.payload).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
+        recordOutgoingMessage(this.id, item.to, item.payload, { messageId: sent?.key.id || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
       } catch (err) {
         await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'failed', error: (err as Error).message })
       }
