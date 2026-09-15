@@ -4,6 +4,7 @@ import { getDefaultTenant } from '../tenants/defaultTenant'
 import Creator from './creator.model'
 import { sendEmail } from '../../lib/email'
 import { creatorRegistrationEmail } from '../../lib/emailTemplates'
+import { syncCreatorToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
 
@@ -17,13 +18,13 @@ router.post('/register', async (req: Request, res: Response) => {
     await connectDB()
     const tenant = await getDefaultTenant()
     const {
-      name, phone, email, gender, domicile, socials, activities, niches, nicheOther,
+      name, phone, email, gender, birthDate, domicile, socials, activities, niches, nicheOther,
       contentStyles, contentStyleOther, bankAccount, npwp,
       rateEstimateType, rateEstimateAmount, rateNegotiable, mediaKitUrl, portfolioLink,
     } = req.body
 
-    if (!name || !phone || !email || !gender) {
-      res.status(400).json({ message: 'Nama, nomor WA, email, dan jenis kelamin wajib diisi' })
+    if (!name || !phone || !email || !gender || !birthDate) {
+      res.status(400).json({ message: 'Nama, nomor WA, email, jenis kelamin, dan tanggal lahir wajib diisi' })
       return
     }
 
@@ -43,7 +44,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     creator = await Creator.create({
       tenantId: tenant._id,
-      name, phone, email, gender, domicile,
+      name, phone, email, gender, birthDate: new Date(birthDate), domicile,
       socials: socials || [],
       activities: activities || [],
       niches: niches || [],
@@ -57,6 +58,7 @@ router.post('/register', async (req: Request, res: Response) => {
 
     const { subject, html } = creatorRegistrationEmail(name)
     sendEmail(email, subject, html).catch((err) => console.error('Creator registration email error:', err))
+    syncCreatorToSheet(creator).catch((err) => console.error('Sheet sync error (creator):', err))
 
     res.status(201).json({ message: 'Pendaftaran berhasil! Tim AzeraKOL akan review profil kamu.', id: creator._id })
   } catch (err) {

@@ -10,6 +10,7 @@ import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { WaTrigger } from '../whatsapp/waTemplate.model'
 import { tryAutoTransition } from '../campaigns/workflow.service'
+import { syncApplicationToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -83,6 +84,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
     res.json({ application, generatedPassword })
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -116,6 +118,7 @@ router.patch('/:id/payment', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
     res.json(application)
   } catch {
     res.status(500).json({ message: 'Server error' })

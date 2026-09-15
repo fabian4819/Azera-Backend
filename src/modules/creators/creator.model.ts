@@ -31,6 +31,11 @@ export interface ICreator extends Document {
   email?: string
   /** Opsional — creator hasil import historis (AD-28) mungkin belum punya data ini */
   gender?: Gender
+  /** Tidak pernah diserialisasi ke JSON (lihat toJSON transform di bawah) — dashboard/API/sheet
+   * cuma pernah lihat `age` (virtual, dihitung dari ini), bukan tanggal lahir mentahnya. */
+  birthDate?: Date
+  /** Virtual, dihitung dari birthDate — bukan field tersimpan */
+  age?: number
   domicile?: { province?: string; city?: string }
   socials: ISocialAccount[]
   activities: CreatorActivity[]
@@ -74,6 +79,7 @@ const CreatorSchema = new Schema<ICreator>(
     password: String,
     email: String,
     gender: { type: String, enum: ['male', 'female_hijab', 'female_non_hijab'] },
+    birthDate: Date,
     domicile: {
       province: String,
       city: String,
@@ -110,8 +116,32 @@ const CreatorSchema = new Schema<ICreator>(
     source: { type: String, enum: ['form', 'import'], default: 'form' },
     status: { type: String, enum: ['pending', 'reviewing', 'approved', 'rejected'], default: 'pending' },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: {
+      virtuals: true,
+      // birthDate dipakai buat HITUNG usia saja — jangan pernah keluar ke response API. Berlaku
+      // di semua endpoint (dashboard, dan sheet/export kalau ada nanti), bukan cuma di satu route.
+      transform: (_doc, ret) => {
+        delete ret.birthDate
+        return ret
+      },
+    },
+  }
 )
+
+// Usia dibulatkan ke bawah (belum ulang tahun tahun ini = belum genap) — bukan field tersimpan,
+// selalu dihitung ulang dari birthDate saat dokumen diserialisasi.
+CreatorSchema.virtual('age').get(function (this: ICreator) {
+  if (!this.birthDate) return undefined
+  const today = new Date()
+  let age = today.getFullYear() - this.birthDate.getFullYear()
+  const hadBirthdayThisYear =
+    today.getMonth() > this.birthDate.getMonth() ||
+    (today.getMonth() === this.birthDate.getMonth() && today.getDate() >= this.birthDate.getDate())
+  if (!hadBirthdayThisYear) age -= 1
+  return age
+})
 
 withTenant(CreatorSchema)
 CreatorSchema.index({ tenantId: 1, phone: 1 }, { unique: true })

@@ -5,6 +5,7 @@ import Creator from './creator.model'
 import CreatorHistory from './creatorHistory.model'
 import SocialSnapshot from '../extension/socialSnapshot.model'
 import { computePerformanceScore } from './performanceScore.service'
+import { syncCreatorToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -44,7 +45,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
 })
 
 const EDITABLE_FIELDS = [
-  'gender', 'domicile', 'socials', 'activities', 'niches', 'nicheOther',
+  'gender', 'birthDate', 'domicile', 'socials', 'activities', 'niches', 'nicheOther',
   'contentStyles', 'contentStyleOther', 'bankAccount', 'npwp', 'mediaKitUrl',
   'portfolioLink', 'photoUrl', 'status',
 ] as const
@@ -62,6 +63,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       { new: true }
     )
     if (!creator) { res.status(404).json({ message: 'Not found' }); return }
+    syncCreatorToSheet(creator).catch((err) => console.error('Sheet sync error (creator):', err))
     res.json(creator)
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -107,6 +109,7 @@ router.post('/:id/history', async (req: AuthRequest, res: Response) => {
         creator.sp1Until = new Date(Date.now() + SP1_DURATION_DAYS * 24 * 60 * 60 * 1000)
       }
       await creator.save()
+      syncCreatorToSheet(creator).catch((err) => console.error('Sheet sync error (creator):', err))
     }
 
     const scoreBreakdown = await computePerformanceScore(creator._id, req.auth!.tenantId)
@@ -126,6 +129,7 @@ router.post('/:id/unlock', async (req: AuthRequest, res: Response) => {
       { new: true }
     )
     if (!creator) { res.status(404).json({ message: 'Not found' }); return }
+    syncCreatorToSheet(creator).catch((err) => console.error('Sheet sync error (creator):', err))
     res.json(creator)
   } catch {
     res.status(500).json({ message: 'Server error' })

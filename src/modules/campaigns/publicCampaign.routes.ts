@@ -6,6 +6,7 @@ import Creator from '../creators/creator.model'
 import Application from '../applications/application.model'
 import { runSmartCuration } from '../applications/curation.service'
 import { getCampaignDashboardData } from './dashboard.service'
+import { syncApplicationToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
 
@@ -131,6 +132,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       status: curation.autoRejected ? 'rejected' : 'pending',
       decidedAt: curation.autoRejected ? new Date() : undefined,
     })
+    syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
 
     res.status(201).json({
       message: curation.autoRejected

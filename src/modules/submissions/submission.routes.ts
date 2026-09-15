@@ -5,6 +5,7 @@ import { parseInsightScreenshot } from '../../lib/ai'
 import Submission from './submission.model'
 import Campaign from '../campaigns/campaign.model'
 import { tryAutoTransition } from '../campaigns/workflow.service'
+import { syncSubmissionToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -56,6 +57,7 @@ router.post('/submissions/:id/parse-insight', async (req: AuthRequest, res: Resp
 
     submission.parsedInsight = { ...merged, verifiedByUserId: undefined, verifiedAt: undefined }
     await submission.save()
+    syncSubmissionToSheet(submission).catch((err) => console.error('Sheet sync error (submission):', err))
     res.json(submission)
   } catch (err) {
     res.status(500).json({ message: 'Gagal membaca insight', error: (err as Error).message })
@@ -97,6 +99,7 @@ router.patch('/submissions/:id', async (req: AuthRequest, res: Response) => {
       await tryAutoTransition({ campaignId: String(submission.campaignId), tenantId: req.auth!.tenantId, fromStage: 'waiting_insight', toStage: 'insight_collected', userId: req.auth!.userId })
     }
 
+    syncSubmissionToSheet(submission).catch((err) => console.error('Sheet sync error (submission):', err))
     res.json(submission)
   } catch {
     res.status(500).json({ message: 'Server error' })

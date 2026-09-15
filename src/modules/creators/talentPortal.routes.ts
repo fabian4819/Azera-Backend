@@ -7,6 +7,7 @@ import Application from '../applications/application.model'
 import Submission from '../submissions/submission.model'
 import Creator from './creator.model'
 import { tryAutoTransition } from '../campaigns/workflow.service'
+import { syncSubmissionToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('creator'))
@@ -109,6 +110,7 @@ router.post(
         type, platform, link,
         insightScreenshotUrls,
       })
+      syncSubmissionToSheet(submission).catch((err) => console.error('Sheet sync error (submission):', err))
 
       // AD-32: creator submit draft/post -> auto maju tahap (best-effort, tidak ganggu submission)
       if (type === 'draft') {
