@@ -21,7 +21,7 @@ import { google, sheets_v4 } from 'googleapis'
 // yang bisa kejadian SEBELUM dotenv.config() di index.ts sempat jalan (urutan resolusi modul,
 // bukan urutan baris kode yang kelihatan). Ini persis alasan config/env.ts pakai `get mongodbUri()`
 // (getter), bukan const biasa, untuk env var yang sama-sama krusial. Dibaca ulang tiap dipanggil.
-function creds() {
+export function creds() {
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
   // Private key di .env biasanya satu baris dengan literal "\n" — perlu diganti ke newline asli
@@ -38,7 +38,7 @@ function sheetsEnabled(): boolean {
 let sheetsClient: sheets_v4.Sheets | null = null
 let auth: InstanceType<typeof google.auth.JWT> | null = null
 
-function getSheetsClient(): sheets_v4.Sheets | null {
+export function getSheetsClient(): sheets_v4.Sheets | null {
   if (!sheetsEnabled()) return null
   if (!auth) {
     const { email, key } = creds()
@@ -57,7 +57,13 @@ export function campaignTabPrefix(campaignName: string): string {
 // tiap panggilan (hemat 1-2 API call per sync, tab tidak akan hilang sendiri selama proses jalan).
 const ensuredTabs = new Set<string>()
 
-async function ensureTab(sheets: sheets_v4.Sheets, spreadsheetId: string, tab: string, headers: string[]): Promise<void> {
+async function ensureTab(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  tab: string,
+  headers: string[],
+  keyHeader: string = 'ID'
+): Promise<void> {
   const key = `${spreadsheetId}:${tab}`
   if (ensuredTabs.has(key)) return
   const meta = await sheets.spreadsheets.get({ spreadsheetId })
@@ -74,7 +80,7 @@ async function ensureTab(sheets: sheets_v4.Sheets, spreadsheetId: string, tab: s
     spreadsheetId,
     range: `${tab}!A1`,
     valueInputOption: 'RAW',
-    requestBody: { values: [['ID', ...headers]] },
+    requestBody: { values: [[keyHeader, ...headers]] },
   })
   // Samakan dengan tab Creators: baris header dibekukan + kolom auto-lebar sesuai isi header.
   if (sheetId !== undefined) {
@@ -103,21 +109,34 @@ async function ensureTab(sheets: sheets_v4.Sheets, spreadsheetId: string, tab: s
 /** Cari baris existing lewat kolom A (ID) → update kalau ketemu, append kalau belum ada.
  * ponytail: baca-lalu-tulis ini bukan atomik (race kalau 2 sync utk ID sama nyaris bersamaan) —
  * risiko rendah untuk data campaign/creator yang jarang berubah sub-detik, tidak ditambah locking. */
-async function upsertRow(tab: string, headers: string[], id: string, row: (string | number)[]): Promise<void> {
+async function upsertRow(
+  tab: string,
+  headers: string[],
+  id: string,
+  row: (string | number)[],
+  opts: { keyHeader?: string; valueInputOption?: 'RAW' | 'USER_ENTERED' } = {}
+): Promise<void> {
   const sheets = getSheetsClient()
   if (!sheets) return
   const { spreadsheetId } = creds()
+  const valueInputOption = opts.valueInputOption ?? 'RAW'
   try {
-    await ensureTab(sheets, spreadsheetId!, tab, headers)
+    await ensureTab(sheets, spreadsheetId!, tab, headers, opts.keyHeader)
     const col = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A2:A` })
     const ids = (col.data.values || []).map((r) => r[0])
     const idx = ids.indexOf(id)
-    const values = [[id, ...row]]
+    // USER_ENTERED bikin Sheets otomatis parse angka/tanggal/formula (perlu utk HYPERLINK() dan
+    // kolom tanggal beneran) — tapi itu artinya string digit-only (no. HP/NPWP/rekening) bisa
+    // "dimakan" jadi angka & kehilangan digit 0 di depan. Apostrof di depan maksa tetap teks;
+    // apostrofnya sendiri tidak ikut jadi bagian value pas dibaca balik lewat API.
+    const guard = (v: string | number) =>
+      valueInputOption === 'USER_ENTERED' && typeof v === 'string' && /^\d{4,}$/.test(v) ? `'${v}` : v
+    const values = [[guard(id), ...row.map(guard)]]
     if (idx === -1) {
       await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `${tab}!A:A`,
-        valueInputOption: 'RAW',
+        valueInputOption,
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values },
       })
@@ -126,7 +145,7 @@ async function upsertRow(tab: string, headers: string[], id: string, row: (strin
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `${tab}!A${rowNumber}`,
-        valueInputOption: 'RAW',
+        valueInputOption,
         requestBody: { values },
       })
     }
@@ -135,22 +154,41 @@ async function upsertRow(tab: string, headers: string[], id: string, row: (strin
   }
 }
 
+// Kolom A tab Creators BUKAN 'ID' generik, tapi WhatsApp (key bisnis yang manusia kenali &
+// unique per creator — {tenantId,phone} unique index di creator.model.ts) — sesuai permintaan
+// buang kolom ID mentah dari sheet. CREATOR_HEADERS di bawah TIDAK termasuk WhatsApp karena
+// itu sudah jadi kolom A/key, bukan bagian row data.
+export const CREATOR_KEY_HEADER = 'WhatsApp'
+
 export const CREATOR_HEADERS = [
-  'Nama', 'WhatsApp', 'Email', 'Usia', 'Jenis Kelamin', 'Kota', 'Provinsi',
-  'Niche', 'Niche Lainnya', 'Gaya Konten', 'Gaya Konten Lainnya', 'Aktivitas',
-  'Instagram', 'TikTok', 'Threads', 'X',
+  'Nama', 'Email', 'Usia', 'Jenis Kelamin', 'Kota', 'Provinsi',
+  'Niche', 'Gaya Konten', 'Aktivitas',
+  'Instagram', 'Instagram - Metrik Ekstensi',
+  'TikTok', 'TikTok - Metrik Ekstensi',
+  'Threads', 'Threads - Metrik Ekstensi',
+  'X', 'X - Metrik Ekstensi',
   'Estimasi Rate', 'Rate Bisa Nego',
   'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP',
-  'Media Kit', 'Portfolio', 'Foto Profil',
-  'Skor Reliability', 'Skor Performance', 'Skor Communication', 'Skor Quality', 'Skor Overall',
-  'Jumlah Cancel', 'Compliance', 'SP1 Sampai', 'Sumber', 'Status', 'Tanggal Daftar',
+  'Portfolio',
+  'Jumlah Cancel', 'Compliance', 'Sumber', 'Status', 'Tanggal Daftar',
 ]
+
+// Index kolom (0 = kolom A / key WhatsApp) berdasarkan nama header, dipakai skrip setup dropdown
+// sekali-jalan supaya index tidak di-hardcode manual dan ikut geser otomatis kalau header berubah.
+export function creatorColIndex(header: string): number {
+  const idx = CREATOR_HEADERS.indexOf(header)
+  if (idx === -1) throw new Error(`Unknown creator header: ${header}`)
+  return idx + 1
+}
 
 export const APPLICATION_HEADERS = ['Brand', 'Creator', 'Status', 'Hasil Kurasi', 'Status Pembayaran', 'Tanggal']
 export const SUBMISSION_HEADERS = ['Creator', 'Tipe', 'Platform', 'Link', 'Status', 'Views', 'Likes', 'Comments', 'Shares', 'Tanggal']
 
-export function upsertCreatorRow(id: string, row: (string | number)[]): Promise<void> {
-  return upsertRow('Creators', CREATOR_HEADERS, id, row)
+// USER_ENTERED (bukan RAW) — perlu supaya HYPERLINK() di kolom medsos dievaluasi sebagai formula
+// (bukan teks literal "=HYPERLINK(...)") dan Tanggal Daftar (ISO yyyy-mm-dd) dikenali Sheets
+// sebagai tipe Date beneran, bukan teks.
+export function upsertCreatorRow(phone: string, row: (string | number)[]): Promise<void> {
+  return upsertRow('Creators', CREATOR_HEADERS, phone, row, { keyHeader: CREATOR_KEY_HEADER, valueInputOption: 'USER_ENTERED' })
 }
 
 export function upsertApplicationRow(campaignName: string, id: string, row: (string | number)[]): Promise<void> {
