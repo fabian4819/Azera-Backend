@@ -137,7 +137,13 @@ async function upsertRow(tab: string, headers: string[], id: string, row: (strin
 
 export const CREATOR_HEADERS = [
   'Nama', 'WhatsApp', 'Email', 'Usia', 'Jenis Kelamin', 'Kota', 'Provinsi',
-  'Niche', 'Aktivitas', 'Followers Tertinggi', 'Status', 'Compliance', 'Tanggal Daftar',
+  'Niche', 'Niche Lainnya', 'Gaya Konten', 'Gaya Konten Lainnya', 'Aktivitas',
+  'Instagram', 'TikTok', 'Threads', 'X',
+  'Estimasi Rate', 'Rate Bisa Nego',
+  'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP',
+  'Media Kit', 'Portfolio', 'Foto Profil',
+  'Skor Reliability', 'Skor Performance', 'Skor Communication', 'Skor Quality', 'Skor Overall',
+  'Jumlah Cancel', 'Compliance', 'SP1 Sampai', 'Sumber', 'Status', 'Tanggal Daftar',
 ]
 
 export const APPLICATION_HEADERS = ['Brand', 'Creator', 'Status', 'Hasil Kurasi', 'Status Pembayaran', 'Tanggal']
