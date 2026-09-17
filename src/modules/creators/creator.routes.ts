@@ -6,6 +6,7 @@ import CreatorHistory from './creatorHistory.model'
 import SocialSnapshot from '../extension/socialSnapshot.model'
 import { computePerformanceScore } from './performanceScore.service'
 import { syncCreatorToSheet } from '../../lib/sheetSync.service'
+import { getTabUrl } from '../../lib/googleSheets'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -55,6 +56,13 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
+})
+
+// Link tombol "Buka Sheet" di halaman list Creators — semua creator ada di satu tab "Creators"
+// di master spreadsheet (bukan per-creator), jadi ini bukan route :id. Ditaruh sebelum GET /:id
+// biar 'sheet-url' tidak ketangkep sebagai :id.
+router.get('/sheet-url', async (_req: AuthRequest, res: Response) => {
+  res.json({ url: await getTabUrl('Creators') })
 })
 
 // AD-21: profil creator + breakdown skor transparan (syarat klien: bisa diklik lihat sumbernya)

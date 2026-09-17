@@ -198,3 +198,20 @@ export function upsertApplicationRow(campaignName: string, id: string, row: (str
 export function upsertSubmissionRow(campaignName: string, id: string, row: (string | number)[]): Promise<void> {
   return upsertRow(`${campaignTabPrefix(campaignName)} - Submissions`, SUBMISSION_HEADERS, id, row)
 }
+
+/** Link ke tab spesifik di master spreadsheet (buat tombol "Buka Sheet" di admin/PIC UI).
+ * Kalau tab belum pernah disync (belum ada baris), balikin link ke spreadsheet tanpa #gid —
+ * tab-nya baru dibuat begitu ada data pertama yang di-sync (lihat ensureTab di atas). */
+export async function getTabUrl(tab: string): Promise<string | null> {
+  const sheets = getSheetsClient()
+  const { spreadsheetId } = creds()
+  if (!sheets || !spreadsheetId) return null
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId })
+    const gid = meta.data.sheets?.find((s) => s.properties?.title === tab)?.properties?.sheetId
+    return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit${gid != null ? `#gid=${gid}` : ''}`
+  } catch (err) {
+    console.error(`Sheets getTabUrl error [${tab}]:`, (err as Error).message)
+    return null
+  }
+}

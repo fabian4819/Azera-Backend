@@ -6,6 +6,7 @@ import { requireAuth, requireRole, signPicToken, AuthRequest } from '../../middl
 import PicUser from './pic.model'
 import Campaign from '../campaigns/campaign.model'
 import { getCampaignDashboardData } from '../campaigns/dashboard.service'
+import { getTabUrl, campaignTabPrefix } from '../../lib/googleSheets'
 
 // PIC/Handle-by account — sign up tanpa accessCode, akun dibuat kosong
 // (campaignIds: []). Admin yang assign campaign ke akun ini (lihat endpoint
@@ -97,7 +98,12 @@ picPortalRouter.get('/campaigns/:id/dashboard', async (req: AuthRequest, res: Re
       res.status(404).json({ message: 'Campaign tidak ditemukan' })
       return
     }
-    res.json(await getCampaignDashboardData(campaign))
+    const data = await getCampaignDashboardData(campaign)
+    // sheetUrl cuma ditambah di sini (akun PIC login, sudah authenticated), BUKAN di
+    // getCampaignDashboardData itu sendiri — fungsi itu juga dipakai publicCampaign.routes.ts
+    // (akses-kode publik, tanpa login) yang tidak boleh bocorin link spreadsheet internal.
+    const sheetUrl = await getTabUrl(`${campaignTabPrefix(campaign.name)} - Applications`)
+    res.json({ ...data, sheetUrl })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

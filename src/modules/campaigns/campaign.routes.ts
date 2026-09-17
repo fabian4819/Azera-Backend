@@ -20,6 +20,7 @@ import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, tryAutoTransition, getCreatorSubStages, WorkflowTransitionError, WORKFLOW_TRANSITIONS } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
+import { getTabUrl, campaignTabPrefix } from '../../lib/googleSheets'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -89,7 +90,12 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     await connectDB()
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
-    res.json(campaign)
+    // Link ke tab "{Campaign} - Applications" di master spreadsheet — tombol "Buka Sheet" di
+    // CampaignDetail. Cuma di sini (route admin), BUKAN di dashboard.service.ts, karena itu
+    // juga dipakai jalur akses-kode publik (publicCampaign.routes.ts) yang tidak boleh bocorin
+    // link ke spreadsheet internal berisi SEMUA campaign.
+    const sheetUrl = await getTabUrl(`${campaignTabPrefix(campaign.name)} - Applications`)
+    res.json({ ...campaign.toJSON(), sheetUrl })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
