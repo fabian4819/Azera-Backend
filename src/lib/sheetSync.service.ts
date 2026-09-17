@@ -6,6 +6,7 @@ import Creator from '../modules/creators/creator.model'
 import Brand from '../models/Brand'
 import SocialSnapshot, { ISocialSnapshot } from '../modules/extension/socialSnapshot.model'
 import { upsertCreatorRow, upsertApplicationRow, upsertSubmissionRow } from './googleSheets'
+import { env } from '../config/env'
 
 const GENDER_LABELS: Record<string, string> = {
   male: 'Laki-laki',
@@ -67,27 +68,15 @@ function socialLinkFormula(social: { platform: SocialPlatform; username: string;
   return `=HYPERLINK("${escape(url)}";"@${escape(handle)}")`
 }
 
-/** Ringkasan lengkap satu tarikan ekstensi (snapshot terbaru per platform) — semua metrik yang
- * juga ditampilkan di panel "Metrik dari Ekstensi" pada CreatorDetail admin (SnapshotDetail.tsx),
- * dipadatkan jadi satu baris teks per sel. Kosong kalau belum pernah ditarik ekstensinya. */
-function formatExtensionMetrics(snap: ISocialSnapshot | undefined): string {
+/** Link ke halaman CreatorDetail admin, dengan ?expand=<platform> supaya section "Metrik dari
+ * Ekstensi" akun itu langsung kebuka begitu diklik dari Sheet — staf tidak perlu klik chevron
+ * manual lagi. Kosong kalau belum pernah ditarik ekstensinya (tidak ada yang bisa dilihat). */
+function extensionMetricsLink(creatorId: string, platform: SocialPlatform, snap: ISocialSnapshot | undefined): string {
   if (!snap) return ''
-  const n = (v?: number | null) => (v != null ? v.toLocaleString('id-ID') : undefined)
-  const pct = (v?: number | null) => (v != null ? `${v}%` : undefined)
-  const parts: string[] = []
-  if (snap.followers != null) parts.push(`${n(snap.followers)} followers`)
-  if (snap.following != null) parts.push(`${n(snap.following)} following`)
-  if (snap.postsCount != null) parts.push(`${n(snap.postsCount)} post`)
-  if (snap.engagementRate != null) {
-    parts.push(`ER ${pct(snap.engagementRate)}${snap.engagementRateMedian != null ? ` (median ${pct(snap.engagementRateMedian)})` : ''}`)
-  }
-  if (snap.engagementRateViews != null) parts.push(`ER by views ${pct(snap.engagementRateViews)}`)
-  if (snap.avgLikes != null) parts.push(`avg likes ${n(snap.avgLikes)}${snap.medLikes != null ? ` (median ${n(snap.medLikes)})` : ''}`)
-  if (snap.avgComments != null) parts.push(`avg komentar ${n(snap.avgComments)}${snap.medComments != null ? ` (median ${n(snap.medComments)})` : ''}`)
-  if (snap.avgViews != null) parts.push(`avg views ${n(snap.avgViews)}${snap.medViews != null ? ` (median ${n(snap.medViews)})` : ''}`)
-  if (snap.avgShares != null) parts.push(`avg shares ${n(snap.avgShares)}`)
-  if (snap.isVerified) parts.push('Terverifikasi')
-  return parts.join(' · ')
+  const url = `${env.clientOrigin}/admin/creators/${creatorId}?expand=${platform}`
+  const escape = (s: string) => s.replace(/"/g, "'")
+  // Sama alasan pemisah ";" seperti socialLinkFormula() di atas — locale spreadsheet in_ID.
+  return `=HYPERLINK("${escape(url)}";"Lihat Metrik")`
 }
 
 export async function syncCreatorToSheet(creator: ICreator): Promise<void> {
@@ -102,7 +91,7 @@ export async function syncCreatorToSheet(creator: ICreator): Promise<void> {
 
   const platformCells = CREATOR_PLATFORMS.flatMap((p) => [
     socialLinkFormula(creator.socials?.find((s) => s.platform === p)),
-    formatExtensionMetrics(latestByPlatform.get(p)),
+    extensionMetricsLink(String(creator._id), p, latestByPlatform.get(p)),
   ])
 
   const niche = [...(creator.niches || []), ...(creator.nicheOther ? [creator.nicheOther] : [])].join(', ')

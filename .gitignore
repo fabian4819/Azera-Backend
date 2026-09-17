@@ -3,6 +3,7 @@ dist/
 .env
 .env.local
 auth_info_baileys/
+.env.bak
 
 .DS_Store
 

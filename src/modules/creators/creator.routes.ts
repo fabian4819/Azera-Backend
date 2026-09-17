@@ -10,6 +10,11 @@ import { syncCreatorToSheet } from '../../lib/sheetSync.service'
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
 
+// Metrik headline (bukan semua field snapshot) — cukup buat kolom tabel Creators bisa
+// di-sort/filter per platform tanpa bikin payload list membengkak dengan raw sampleRows dll.
+const HEADLINE_METRIC_FIELDS = ['followers', 'engagementRate', 'avgViews', 'avgLikes'] as const
+type HeadlineMetrics = Partial<Record<(typeof HEADLINE_METRIC_FIELDS)[number], number>>
+
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -19,7 +24,34 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (complianceStatus) filter.complianceStatus = complianceStatus
     if (niche) filter.niches = { $in: [niche] }
     const creators = await Creator.find(filter).sort({ 'performanceScore.overall': -1 })
-    res.json(creators)
+
+    // Snapshot terbaru per (creator, platform) — satu query buat semua creator di halaman ini,
+    // dikelompokkan di memori (jauh lebih murah daripada N query per creator).
+    const snapshots = await SocialSnapshot.find(
+      { tenantId: req.auth!.tenantId, creatorId: { $in: creators.map((c) => c._id) } },
+      { creatorId: 1, platform: 1, ...Object.fromEntries(HEADLINE_METRIC_FIELDS.map((f) => [f, 1])), createdAt: 1 }
+    ).sort({ createdAt: -1 })
+    const latestByCreatorPlatform = new Map<string, HeadlineMetrics>()
+    for (const snap of snapshots) {
+      const key = `${snap.creatorId}:${snap.platform}`
+      if (!latestByCreatorPlatform.has(key)) {
+        latestByCreatorPlatform.set(
+          key,
+          Object.fromEntries(HEADLINE_METRIC_FIELDS.map((f) => [f, snap[f]])) as HeadlineMetrics
+        )
+      }
+    }
+
+    const withMetrics = creators.map((c) => {
+      const extensionMetrics: Record<string, HeadlineMetrics> = {}
+      for (const social of c.socials || []) {
+        const m = latestByCreatorPlatform.get(`${c._id}:${social.platform}`)
+        if (m) extensionMetrics[social.platform] = m
+      }
+      return { ...c.toJSON(), extensionMetrics }
+    })
+
+    res.json(withMetrics)
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
