@@ -8,6 +8,21 @@ import { syncCreatorToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
 
+// AD-50: dipakai CampaignApply.tsx step 1 (wizard) buat cek nomor WA sebelum nampilin form profil
+// lengkap — kalau sudah ada, skip langsung ke step 2 (pertanyaan campaign).
+router.get('/exists', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const tenant = await getDefaultTenant()
+    const phone = String(req.query.phone || '').trim()
+    if (!phone) { res.status(400).json({ message: 'phone wajib diisi' }); return }
+    const creator = await Creator.findOne({ tenantId: tenant._id, phone })
+    res.json({ exists: !!creator })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 /**
  * AD-12: Form Creator (landing page) → tulis ke Creator (Creator Performance DB),
  * bukan collection KOL lama. Sama seperti publicCampaign.routes.ts `/apply`:
@@ -21,6 +36,7 @@ router.post('/register', async (req: Request, res: Response) => {
       name, phone, email, gender, birthDate, domicile, socials, activities, niches, nicheOther,
       contentStyles, contentStyleOther, bankAccount, npwp,
       rateEstimateType, rateEstimateAmount, rateNegotiable, mediaKitUrl, portfolioLink,
+      address, postalCode, school,
     } = req.body
 
     if (!name || !phone || !email || !gender || !birthDate) {
@@ -53,6 +69,7 @@ router.post('/register', async (req: Request, res: Response) => {
       contentStyleOther,
       bankAccount, npwp,
       rateEstimateType, rateEstimateAmount, rateNegotiable, mediaKitUrl, portfolioLink,
+      address, postalCode, school,
       source: 'form',
     })
 

@@ -4,6 +4,7 @@ import { getDefaultTenant } from '../tenants/defaultTenant'
 import Campaign from './campaign.model'
 import Creator from '../creators/creator.model'
 import Application from '../applications/application.model'
+import PicUser from '../pic/pic.model'
 import { runSmartCuration } from '../applications/curation.service'
 import { getCampaignDashboardData } from './dashboard.service'
 import { syncApplicationToSheet } from '../../lib/sheetSync.service'
@@ -44,6 +45,9 @@ router.get('/:slug', async (req: Request, res: Response) => {
       res.status(404).json({ message: 'Campaign tidak ditemukan atau pendaftaran sudah ditutup' })
       return
     }
+    // AD-50: PIC/partner dipilih CREATOR sendiri di apply form (bukan admin pasca-review) —
+    // pilihannya dibatasi ke PIC yang sudah di-assign admin ke campaign ini (PicUser.campaignIds).
+    const picUsers = await PicUser.find({ tenantId: tenant._id, campaignIds: campaign._id }).select('name')
     res.json({
       name: campaign.name,
       brand: campaign.brandId,
@@ -54,6 +58,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
       eventDetails: campaign.eventDetails,
       timeline: campaign.timeline,
       customFields: campaign.customFields,
+      picOptions: picUsers.map((p) => ({ _id: p._id, name: p.name })),
     })
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -72,9 +77,10 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     }
 
     const {
-      name, phone, gender, domicile, socials, activities, niches, nicheOther,
+      name, phone, email, birthDate, gender, domicile, socials, activities, niches, nicheOther,
       contentStyles, contentStyleOther, bankAccount, npwp, mediaKitUrl, portfolioLink,
-      answers, customAnswers,
+      address, postalCode, school,
+      answers, customAnswers, picUserId,
     } = req.body
 
     if (!phone || !name) {
@@ -93,12 +99,34 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       return
     }
 
+    // AD-50: PIC wajib diisi HANYA kalau campaign ini punya PIC yang di-assign admin — campaign
+    // lama/tanpa PIC sama sekali tidak kena validasi ini (backward compatible).
+    const assignedPics = await PicUser.find({ tenantId: tenant._id, campaignIds: campaign._id }).select('_id')
+    let validatedPicUserId: string | undefined
+    if (assignedPics.length > 0) {
+      const match = assignedPics.find((p) => String(p._id) === String(picUserId))
+      if (!match) {
+        res.status(400).json({ message: 'PIC/Partner wajib dipilih' })
+        return
+      }
+      validatedPicUserId = String(match._id)
+    }
+
     // Duplikat (nomor WA sama) → link ke Creator profile eksisting, bukan bikin baru
     let creator = await Creator.findOne({ tenantId: tenant._id, phone })
     if (!creator) {
+      // Nomor WA baru, tapi email-nya sudah dipakai akun lain — sama seperti publicCreator.routes.ts
+      if (email) {
+        const emailTaken = await Creator.findOne({ tenantId: tenant._id, email })
+        if (emailTaken) {
+          res.status(409).json({ message: 'Email ini sudah terdaftar dengan akun lain. Gunakan email lain, atau hubungi tim kami kalau ini email kamu.' })
+          return
+        }
+      }
       creator = await Creator.create({
         tenantId: tenant._id,
-        name, phone, gender, domicile,
+        name, phone, email, gender, domicile,
+        birthDate: birthDate ? new Date(birthDate) : undefined,
         socials: socials || [],
         activities: activities || [],
         niches: niches || [],
@@ -106,6 +134,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
         contentStyles: contentStyles || [],
         contentStyleOther,
         bankAccount, npwp, mediaKitUrl, portfolioLink,
+        address, postalCode, school,
         source: 'form',
       })
     }
@@ -127,6 +156,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       creatorId: creator._id,
       answers: answers || {},
       customAnswers: customAnswers || {},
+      picUserId: validatedPicUserId,
       curationResult: curation.result,
       curationReason: curation.reason,
       status: curation.autoRejected ? 'rejected' : 'pending',

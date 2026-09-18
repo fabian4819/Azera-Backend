@@ -21,6 +21,10 @@ export interface IApplication extends Document {
   status: ApplicationStatus
   decidedByUserId?: Types.ObjectId
   decidedAt?: Date
+  /** PIC/Handle-by yang "pegang" creator ini di campaign — harus salah satu PIC yang sudah
+   * di-assign ke campaign (lihat POST /:id/pic di campaign.routes.ts), divalidasi di
+   * application.routes.ts. Dipakai buat filter dashboard PIC portal per-creator, bukan cuma per-campaign. */
+  picUserId?: Types.ObjectId
   /** AD-25: pelacakan pembayaran ke creator — follow-up manual via admin, tanpa otomasi */
   creatorPaymentStatus: 'unpaid' | 'paid'
   createdAt: Date
@@ -47,6 +51,7 @@ const ApplicationSchema = new Schema<IApplication>(
     status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
     decidedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     decidedAt: Date,
+    picUserId: { type: Schema.Types.ObjectId, ref: 'PicUser' },
     creatorPaymentStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
   },
   { timestamps: true }

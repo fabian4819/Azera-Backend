@@ -52,6 +52,11 @@ export interface ICreator extends Document {
   mediaKitUrl?: string
   portfolioLink?: string
   photoUrl?: string
+  /** AD-50: dikumpulkan di apply-flow campaign (step profil) — dipakai buat kirim produk & data
+   * campaign yang butuh alamat fisik/almamater (mis. eligibility seragam sekolah/almet). */
+  address?: string
+  postalCode?: string
+  school?: string
   performanceScore: IPerformanceScore
   complianceStatus: ComplianceStatus
   sp1Until?: Date
@@ -102,6 +107,9 @@ const CreatorSchema = new Schema<ICreator>(
     mediaKitUrl: String,
     portfolioLink: String,
     photoUrl: String,
+    address: String,
+    postalCode: String,
+    school: String,
     performanceScore: {
       reliability: { type: Number, default: 0 },
       performance: { type: Number, default: 0 },

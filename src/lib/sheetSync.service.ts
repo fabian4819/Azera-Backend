@@ -1,11 +1,14 @@
+import { Types } from 'mongoose'
 import { ICreator, SocialPlatform } from '../modules/creators/creator.model'
 import { IApplication } from '../modules/applications/application.model'
+import Application from '../modules/applications/application.model'
 import { ISubmission } from '../modules/submissions/submission.model'
+import Submission from '../modules/submissions/submission.model'
 import Campaign from '../modules/campaigns/campaign.model'
 import Creator from '../modules/creators/creator.model'
-import Brand from '../models/Brand'
+import PicUser from '../modules/pic/pic.model'
 import SocialSnapshot, { ISocialSnapshot } from '../modules/extension/socialSnapshot.model'
-import { upsertCreatorRow, upsertApplicationRow, upsertSubmissionRow } from './googleSheets'
+import { upsertCreatorRow, upsertCampaignRow, CAMPAIGN_HEADERS_BASE } from './googleSheets'
 import { env } from '../config/env'
 
 const GENDER_LABELS: Record<string, string> = {
@@ -40,9 +43,8 @@ const PLATFORM_URL_PREFIX: Record<SocialPlatform, string> = {
   x: 'https://x.com/',
 }
 
-const fmtDate = (d?: Date) => (d ? d.toLocaleDateString('id-ID') : '')
-// ISO (yyyy-mm-dd) — dipakai khusus kolom Tanggal Daftar tab Creators, yang sync-nya pakai
-// valueInputOption USER_ENTERED supaya Sheets parse ini sebagai tipe Date beneran, bukan teks.
+// ISO (yyyy-mm-dd) — semua tab sekarang USER_ENTERED, jadi Sheets parse ini sebagai tipe
+// Date beneran, bukan teks.
 const fmtDateISO = (d?: Date) => (d ? d.toISOString().slice(0, 10) : '')
 
 const CREATOR_PLATFORMS: SocialPlatform[] = ['instagram', 'tiktok', 'threads', 'x']
@@ -124,37 +126,57 @@ export async function syncCreatorToSheet(creator: ICreator): Promise<void> {
   ])
 }
 
-export async function syncApplicationToSheet(application: IApplication): Promise<void> {
-  const campaign = await Campaign.findById(application.campaignId)
-  if (!campaign) return
-  const [brand, creator] = await Promise.all([
-    Brand.findById(campaign.brandId),
-    Creator.findById(application.creatorId),
+/** Application + Submission sekarang gabung jadi 1 baris per creator di 1 tab per campaign
+ * (bukan 2 tab terpisah) — jadi baik sync dari sisi Application maupun Submission harus
+ * nulis ulang baris LENGKAP (Application selalu ada duluan karena Submission cuma bisa
+ * dibuat creator yang sudah accepted; submission terbaru dipakai kalau lebih dari satu). */
+function formatCustomAnswer(v: string | string[] | undefined): string {
+  if (Array.isArray(v)) return v.join(', ')
+  return v || ''
+}
+
+async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {
+  const application = await Application.findOne({ tenantId, campaignId, creatorId })
+  if (!application) return
+  const [campaign, creator, latestSubmission, picUser] = await Promise.all([
+    Campaign.findById(campaignId),
+    Creator.findById(creatorId),
+    Submission.findOne({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 }),
+    application.picUserId ? PicUser.findById(application.picUserId).select('name') : null,
   ])
-  await upsertApplicationRow(campaign.name, String(application._id), [
-    brand?.namaBrand || '',
+  if (!campaign) return
+
+  // AD-50: kolom PIC/Partner + kolom per Campaign.customFields ditambah di belakang kolom dasar —
+  // beda-beda per campaign (customFields campaign lain isinya beda), makanya headers dibangun
+  // di sini, bukan konstanta tetap seperti CAMPAIGN_HEADERS_BASE.
+  const customFields = campaign.customFields || []
+  const headers = [...CAMPAIGN_HEADERS_BASE, 'PIC/Partner', ...customFields.map((f) => f.label)]
+
+  await upsertCampaignRow(campaign.name, String(application._id), [
     creator?.name || '',
+    creator?.phone || '',
     application.status,
     application.curationResult,
     application.creatorPaymentStatus,
-    fmtDate(application.createdAt),
-  ])
+    fmtDateISO(application.createdAt),
+    latestSubmission?.type || '',
+    latestSubmission?.platform || '',
+    latestSubmission?.link || '',
+    latestSubmission?.status || '',
+    latestSubmission?.parsedInsight?.views ?? '',
+    latestSubmission?.parsedInsight?.likes ?? '',
+    latestSubmission?.parsedInsight?.comments ?? '',
+    latestSubmission?.parsedInsight?.shares ?? '',
+    latestSubmission ? fmtDateISO(latestSubmission.createdAt) : '',
+    picUser?.name || '',
+    ...customFields.map((f) => formatCustomAnswer(application.customAnswers?.[f.id])),
+  ], headers)
 }
 
-export async function syncSubmissionToSheet(submission: ISubmission): Promise<void> {
-  const campaign = await Campaign.findById(submission.campaignId)
-  if (!campaign) return
-  const creator = await Creator.findById(submission.creatorId)
-  await upsertSubmissionRow(campaign.name, String(submission._id), [
-    creator?.name || '',
-    submission.type,
-    submission.platform,
-    submission.link || '',
-    submission.status,
-    submission.parsedInsight?.views ?? '',
-    submission.parsedInsight?.likes ?? '',
-    submission.parsedInsight?.comments ?? '',
-    submission.parsedInsight?.shares ?? '',
-    fmtDate(submission.createdAt),
-  ])
+export function syncApplicationToSheet(application: IApplication): Promise<void> {
+  return syncCampaignRow(application.tenantId, application.campaignId, application.creatorId)
+}
+
+export function syncSubmissionToSheet(submission: ISubmission): Promise<void> {
+  return syncCampaignRow(submission.tenantId, submission.campaignId, submission.creatorId)
 }

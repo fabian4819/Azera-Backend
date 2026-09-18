@@ -6,7 +6,7 @@ import CreatorHistory from './creatorHistory.model'
 import SocialSnapshot from '../extension/socialSnapshot.model'
 import { computePerformanceScore } from './performanceScore.service'
 import { syncCreatorToSheet } from '../../lib/sheetSync.service'
-import { getTabUrl } from '../../lib/googleSheets'
+import { getCreatorsTabUrl } from '../../lib/googleSheets'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -62,7 +62,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
 // di master spreadsheet (bukan per-creator), jadi ini bukan route :id. Ditaruh sebelum GET /:id
 // biar 'sheet-url' tidak ketangkep sebagai :id.
 router.get('/sheet-url', async (_req: AuthRequest, res: Response) => {
-  res.json({ url: await getTabUrl('Creators') })
+  res.json({ url: await getCreatorsTabUrl() })
 })
 
 // AD-21: profil creator + breakdown skor transparan (syarat klien: bisa diklik lihat sumbernya)

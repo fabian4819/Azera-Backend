@@ -7,9 +7,9 @@ import { google, sheets_v4 } from 'googleapis'
  * di-setup (env kosong), semua fungsi di sini jadi no-op diam-diam — supaya dev/deploy
  * tanpa kredensial Google tidak ikut rusak.
  *
- * Semuanya sync ke SATU spreadsheet tetap (GOOGLE_SHEETS_SPREADSHEET_ID, yang sama juga dipakai
- * Creators): tab "Creators", lalu satu tab "{Campaign} - Applications" & "{Campaign} - Submissions"
- * per campaign. BUKAN file terpisah per campaign — service account non-Workspace (akun Google
+ * Creator dan campaign memakai dua spreadsheet tetap: GOOGLE_SHEETS_SPREADSHEET_ID untuk tab
+ * "Creators", dan GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID untuk satu tab gabungan per campaign.
+ * BUKAN file terpisah per campaign — service account non-Workspace (akun Google
  * gratis) punya kuota storage Drive 0, jadi tidak bisa bikin FILE baru sama sekali (dicoba & gagal
  * dgn "storage quota exceeded" walau file diletakkan di folder yang di-share) — tapi MENAMBAH TAB
  * ke file yang sudah ada (dan sudah di-share Editor ke service account) tidak kena batasan itu.
@@ -31,8 +31,8 @@ export function creds() {
 }
 
 function sheetsEnabled(): boolean {
-  const { spreadsheetId, email, key } = creds()
-  return !!(spreadsheetId && email && key)
+  const { email, key } = creds()
+  return !!(email && key)
 }
 
 let sheetsClient: sheets_v4.Sheets | null = null
@@ -110,6 +110,7 @@ async function ensureTab(
  * ponytail: baca-lalu-tulis ini bukan atomik (race kalau 2 sync utk ID sama nyaris bersamaan) —
  * risiko rendah untuk data campaign/creator yang jarang berubah sub-detik, tidak ditambah locking. */
 async function upsertRow(
+  spreadsheetId: string | undefined,
   tab: string,
   headers: string[],
   id: string,
@@ -117,11 +118,10 @@ async function upsertRow(
   opts: { keyHeader?: string; valueInputOption?: 'RAW' | 'USER_ENTERED' } = {}
 ): Promise<void> {
   const sheets = getSheetsClient()
-  if (!sheets) return
-  const { spreadsheetId } = creds()
+  if (!sheets || !spreadsheetId) return
   const valueInputOption = opts.valueInputOption ?? 'RAW'
   try {
-    await ensureTab(sheets, spreadsheetId!, tab, headers, opts.keyHeader)
+    await ensureTab(sheets, spreadsheetId, tab, headers, opts.keyHeader)
     const col = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A2:A` })
     const ids = (col.data.values || []).map((r) => r[0])
     const idx = ids.indexOf(id)
@@ -181,37 +181,94 @@ export function creatorColIndex(header: string): number {
   return idx + 1
 }
 
-export const APPLICATION_HEADERS = ['Brand', 'Creator', 'Status', 'Hasil Kurasi', 'Status Pembayaran', 'Tanggal']
-export const SUBMISSION_HEADERS = ['Creator', 'Tipe', 'Platform', 'Link', 'Status', 'Views', 'Likes', 'Comments', 'Shares', 'Tanggal']
+// Application + Submission digabung jadi SATU tab per campaign (bukan 2 tab terpisah seperti
+// sebelumnya) di spreadsheet KHUSUS campaign (GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID — file beda
+// dari spreadsheet Creators), 1 baris per creator/application — sesuai contoh sheet operasional
+// tim ("Pigeon Teens": satu tab berisi data creator + tracking submission-nya sekaligus).
+// Kolom dasar yang selalu ada. Sync-caller (sheetSync.service.ts) menambah kolom PIC/Partner +
+// kolom per Campaign.customFields di belakangnya secara dinamis (beda-beda per campaign), makanya
+// upsertCampaignRow sekarang terima headers sebagai parameter, bukan konstanta tetap.
+export const CAMPAIGN_HEADERS_BASE = [
+  'Creator', 'WhatsApp', 'Status Aplikasi', 'Hasil Kurasi', 'Status Pembayaran', 'Tanggal Daftar',
+  'Tipe Submission', 'Platform', 'Link Submission', 'Status Submission',
+  'Views', 'Likes', 'Comments', 'Shares', 'Tanggal Submission',
+]
+
+function campaignSpreadsheetId(): string | undefined {
+  return process.env.GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID
+    || '1Vv7LHY4WmU510bQdjJfZRx4QwVXFpkOBF0Ucu2CKpKU'
+}
 
 // USER_ENTERED (bukan RAW) — perlu supaya HYPERLINK() di kolom medsos dievaluasi sebagai formula
 // (bukan teks literal "=HYPERLINK(...)") dan Tanggal Daftar (ISO yyyy-mm-dd) dikenali Sheets
 // sebagai tipe Date beneran, bukan teks.
 export function upsertCreatorRow(phone: string, row: (string | number)[]): Promise<void> {
-  return upsertRow('Creators', CREATOR_HEADERS, phone, row, { keyHeader: CREATOR_KEY_HEADER, valueInputOption: 'USER_ENTERED' })
-}
-
-export function upsertApplicationRow(campaignName: string, id: string, row: (string | number)[]): Promise<void> {
-  return upsertRow(`${campaignTabPrefix(campaignName)} - Applications`, APPLICATION_HEADERS, id, row)
-}
-
-export function upsertSubmissionRow(campaignName: string, id: string, row: (string | number)[]): Promise<void> {
-  return upsertRow(`${campaignTabPrefix(campaignName)} - Submissions`, SUBMISSION_HEADERS, id, row)
-}
-
-/** Link ke tab spesifik di master spreadsheet (buat tombol "Buka Sheet" di admin/PIC UI).
- * Kalau tab belum pernah disync (belum ada baris), balikin link ke spreadsheet tanpa #gid —
- * tab-nya baru dibuat begitu ada data pertama yang di-sync (lihat ensureTab di atas). */
-export async function getTabUrl(tab: string): Promise<string | null> {
-  const sheets = getSheetsClient()
   const { spreadsheetId } = creds()
-  if (!sheets || !spreadsheetId) return null
+  return upsertRow(spreadsheetId, 'Creators', CREATOR_HEADERS, phone, row, { keyHeader: CREATOR_KEY_HEADER, valueInputOption: 'USER_ENTERED' })
+}
+
+export function upsertCampaignRow(campaignName: string, id: string, row: (string | number)[], headers: string[]): Promise<void> {
+  return upsertRow(campaignSpreadsheetId(), campaignTabPrefix(campaignName), headers, id, row, { valueInputOption: 'USER_ENTERED' })
+}
+
+/** Link ke tab "Creators" di spreadsheet Creators (buat tombol "Buka Sheet" di admin Creators). */
+export function getCreatorsTabUrl(): Promise<string | null> {
+  const { spreadsheetId } = creds()
+  return getTabUrl(spreadsheetId, 'Creators')
+}
+
+/** Link ke tab campaign ini di spreadsheet mastersheet campaign (buat tombol "Buka Master Sheet"
+ * di CampaignDetail admin & dashboard PIC). */
+export function getCampaignTabUrl(campaignName: string): Promise<string | null> {
+  return getTabUrl(campaignSpreadsheetId(), campaignTabPrefix(campaignName))
+}
+
+/** Link ke tab spesifik di sebuah spreadsheet. Kalau tab belum pernah disync (belum ada baris),
+ * balikin link ke spreadsheet tanpa #gid — tab-nya baru dibuat begitu ada data pertama yang
+ * di-sync (lihat ensureTab di atas). */
+async function getTabUrl(spreadsheetId: string | undefined, tab: string): Promise<string | null> {
+  if (!spreadsheetId) return null
+  const baseUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
+  const sheets = getSheetsClient()
+  if (!sheets) return baseUrl
   try {
     const meta = await sheets.spreadsheets.get({ spreadsheetId })
     const gid = meta.data.sheets?.find((s) => s.properties?.title === tab)?.properties?.sheetId
-    return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit${gid != null ? `#gid=${gid}` : ''}`
+    return `${baseUrl}${gid != null ? `#gid=${gid}` : ''}`
   } catch (err) {
     console.error(`Sheets getTabUrl error [${tab}]:`, (err as Error).message)
-    return null
+    return baseUrl
   }
+}
+
+/** Resolve banyak link tab campaign dengan satu metadata request, untuk dashboard admin. */
+export async function getCampaignTabUrls(campaignNames: string[]): Promise<Record<string, string | null>> {
+  const spreadsheetId = campaignSpreadsheetId()
+  const result: Record<string, string | null> = {}
+  if (!spreadsheetId) {
+    for (const name of campaignNames) result[name] = null
+    return result
+  }
+
+  const baseUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
+  const sheets = getSheetsClient()
+  if (!sheets) {
+    for (const name of campaignNames) result[name] = baseUrl
+    return result
+  }
+
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId })
+    const gidByTitle = new Map(
+      (meta.data.sheets || []).map((sheet) => [sheet.properties?.title, sheet.properties?.sheetId])
+    )
+    for (const name of campaignNames) {
+      const gid = gidByTitle.get(campaignTabPrefix(name))
+      result[name] = `${baseUrl}${gid != null ? `#gid=${gid}` : ''}`
+    }
+  } catch (err) {
+    console.error('Sheets getCampaignTabUrls error:', (err as Error).message)
+    for (const name of campaignNames) result[name] = baseUrl
+  }
+  return result
 }

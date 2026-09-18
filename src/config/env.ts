@@ -25,6 +25,15 @@ export const env = {
 
   waNumber: process.env.WA_NUMBER || '',
 
+  // Link statis (bukan per-campaign) ke sheet operasional tim yang dikelola manual di luar
+  // platform — cuma ditampilkan sebagai tombol "Buka Sheet" di CampaignDetail admin, tidak ada
+  // sync data ke situ. Beda dari GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID (dibaca lewat googleSheets.ts,
+  // itu yang di-sync tiap Application/Submission berubah).
+  googleSheetsReportUrl: process.env.GOOGLE_SHEETS_REPORT_URL
+    || 'https://docs.google.com/spreadsheets/d/1PfrtlwPU44-ysxDNO_uFn62ujo9uemzTPqF4iqB3O_0/edit?usp=drive_link',
+  googleSheetsRecapPaymentUrl: process.env.GOOGLE_SHEETS_RECAP_PAYMENT_URL
+    || 'https://docs.google.com/spreadsheets/d/1HVxGnj0wIS6mAjWh-vCx6wED9xwZ2yEfV-PZn7D9Qw4/edit?usp=drive_link',
+
   resend: {
     apiKey: process.env.RESEND_API_KEY || '',
     fromEmail: process.env.RESEND_FROM_EMAIL || 'AzeraKOL <onboarding@resend.dev>',
