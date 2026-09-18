@@ -35,5 +35,14 @@ const WaChatMessageSchema = new Schema<IWaChatMessage>(
 
 withTenant(WaChatMessageSchema)
 WaChatMessageSchema.index({ tenantId: 1, bot: 1, jid: 1, createdAt: 1 })
+// Baileys kadang mengirim ulang event 'messages.upsert' yang sama (reconnect dsb) — tanpa index ini
+// pesan yang sama kecatat dobel jadi 2+ bubble identik di Inbox. partialFilterExpression (bukan
+// sparse) — sparse cuma exclude field yang HILANG, sedangkan sejumlah baris lama punya messageId
+// tersimpan literal `null` (bukan hilang), yang tetap ikut index kalau cuma sparse dan bentrok
+// sesama null. Filter $type 'string' exclude null & missing dua-duanya.
+WaChatMessageSchema.index(
+  { tenantId: 1, bot: 1, jid: 1, messageId: 1 },
+  { unique: true, partialFilterExpression: { messageId: { $type: 'string' } } }
+)
 
 export default mongoose.model<IWaChatMessage>('WaChatMessage', WaChatMessageSchema)

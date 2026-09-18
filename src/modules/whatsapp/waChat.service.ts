@@ -50,6 +50,31 @@ async function upsertWaContact(
   }
 }
 
+/** Insert WaChatMessage sekali per messageId — Baileys kadang mengirim ulang event
+ * 'messages.upsert' yang sama (reconnect dsb), tanpa ini pesan yang sama kecatat dobel jadi
+ * beberapa bubble identik di Inbox. Index unique+sparse {tenantId,bot,jid,messageId} di model
+ * yang menegakkan ini; di sini cukup tangkap duplicate-key (11000) dan anggap "sudah tercatat".
+ * Pesan tanpa messageId (jarang, tapi bisa) tetap diinsert apa adanya — tidak ada yang bisa
+ * dibandingkan buat dedupe. */
+async function insertChatMessageOnce(doc: {
+  tenantId: import('mongoose').Types.ObjectId
+  bot: BotId
+  jid: string
+  direction: WaChatDirection
+  text: string
+  messageId?: string
+  senderName?: string
+  senderPhone?: string
+}): Promise<boolean> {
+  try {
+    await WaChatMessage.create(doc)
+    return true
+  } catch (err) {
+    if (doc.messageId && (err as { code?: number }).code === 11000) return false
+    throw err
+  }
+}
+
 interface RecordIncomingOpts {
   messageId?: string
   /** Nama kontak (1:1) ATAU nama grup (subject) — jadi `WaContact.name` */
@@ -64,7 +89,8 @@ interface RecordIncomingOpts {
 export async function recordIncomingMessage(bot: BotId, jid: string, text: string, opts: RecordIncomingOpts = {}) {
   await connectDB()
   const tenant = await getDefaultTenant()
-  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId: opts.messageId, senderName: opts.senderName, senderPhone: opts.senderPhone })
+  const inserted = await insertChatMessageOnce({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId: opts.messageId, senderName: opts.senderName, senderPhone: opts.senderPhone })
+  if (!inserted) return // event duplikat dari Baileys — pesan sudah tercatat, jangan tambah unreadCount lagi
   await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
     {
@@ -83,7 +109,8 @@ export async function recordIncomingMessage(bot: BotId, jid: string, text: strin
 export async function recordOutgoingMessage(bot: BotId, jid: string, text: string, opts: { messageId?: string } = {}) {
   await connectDB()
   const tenant = await getDefaultTenant()
-  await WaChatMessage.create({ tenantId: tenant._id, bot, jid, direction: 'out', text, messageId: opts.messageId })
+  const inserted = await insertChatMessageOnce({ tenantId: tenant._id, bot, jid, direction: 'out', text, messageId: opts.messageId })
+  if (!inserted) return // event duplikat dari Baileys — pesan sudah tercatat
   await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
     {
