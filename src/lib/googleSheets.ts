@@ -62,12 +62,24 @@ async function ensureTab(
   spreadsheetId: string,
   tab: string,
   headers: string[],
-  keyHeader: string = 'ID'
+  keyHeader: string = 'ID',
+  strict: boolean = false
 ): Promise<void> {
   const key = `${spreadsheetId}:${tab}`
   if (ensuredTabs.has(key)) return
   const meta = await sheets.spreadsheets.get({ spreadsheetId })
   const existing = meta.data.sheets?.find((s) => s.properties?.title === tab)
+  // Di spreadsheet milik orang lain (jalur ekstensi), tab dengan nama yang sama
+  // bisa saja sudah dipakai untuk hal lain — dan `values.update` di bawah menimpa
+  // baris 1-nya tanpa tanya. Di mode strict: header asing = berhenti, jangan
+  // sentuh apa pun. Tab kosong/baru tetap boleh, itu memang milik kita.
+  if (strict && existing) {
+    const baris1 = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!1:1` })
+    const a1 = baris1.data.values?.[0]?.[0]
+    if (a1 && a1 !== keyHeader) {
+      throw new Error(`Tab "${tab}" di spreadsheet itu sudah dipakai untuk data lain. Ganti nama tab itu dulu, atau pakai spreadsheet lain.`)
+    }
+  }
   let sheetId = existing?.properties?.sheetId
   if (sheetId === undefined || sheetId === null) {
     const added = await sheets.spreadsheets.batchUpdate({
@@ -115,13 +127,18 @@ async function upsertRow(
   headers: string[],
   id: string,
   row: (string | number)[],
-  opts: { keyHeader?: string; valueInputOption?: 'RAW' | 'USER_ENTERED' } = {}
+  opts: { keyHeader?: string; valueInputOption?: 'RAW' | 'USER_ENTERED'; strict?: boolean } = {}
 ): Promise<void> {
   const sheets = getSheetsClient()
-  if (!sheets || !spreadsheetId) return
+  if (!sheets || !spreadsheetId) {
+    // Sync internal memang no-op diam-diam tanpa kredensial. Tapi kalau seseorang
+    // menempel link spreadsheet dan menekan Kirim, diam = dia mengira tercatat.
+    if (opts.strict) throw new Error('Sync Google Sheets belum dikonfigurasi di server AzeraKOL.')
+    return
+  }
   const valueInputOption = opts.valueInputOption ?? 'RAW'
   try {
-    await ensureTab(sheets, spreadsheetId, tab, headers, opts.keyHeader)
+    await ensureTab(sheets, spreadsheetId, tab, headers, opts.keyHeader, opts.strict)
     const col = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A2:A` })
     const ids = (col.data.values || []).map((r) => r[0])
     const idx = ids.indexOf(id)
@@ -150,8 +167,24 @@ async function upsertRow(
       })
     }
   } catch (err) {
+    if (opts.strict) throw new Error(pesanGoogle(err))
     console.error(`Sheets sync error [${tab}]:`, (err as Error).message)
   }
+}
+
+/** Error Google -> satu kalimat yang menyebut langkah berikutnya, bukan kode HTTP.
+ * 403 hampir selalu berarti spreadsheet-nya belum di-share ke service account —
+ * itu kegagalan paling sering di jalur ekstensi, jadi emailnya ikut disebut. */
+function pesanGoogle(err: unknown): string {
+  const e = err as { code?: number | string; message?: string }
+  const kode = Number(e?.code)
+  const email = creds().email || 'service account AzeraKOL'
+  if (kode === 403) {
+    return `Spreadsheet itu belum dibagikan ke ${email}. Buka spreadsheet -> Share -> tambahkan email itu sebagai Editor, lalu kirim lagi.`
+  }
+  if (kode === 404) return 'Spreadsheet tidak ditemukan. Cek linknya, atau filenya sudah dihapus.'
+  if (kode === 429) return 'Google sedang membatasi permintaan. Tunggu semenit, lalu kirim lagi.'
+  return e?.message || 'Gagal menulis ke spreadsheet.'
 }
 
 // Kolom A tab Creators BUKAN 'ID' generik, tapi WhatsApp (key bisnis yang manusia kenali &
@@ -271,4 +304,43 @@ export async function getCampaignTabUrls(campaignNames: string[]): Promise<Recor
     for (const name of campaignNames) result[name] = baseUrl
   }
   return result
+}
+
+/* ---------- spreadsheet milik pengguna (jalur ekstensi KOL Lister) ---------- */
+
+/** Terima link lengkap Google Sheets atau ID mentahnya. Selain itu: null. */
+export function parseSpreadsheetId(input: string): string | null {
+  const s = String(input || '').trim()
+  if (!s) return null
+  const m = s.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]{20,})/)
+  if (m) return m[1]
+  return /^[a-zA-Z0-9-_]{20,}$/.test(s) ? s : null
+}
+
+/** Spreadsheet operasional AzeraKOL sendiri. Pemegang token ekstensi tidak boleh
+ * menyuruh server menulis ke sana lewat field link — itu jalur untuk sheet campaign
+ * milik pengguna, bukan pintu belakang ke master sheet. */
+export function isMasterSpreadsheet(id: string): boolean {
+  return id === creds().spreadsheetId || id === campaignSpreadsheetId()
+}
+
+/**
+ * Satu baris ke spreadsheet yang linknya ditempel pengguna. Melempar kalau gagal
+ * (beda dari sync internal yang sengaja diam) — pengirimnya menunggu jawaban.
+ * Balikin link langsung ke tab-nya.
+ */
+export async function upsertExternalSheetRow(
+  spreadsheetId: string,
+  tab: string,
+  keyHeader: string,
+  headers: string[],
+  key: string,
+  row: (string | number)[]
+): Promise<string | null> {
+  await upsertRow(spreadsheetId, tab, headers, key, row, {
+    keyHeader,
+    valueInputOption: 'USER_ENTERED',
+    strict: true,
+  })
+  return getTabUrl(spreadsheetId, tab)
 }

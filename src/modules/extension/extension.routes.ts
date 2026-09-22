@@ -8,7 +8,11 @@ import { tryAutoTransition } from '../campaigns/workflow.service'
 import { requireExtensionToken, ExtRequest } from './extension.middleware'
 import CaptureIntent from './captureIntent.model'
 import SocialSnapshot from './socialSnapshot.model'
-import { ingestSnapshot, findSubmissionsByPostUrl, normalizePostUrl, AkunInput } from './extension.service'
+import {
+  ingestSnapshot, findSubmissionsByPostUrl, normalizePostUrl, AkunInput,
+  KOL_LISTER_TAB, KOL_LISTER_KEY_HEADER, KOL_LISTER_HEADERS, kolListerKey, kolListerRow,
+} from './extension.service'
+import { parseSpreadsheetId, isMasterSpreadsheet, upsertExternalSheetRow } from '../../lib/googleSheets'
 
 const router = Router()
 router.use(requireExtensionToken)
@@ -42,8 +46,33 @@ router.get('/ping', async (req: ExtRequest, res: Response) => {
 })
 
 /**
+ * Salin satu baris ke spreadsheet campaign yang linknya ditempel di panel ekstensi.
+ *
+ * Kegagalan di sini TIDAK pernah membatalkan ingest: data KOL-nya sudah masuk
+ * AzeraKOL, dan sheet cuma salinan untuk tim. Hasilnya dibalikin terpisah supaya
+ * panel bisa bilang "tersimpan, tapi sheet gagal karena X" — bukan menelannya
+ * diam-diam (orang yang menempel link ingin tahu barisnya benar-benar masuk).
+ */
+async function salinKeSheetPengguna(link: string, akun: AkunInput): Promise<{
+  ok: boolean; url?: string | null; error?: string
+}> {
+  const id = parseSpreadsheetId(link)
+  if (!id) return { ok: false, error: 'Link spreadsheet tidak dikenali. Tempel alamat lengkap docs.google.com/spreadsheets/d/...' }
+  if (isMasterSpreadsheet(id)) return { ok: false, error: 'Itu spreadsheet master AzeraKOL. Pakai spreadsheet campaign kamu sendiri.' }
+  try {
+    const url = await upsertExternalSheetRow(
+      id, KOL_LISTER_TAB, KOL_LISTER_KEY_HEADER, KOL_LISTER_HEADERS,
+      kolListerKey(akun), kolListerRow(akun)
+    )
+    return { ok: true, url }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
+}
+
+/**
  * Alur listing: kirim satu baris akun KOL. Body sama seperti KOL Lister:
- *   { mode:'kol', akun:{...snapshotRow}, campaign?, category? }
+ *   { mode:'kol', akun:{...snapshotRow}, campaign?, category?, sheet? }
  */
 router.post('/snapshots', async (req: ExtRequest, res: Response) => {
   try {
@@ -55,9 +84,13 @@ router.post('/snapshots', async (req: ExtRequest, res: Response) => {
     }
     const campaign = String(req.body.campaign || '').trim()
     const r = await ingestSnapshot(req.ext!.tenantId, req.ext!.userId, akun, { shortlistCampaign: campaign })
+    // Link kosong = alur lama persis: tidak ada satu pun panggilan ke Google.
+    const link = String(req.body.sheet || '').trim()
+    const sheet = link ? await salinKeSheetPengguna(link, akun) : undefined
     res.status(201).json({
       ok: true,
       mode: 'kol',
+      sheet,
       baru: r.isFirstSnapshot,
       campaignTarget: campaign || null,
       campaign: await activeCampaignNames(req.ext!.tenantId),

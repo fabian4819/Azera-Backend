@@ -251,3 +251,48 @@ export async function findSubmissionsByPostUrl(tenantId: string, postUrl: string
     .limit(300)
   return subs.filter((s) => s.link && normalizePostUrl(s.link) === target)
 }
+
+/* ---------- baris untuk spreadsheet campaign milik pengguna ---------- */
+
+/** Nama tab tetap. Inilah cara mengenali "sheet ini sudah pernah dipakai ekstensi":
+ * tab dengan nama ini + header kita di baris 1. Tab lain tidak pernah disentuh. */
+export const KOL_LISTER_TAB = 'KOL Lister'
+/** Kolom A = kunci baris. Ada dua gunanya: penanda tab ini milik ekstensi, dan
+ * kunci upsert — kirim ulang KOL yang sama memperbarui barisnya, bukan menumpuk. */
+export const KOL_LISTER_KEY_HEADER = 'KOL'
+
+export const KOL_LISTER_HEADERS = [
+  'Platform', 'Username', 'Nama', 'Profil',
+  'Followers', 'Following', 'Posts',
+  'Avg Likes', 'Avg Comments', 'Avg Views',
+  'ER %', 'Basis ER', 'Sampel Post', 'Post/Minggu',
+  'Verified', 'Diambil',
+]
+
+export function kolListerKey(akun: AkunInput): string {
+  return `${String(akun.platform || '').toLowerCase()}:${normalizeHandle(akun.username)}`
+}
+
+export function kolListerRow(akun: AkunInput): (string | number)[] {
+  const v = (n: unknown) => {
+    const x = num(n)
+    return x === undefined ? '' : x
+  }
+  // ER mengikuti basis yang dipakai panel: akun tanpa angka views dihitung dari
+  // likes+comments, yang pakai views dari views. Menyalin er_percent saja membuat
+  // kolomnya membandingkan dua hal berbeda tanpa ada yang bisa melihatnya.
+  const er = akun.er_basis === 'views' ? (num(akun.er_views_percent) ?? num(akun.er_percent)) : num(akun.er_percent)
+  return [
+    String(akun.platform || ''),
+    normalizeHandle(akun.username),
+    String(akun.name || ''),
+    String(akun.url || ''),
+    v(akun.followers), v(akun.following), v(akun.post_count),
+    v(akun.avg_likes), v(akun.avg_comments), v(akun.avg_views),
+    er === undefined ? '' : er,
+    String(akun.er_basis || ''),
+    v(akun.sample_posts), v(akun.per_minggu),
+    akun.verified ? 'ya' : '',
+    new Date().toISOString().slice(0, 16).replace('T', ' '),
+  ]
+}
