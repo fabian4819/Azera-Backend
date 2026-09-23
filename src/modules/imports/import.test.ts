@@ -32,6 +32,11 @@ const checked = checkSingleCampaign([mk('Ramadan', 'Brand A'), mk('ramadan ', 'b
 assert.deepStrictEqual(checked.map((r) => r.errors.length), [0, 0, 1, 1])
 
 async function main() {
+  // CSV: nilai harus tetap string mentah — exceljs default mengubah "12.500" jadi 12.5 dan tanggal jadi format US
+  const csv = await parseImportFile(Buffer.from('Nama Campaign,Brand,Nama Creator,Platform,Views,Tanggal Posting\nC,B,K,x,12.500,03-04-2026\n'), 'a.csv')
+  assert.strictEqual(csv.rows[0].views, 12500)
+  assert.strictEqual(csv.rows[0].postedAt, '2026-04-03T00:00:00.000Z')
+
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet('Data')
   ws.addRow(['Nama Campaign', 'Brand', 'Nama Creator', 'Platform', 'Views', 'Tanggal Posting', 'Fee Creator', 'Kolom Aneh'])
@@ -46,6 +51,8 @@ async function main() {
   assert.strictEqual(rows[1].platform, 'x')
   assert.strictEqual(rows[1].postedAt, '2026-08-18T00:00:00.000Z')
   assert.ok(rows.every((r) => r.errors.length === 0), JSON.stringify(rows.map((r) => r.errors)))
+  await assert.rejects(parseImportFile(Buffer.from('Foo,Bar\n1,2\n'), 'b.csv'), /Tidak ada kolom yang dikenali/)
+  await assert.rejects(parseImportFile(Buffer.from('Nama Campaign,Brand\n'), 'c.csv'), /tidak punya baris data/)
   console.log('import.test.ts OK')
 }
 main()

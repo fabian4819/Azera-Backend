@@ -3,7 +3,7 @@ import crypto from 'crypto'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { uploadSpreadsheet } from '../../middleware/upload'
-import { parseImportFile, validateRow, exactName, checkSingleCampaign, ImportRow } from './import.service'
+import { parseImportFile, fetchPublicSheetCsv, ImportInputError, validateRow, exactName, checkSingleCampaign, ImportRow } from './import.service'
 import Brand from '../../models/Brand'
 import Campaign from '../campaigns/campaign.model'
 import Creator from '../creators/creator.model'
@@ -23,11 +23,16 @@ function slugify(name: string): string {
 // AD-28: upload spreadsheet, preview hasil parsing SEBELUM commit ke database
 router.post('/preview', uploadSpreadsheet.single('file'), async (req: AuthRequest, res: Response) => {
   try {
-    if (!req.file) { res.status(400).json({ message: 'File wajib diupload' }); return }
-    const { rows, ignoredHeaders, sheetCount } = await parseImportFile(req.file.buffer, req.file.originalname)
+    // Sumber: file upload (multipart) ATAU link Google Sheets publik (JSON { url })
+    const link = typeof req.body?.url === 'string' ? req.body.url.trim() : ''
+    if (!req.file && !link) { res.status(400).json({ message: 'Upload file atau isi link Google Sheets' }); return }
+    const { rows, ignoredHeaders, sheetCount } = req.file
+      ? await parseImportFile(req.file.buffer, req.file.originalname)
+      : await parseImportFile(await fetchPublicSheetCsv(link), 'sheet.csv')
     const validCount = rows.filter((r) => r.errors.length === 0).length
     res.json({ rows, total: rows.length, validCount, ignoredHeaders, sheetCount })
   } catch (err) {
+    if (err instanceof ImportInputError) { res.status(400).json({ message: err.message }); return }
     res.status(500).json({ message: 'Gagal membaca file', error: (err as Error).message })
   }
 })

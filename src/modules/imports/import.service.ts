@@ -1,5 +1,6 @@
 import ExcelJS from 'exceljs'
 import { Readable } from 'stream'
+import { parseSpreadsheetId } from '../../lib/googleSheets'
 
 /**
  * AD-28: format row-based diusulkan & di-ACC klien 17 Agu 2026 — satu baris =
@@ -127,11 +128,38 @@ export function checkSingleCampaign(rows: ImportRow[]): ImportRow[] {
   return rows
 }
 
+export class ImportInputError extends Error {}
+
+const MAX_SHEET_BYTES = 10 * 1024 * 1024 // sama dengan batas upload file
+
+/**
+ * Ambil satu tab Google Sheets yang dibuka "Anyone with the link" sebagai CSV — tanpa kredensial.
+ * Yang dikirim ke Google cuma ID + gid hasil parsing, bukan URL mentah dari user (tidak ada SSRF).
+ */
+export async function fetchPublicSheetCsv(link: string): Promise<Buffer> {
+  const id = parseSpreadsheetId(link)
+  if (!id) throw new ImportInputError('Link Google Sheets tidak valid')
+  const gid = String(link).match(/[#&?]gid=(\d+)/)?.[1]
+  const url = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv${gid ? `&gid=${gid}` : ''}`
+
+  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(20_000) })
+  if (res.status === 404) throw new ImportInputError('Spreadsheet tidak ditemukan — cek lagi link-nya')
+  // Sheet privat: Google balas 401/403 atau redirect ke halaman login (HTML), bukan CSV
+  if (!res.ok || !res.headers.get('content-type')?.includes('text/csv')) {
+    throw new ImportInputError('Sheet belum dibuka untuk umum. Ubah akses ke "Anyone with the link" (Viewer), lalu coba lagi.')
+  }
+  const buf = Buffer.from(await res.arrayBuffer())
+  if (buf.length > MAX_SHEET_BYTES) throw new ImportInputError('Sheet terlalu besar (maks 10MB)')
+  return buf
+}
+
 async function loadWorkbook(buffer: Buffer, filename: string): Promise<{ worksheet: ExcelJS.Worksheet; sheetCount: number }> {
   const workbook = new ExcelJS.Workbook()
   if (filename.toLowerCase().endsWith('.csv')) {
     const stream = Readable.from(buffer)
-    const worksheet = await workbook.csv.read(stream)
+    // map identitas: biarkan semua nilai CSV tetap string mentah. Default exceljs menebak tipe —
+    // "12.500" jadi 12.5 dan "03-04-2026" dibaca format US (4 Maret) + geser zona waktu
+    const worksheet = await workbook.csv.read(stream, { map: (value: unknown) => value } as never)
     return { worksheet, sheetCount: 1 }
   }
   // exceljs's Buffer type defs lag behind Node's current Buffer generics — safe at runtime
@@ -186,5 +214,10 @@ export async function parseImportFile(buffer: Buffer, filename: string): Promise
     rows.push({ rowNumber, ...parsed, errors: validateRow(parsed) })
   })
 
+  // Tanpa ini halaman preview kosong total (tabel & peringatan cuma tampil kalau ada baris)
+  if (Object.keys(columnMap).length === 0) {
+    throw new ImportInputError(`Tidak ada kolom yang dikenali di baris 1${ignoredHeaders.length ? ` (terbaca: ${ignoredHeaders.slice(0, 6).join(', ')})` : ''}. Header harus seperti template: Nama Campaign, Brand, Nama Creator, Platform, ...`)
+  }
+  if (rows.length === 0) throw new ImportInputError('Sheet tidak punya baris data di bawah header')
   return { rows: checkSingleCampaign(rows), ignoredHeaders, sheetCount }
 }
