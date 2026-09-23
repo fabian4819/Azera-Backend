@@ -7,7 +7,7 @@ import Invoice from './invoice.model'
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
 
-function computeProfit(r: {
+export function computeProfit(r: {
   revenue: number; feeCreator: number; feePic: number; feeMg: number
   reimburse: number; ads: number; opex: number
 }): number {

@@ -153,8 +153,12 @@ CreatorSchema.virtual('age').get(function (this: ICreator) {
 
 withTenant(CreatorSchema)
 CreatorSchema.index({ tenantId: 1, phone: 1 }, { unique: true })
-// sparse: true — creator lama (source 'import') mungkin belum punya email, jangan sampai
-// dianggap "duplikat" satu sama lain gara-gara sama-sama tidak punya email.
-CreatorSchema.index({ tenantId: 1, email: 1 }, { unique: true, sparse: true })
+// Creator hasil import (source 'import') tidak punya email — jangan sampai dianggap "duplikat"
+// satu sama lain. Pakai partial, BUKAN sparse: sparse di index compound tetap mengindeks dokumen
+// selama salah satu field (tenantId) ada, jadi email kosong kedua kena E11000.
+CreatorSchema.index(
+  { tenantId: 1, email: 1 },
+  { unique: true, partialFilterExpression: { email: { $type: 'string' } }, name: 'tenantId_1_email_1_partial' }
+)
 
 export default mongoose.model<ICreator>('Creator', CreatorSchema)

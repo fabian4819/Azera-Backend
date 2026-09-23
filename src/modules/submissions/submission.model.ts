@@ -35,6 +35,8 @@ export interface ISubmission extends Document {
   status: SubmissionStatus
   revisionCount: number
   revisionNotes?: string
+  /** Tanggal konten tayang — saat ini cuma diisi dari import data historis (AD-28) */
+  postedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -60,6 +62,7 @@ const SubmissionSchema = new Schema<ISubmission>(
     status: { type: String, enum: ['submitted', 'approved', 'revision_requested'], default: 'submitted' },
     revisionCount: { type: Number, default: 0 },
     revisionNotes: String,
+    postedAt: Date,
   },
   { timestamps: true }
 )
