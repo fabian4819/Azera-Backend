@@ -5,7 +5,11 @@ import { SPK_INTRO, SPK_PASAL, QUOTATION_TERMS } from './templateText'
 
 /**
  * Template Quotation / Invoice / SPK — dibuat ulang dari Google Docs klien (24 Sep 2026).
- * Semua isian user WAJIB lewat esc(): HTML ini dirender Chromium (lib/pdf.ts).
+ * Satu template, dua mode:
+ * - 'pdf'  → HTML untuk Puppeteer (lib/pdf.ts)
+ * - 'edit' → HTML yang sama, tiap bagian [ ] jadi kotak isian langsung di dokumen
+ *            (dipakai editor admin di iframe; tanpa JS — lihat EDIT_CSP)
+ * Semua isian user WAJIB lewat esc() / helper F.
  */
 
 const ASSETS = path.join(__dirname, '../../../assets/documents')
@@ -29,6 +33,7 @@ const COMPANY = {
 }
 
 type Data = Record<string, unknown>
+export type RenderMode = 'pdf' | 'edit'
 
 export function esc(v: unknown): string {
   return String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
@@ -40,8 +45,9 @@ const n = (v: unknown) => {
   return Number.isFinite(x) ? x : 0
 }
 export const rp = (v: unknown) => `Rp${Math.round(n(v)).toLocaleString('id-ID')}`
-const obj = (v: unknown): Data => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Data) : {})
-const arr = (v: unknown): Data[] => (Array.isArray(v) ? v.map(obj) : [])
+const arr = (v: unknown): Data[] => (Array.isArray(v) ? v.map((x) => (x && typeof x === 'object' ? (x as Data) : {})) : [])
+const getPath = (o: unknown, p: string): unknown =>
+  p.split('.').reduce<unknown>((acc, k) => (acc && typeof acc === 'object' ? (acc as Data)[k] : undefined), o)
 
 const MONTHS = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember']
 const DAYS = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu']
@@ -56,15 +62,64 @@ export function dateID(v: unknown): string {
   return d ? `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}` : t(v)
 }
 
-type Item = Data & { qtyN: number; fee: number; amount: number }
-function items(v: unknown): Item[] {
-  return arr(v)
-    .filter((i) => String(i.name ?? '').trim())
-    .map((i) => {
-      const qtyN = i.qty === '' || i.qty === undefined || i.qty === null ? 1 : n(i.qty)
-      const fee = n(i.unitFee)
-      return { ...i, qtyN, fee, amount: qtyN * fee }
+/**
+ * Helper field per mode. `p` = path di data (mis. "client.company", "items.0.qty").
+ * Mode edit: data-k = path (dibaca editor), data-rerender = minta render ulang saat berubah
+ * (untuk teks turunan: hari/tanggal SPK, YA/TIDAK hak konten, mekanisme listing).
+ */
+function fields(d: Data, mode: RenderMode) {
+  const edit = mode === 'edit'
+  const v = (p: string) => getPath(d, p)
+  const inputVal = (p: string) => esc(v(p) ?? '')
+  return {
+    edit,
+    v,
+    text(p: string, ph: string, empty = '-') {
+      if (!edit) return t(v(p), empty)
+      return `<span class="fx" contenteditable="plaintext-only" data-k="${p}" data-ph="${esc(ph)}">${esc(v(p) ?? '')}</span>`
+    },
+    money(p: string, emptyPdf?: string) {
+      if (!edit) return emptyPdf !== undefined && !n(v(p)) ? emptyPdf : rp(v(p))
+      return `Rp<input class="fx num" type="number" min="0" data-k="${p}" data-kind="number" value="${inputVal(p)}" placeholder="0">`
+    },
+    int(p: string, ph = '1', emptyPdf = '1') {
+      if (!edit) return String(v(p) ?? '').trim() ? esc(v(p)) : emptyPdf
+      return `<input class="fx int" type="number" min="0" data-k="${p}" data-kind="number" value="${inputVal(p)}" placeholder="${esc(ph)}">`
+    },
+    date(p: string, empty = '-') {
+      if (!edit) return String(v(p) ?? '').trim() ? dateID(v(p)) : empty
+      return `<input class="fx" type="date" data-k="${p}" data-rerender value="${inputVal(p)}">`
+    },
+    select(p: string, options: [string, string][]) {
+      if (!edit) return esc(options.find(([val]) => val === v(p))?.[1] ?? options[0][1])
+      return `<select class="fx" data-k="${p}" data-rerender>${options.map(([val, label]) => `<option value="${esc(val)}"${val === v(p) ? ' selected' : ''}>${esc(label)}</option>`).join('')}</select>`
+    },
+    check(p: string) {
+      return edit ? `<input type="checkbox" data-k="${p}" data-kind="bool" data-rerender${v(p) === true ? ' checked' : ''}>` : ''
+    },
+    /** Salinan teks field lain (mis. nama klien di beberapa tempat) — ikut berubah saat mengetik */
+    mirror(p: string, empty: string) {
+      return edit ? `<span data-mirror="${p}" data-empty="${esc(empty)}">${t(v(p), esc(empty))}</span>` : t(v(p), esc(empty))
+    },
+    /** Angka hasil hitung (amount/subtotal/total) — dihitung ulang editor saat angka diubah */
+    calc(key: string, html: string) {
+      return edit ? `<span data-calc="${key}">${html}</span>` : html
+    },
+    /** Tombol tambah/hapus baris — cuma di mode edit */
+    action(name: string, label: string, i?: number) {
+      return edit ? `<button type="button" class="act" data-action="${name}"${i !== undefined ? ` data-i="${i}"` : ''}>${label}</button>` : ''
+    },
+  }
+}
+
+/** Baris item: PDF membuang baris tanpa nama; editor menampilkan semua (termasuk baris kosong baru) */
+function itemRows(d: Data, mode: RenderMode) {
+  return arr(d.items)
+    .map((it, i) => {
+      const qtyN = it.qty === '' || it.qty === undefined || it.qty === null ? 1 : n(it.qty)
+      return { i, it, qtyN, amount: qtyN * n(it.unitFee) }
     })
+    .filter((r) => mode === 'edit' || String(r.it.name ?? '').trim())
 }
 
 const BASE_CSS = `
@@ -74,6 +129,26 @@ const BASE_CSS = `
   .pb { break-before: page; }
   .nobreak { break-inside: avoid; }
 `
+
+/** Tampilan "kertas" + kotak isian untuk mode edit. Tanpa JS: CSP memblokir script di iframe editor. */
+const EDIT_CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data:; style-src 'unsafe-inline'">`
+const editCss = (pad: string) => `
+  html { background: #dcdce3; }
+  body { width: 210mm; min-height: 297mm; margin: 24px auto; padding: ${pad}; background: #fff; box-shadow: 0 2px 18px rgba(0,0,0,.18); }
+  .pb { height: 26px; margin: 14mm -18mm; background: #dcdce3; box-shadow: inset 0 6px 8px -6px rgba(0,0,0,.25), inset 0 -6px 8px -6px rgba(0,0,0,.25); }
+  .fx { background: #fff4bf; border-bottom: 1.5px dashed #c9a400; outline: none; font: inherit; color: inherit; padding: 0 2px; border-radius: 2px; }
+  .fx:focus { background: #ffe680; }
+  span.fx:empty::before { content: attr(data-ph); color: #9a7d10; font-style: italic; font-weight: normal; }
+  input.fx, select.fx { border: none; border-bottom: 1.5px dashed #c9a400; height: 1.6em; }
+  input.fx.num { width: 12ch; text-align: right; }
+  input.fx.int { width: 6ch; text-align: center; }
+  input[type=date].fx { width: 17ch; }
+  .act { font: 600 8pt system-ui, sans-serif; cursor: pointer; background: #ede9fe; border: 1px dashed #7c3aed; color: #5b21b6; padding: 2px 8px; border-radius: 4px; margin: 4px 2px; }
+  .act.del { padding: 0 6px; margin-left: 4px; }
+`
+function wrapHtml(mode: RenderMode, css: string, editPad: string, body: string) {
+  return `<!doctype html><html><head><meta charset="utf-8">${mode === 'edit' ? EDIT_CSP : ''}<style>${BASE_CSS}${css}${mode === 'edit' ? editCss(editPad) : ''}</style></head><body>${body}</body></html>`
+}
 
 const simpleFooter = (color: string) => `
   <div style="width:100%;font-family:'Times New Roman',serif;font-size:7.5pt;color:${color};padding:0 18mm;display:flex;justify-content:space-between;">
@@ -94,21 +169,23 @@ function letterhead(color: string, muted: string, title: string, titleBox: strin
   </div>`
 }
 
+export interface Rendered { html: string; pdf: PdfOptions }
+
 /* ------------------------------------------------------------------ INVOICE */
 
-export function renderInvoice(d: Data): { html: string; pdf: PdfOptions } {
+export function renderInvoice(d: Data, mode: RenderMode = 'pdf'): Rendered {
   const P = '#4b2fc4', L = '#f1eeff', LL = '#f8f7fc', M = '#666375', INK = '#111111'
-  const bill = obj(d.billTo)
-  const rows = items(d.items)
-  const subtotal = rows.reduce((s, i) => s + i.amount, 0)
+  const F = fields(d, mode)
+  const rows = itemRows(d, mode)
+  const subtotal = rows.reduce((s, r) => s + r.amount, 0)
   const discount = Math.min(n(d.discount), subtotal)
   const total = subtotal - discount
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}
+  const css = `
     body { color: ${INK}; }
     h3 { color: ${P}; font-size: 10pt; margin: 14px 0 6px; }
     .meta td { background: ${L}; padding: 8px 9px; width: 25%; vertical-align: top; border-right: 6px solid #fff; }
-    .meta small, .lbl { display: block; font-size: 7.5pt; font-weight: bold; color: ${M}; }
+    .meta small { display: block; font-size: 7.5pt; font-weight: bold; color: ${M}; }
     .meta b { font-size: 9pt; white-space: nowrap; }
     .box { border: 1px solid #d9d3f7; }
     .box td { padding: 10px; vertical-align: top; width: 50%; font-size: 8pt; color: ${M}; }
@@ -122,15 +199,16 @@ export function renderInvoice(d: Data): { html: string; pdf: PdfOptions } {
     .tot .grand td { background: ${P}; color: #fff; font-weight: bold; }
     .notes { font-size: 7.5pt; color: ${M}; }
     .pay td { border: 1px solid #d9d3f7; padding: 6px 9px; font-size: 9pt; }
-    .pay td.k { background: ${LL}; color: ${M}; font-size: 7.5pt; font-weight: bold; width: 45%; }
-  </style></head><body>
+    .pay td.k { background: ${LL}; color: ${M}; font-size: 7.5pt; font-weight: bold; width: 45%; }`
+
+  const body = `
     ${letterhead(P, M, 'INVOICE', `background:${P};color:#fff;font-size:17pt;font-weight:bold;width:210px;height:74px;display:flex;align-items:center;justify-content:center;`)}
 
     <table class="meta" style="margin-top:14px;"><tr>
-      <td><small>INVOICE NO.</small><b>${t(d.number)}</b></td>
-      <td><small>ISSUED DATE</small><b>${dateID(d.issueDate)}</b></td>
-      <td><small>DUE DATE</small><b>${dateID(d.dueDate)}</b></td>
-      <td><small>REFERENCE</small><b>${t(d.reference)}</b></td>
+      <td><small>INVOICE NO.</small><b>${F.text('number', 'otomatis saat disimpan')}</b></td>
+      <td><small>ISSUED DATE</small><b>${F.date('issueDate')}</b></td>
+      <td><small>DUE DATE</small><b>${F.date('dueDate')}</b></td>
+      <td><small>REFERENCE</small><b>${F.text('reference', 'Quotation / SPK No.')}</b></td>
     </tr></table>
 
     <h3>COMPANY INFORMATION</h3>
@@ -140,21 +218,26 @@ export function renderInvoice(d: Data): { html: string; pdf: PdfOptions } {
         <b>NPWP:</b> ${COMPANY.npwp}<br><b>Email:</b> ${COMPANY.email}<br><b>WhatsApp:</b> ${COMPANY.whatsapp}
       </td>
       <td>
-        <div class="h">BILL TO</div><div class="who">${t(bill.name)}</div>
-        <b>PIC:</b> ${t(bill.pic, '')}<br><b>NPWP:</b> ${t(bill.npwp, '')}<br><b>Contact:</b> ${t(bill.contact, '')}
+        <div class="h">BILL TO</div><div class="who">${F.text('billTo.name', 'Legal company / brand name')}</div>
+        <b>PIC:</b> ${F.text('billTo.pic', 'Nama PIC', '')}<br><b>NPWP:</b> ${F.text('billTo.npwp', 'NPWP', '')}<br><b>Contact:</b> ${F.text('billTo.contact', 'Telepon / email', '')}
       </td>
     </tr></table>
 
     <h3>INVOICE DETAILS</h3>
     <table class="it">
-      <tr><th style="width:7%">No.</th><th>Service / Description</th><th style="width:11%">Qty</th><th style="width:15%">Unit Fee</th><th style="width:17%">Amount</th></tr>
-      ${rows.map((i, k) => `<tr><td>${k + 1}</td><td class="d"><b>${t(i.name)}</b>${String(i.description ?? '').trim() ? `<small>${t(i.description)}</small>` : ''}</td><td>${i.qtyN}</td><td>${rp(i.fee)}</td><td>${rp(i.amount)}</td></tr>`).join('')}
+      <tr><th style="width:9%">No.</th><th>Service / Description</th><th style="width:11%">Qty</th><th style="width:17%">Unit Fee</th><th style="width:17%">Amount</th></tr>
+      ${rows.map((r, k) => `<tr>
+        <td>${k + 1}${F.action('del-item', '×', r.i)}</td>
+        <td class="d"><b>${F.text(`items.${r.i}.name`, 'Campaign / service name')}</b>${F.edit || String(r.it.description ?? '').trim() ? `<small>${F.text(`items.${r.i}.description`, 'Deliverables / periode / creator tier (opsional)', '')}</small>` : ''}</td>
+        <td>${F.int(`items.${r.i}.qty`)}</td><td>${F.money(`items.${r.i}.unitFee`)}</td><td>${F.calc(`amount.${r.i}`, rp(r.amount))}</td>
+      </tr>`).join('')}
     </table>
+    ${F.action('add-item', '+ Tambah baris')}
 
     <table class="tot" style="margin-top:12px;">
-      <tr><td>Subtotal Net</td><td style="text-align:right;font-weight:bold;">${rp(subtotal)}</td></tr>
+      <tr><td>Subtotal Net</td><td style="text-align:right;font-weight:bold;">${F.calc('subtotal', rp(subtotal))}</td></tr>
       ${discount > 0 ? `<tr><td>Discount</td><td style="text-align:right;font-weight:bold;">- ${rp(discount)}</td></tr>` : ''}
-      <tr class="grand"><td style="width:45%">TOTAL INVOICE</td><td style="text-align:right;font-size:14pt;">${rp(total)}</td></tr>
+      <tr class="grand"><td style="width:45%">TOTAL INVOICE</td><td style="text-align:right;font-size:14pt;">${F.calc('total', rp(total))}</td></tr>
     </table>
 
     <h3>NOTES</h3>
@@ -179,25 +262,25 @@ export function renderInvoice(d: Data): { html: string; pdf: PdfOptions } {
         <div style="color:${P};font-weight:bold;font-size:8.5pt;">AUTHORIZED BY</div>
         <div><b>${COMPANY.director}</b><div style="font-size:8pt;color:${M};">${COMPANY.name}</div></div>
       </div>
-    </div>
-  </body></html>`
+    </div>`
 
-  return { html, pdf: { footerTemplate: simpleFooter(M), headerTemplate: '<span></span>', margin: { top: '16mm', right: '18mm', bottom: '18mm', left: '18mm' } } }
+  return {
+    html: wrapHtml(mode, css, '16mm 18mm', body),
+    pdf: { footerTemplate: simpleFooter(M), headerTemplate: '<span></span>', margin: { top: '16mm', right: '18mm', bottom: '18mm', left: '18mm' } },
+  }
 }
 
 /* ---------------------------------------------------------------- QUOTATION */
 
-export function renderQuotation(d: Data): { html: string; pdf: PdfOptions } {
+export function renderQuotation(d: Data, mode: RenderMode = 'pdf'): Rendered {
   const P = '#4930b8', L = '#f3f0ff', LL = '#faf9fd', M = '#666674', INK = '#1c1c24'
-  const c = obj(d.client)
-  const cp = obj(d.campaign)
-  const ap = obj(d.approval)
-  const rows = items(d.items)
-  const total = rows.reduce((s, i) => s + i.amount, 0)
-  const bullet = (label: string, v: unknown) => `<div>➢&nbsp;&nbsp; ${label}: ${t(v)}</div>`
-  const pic = [c.picName, c.picPosition, c.picContact].map((v) => t(v)).join(' | ')
+  const F = fields(d, mode)
+  const rows = itemRows(d, mode)
+  const total = rows.reduce((s, r) => s + r.amount, 0)
+  const bullet = (label: string, p: string, ph: string) => `<div>➢&nbsp;&nbsp; ${label}: ${F.text(p, ph)}</div>`
+  const optDate = (p: string) => F.date(p, '&nbsp;')
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}
+  const css = `
     body { color: ${INK}; }
     h3 { color: ${P}; font-size: 8.5pt; margin: 12px 0 5px; }
     .meta td { background: ${L}; padding: 6px 9px; font-size: 9pt; border-bottom: 3px solid #fff; }
@@ -216,41 +299,47 @@ export function renderQuotation(d: Data): { html: string; pdf: PdfOptions } {
     .sign > div { flex: 1; padding: 10px; height: 130px; display: flex; flex-direction: column; justify-content: space-between; font-size: 9pt; }
     .sign > div + div { border-left: 1px solid #dcd6f5; }
     .sign .h { color: ${P}; font-weight: bold; font-size: 7.5pt; }
-    .sign .s { color: ${M}; }
-  </style></head><body>
+    .sign .s { color: ${M}; }`
+
+  const body = `
     ${letterhead(P, M, 'QUOTATION', `background:${P};color:#fff;font-size:15pt;font-weight:bold;padding:2px 6px;align-self:flex-start;`)}
 
     <div style="font-size:24pt;font-weight:bold;margin-top:20px;">KOL Campaign Quotation</div>
     <div style="color:${M};font-size:9pt;margin-bottom:8px;">Penawaran resmi untuk pelaksanaan campaign berdasarkan ruang lingkup dan ketentuan berikut.</div>
     <table class="meta">
-      <tr><td class="k">QUOTATION NO.</td><td><b>${t(d.number)}</b></td><td class="k">ISSUED DATE</td><td><b>${dateID(d.issueDate)}</b></td></tr>
-      <tr><td class="k">VALID UNTIL</td><td><b>${dateID(d.validUntil)}</b></td><td class="k">PREPARED BY</td><td>Business Development | <b>azerakol.id</b></td></tr>
+      <tr><td class="k">QUOTATION NO.</td><td><b>${F.text('number', 'otomatis saat disimpan')}</b></td><td class="k">ISSUED DATE</td><td><b>${F.date('issueDate')}</b></td></tr>
+      <tr><td class="k">VALID UNTIL</td><td><b>${F.date('validUntil')}</b></td><td class="k">PREPARED BY</td><td>Business Development | <b>azerakol.id</b></td></tr>
     </table>
 
     <h3>CLIENT INFORMATION</h3>
     <table class="info">
-      <tr><td class="k">COMPANY / BRAND</td><td>${t(c.company)}</td></tr>
-      <tr><td class="k">ADDRESS</td><td>${t(c.address)}</td></tr>
-      <tr><td class="k">PIC</td><td>${pic}</td></tr>
-      <tr><td class="k">TAX INFORMATION</td><td>${t(c.tax)}</td></tr>
+      <tr><td class="k">COMPANY / BRAND</td><td>${F.text('client.company', 'Legal company name / brand name')}</td></tr>
+      <tr><td class="k">ADDRESS</td><td>${F.text('client.address', 'Complete company address')}</td></tr>
+      <tr><td class="k">PIC</td><td>${F.text('client.picName', 'Full name')} | ${F.text('client.picPosition', 'Position')} | ${F.text('client.picContact', 'Phone / Email')}</td></tr>
+      <tr><td class="k">TAX INFORMATION</td><td>${F.text('client.tax', 'NPWP / Non-NPWP')}</td></tr>
     </table>
 
     <h3>CAMPAIGN INFORMATION</h3>
     <table class="info">
-      <tr><td class="k">CAMPAIGN</td><td>${t(cp.name)}</td></tr>
-      <tr><td class="k">PERIOD</td><td>${bullet('Campaign period', cp.period)}${bullet('Expected posting date', cp.postingDate)}</td></tr>
-      <tr><td class="k">CREATOR CRITERIA</td><td>${bullet('Tier Followers', cp.tier)}${bullet('Platform', cp.platform)}${bullet('Niche', cp.niche)}${bullet('Demographic', cp.demographic)}</td></tr>
+      <tr><td class="k">CAMPAIGN</td><td>${F.text('campaign.name', 'Campaign / Product Name')}</td></tr>
+      <tr><td class="k">PERIOD</td><td>${bullet('Campaign period', 'campaign.period', '1–31 Oktober 2026')}${bullet('Expected posting date', 'campaign.postingDate', '10–20 Oktober 2026')}</td></tr>
+      <tr><td class="k">CREATOR CRITERIA</td><td>${bullet('Tier Followers', 'campaign.tier', 'Nano (1K–10K)')}${bullet('Platform', 'campaign.platform', 'TikTok, Instagram')}${bullet('Niche', 'campaign.niche', 'Niche')}${bullet('Demographic', 'campaign.demographic', 'Wanita 20–35, Jawa Tengah')}</td></tr>
       <tr><td class="k">APPROVAL</td><td>Pemilihan final KOL akan dikonfirmasi melalui approval sheet yang telah disepakati.</td></tr>
     </table>
 
     <h3>SCOPE OF WORK AND INVESTMENT</h3>
     <table class="it">
-      <tr><th style="width:11%">No.</th><th>Service / Deliverables</th><th style="width:12%">Qty</th><th style="width:15%">Net Unit Fee</th><th style="width:15%">Net Amount</th></tr>
-      ${rows.map((i, k) => `<tr><td>${k + 1}</td><td class="d"><b>${t(i.name)}</b>${String(i.sow ?? '').trim() ? `<br>SOW: ${t(i.sow)}` : ''}</td><td>${i.qtyN}</td><td>${rp(i.fee)}</td><td>${rp(i.amount)}</td></tr>`).join('')}
+      <tr><th style="width:11%">No.</th><th>Service / Deliverables</th><th style="width:11%">Qty</th><th style="width:17%">Net Unit Fee</th><th style="width:15%">Net Amount</th></tr>
+      ${rows.map((r, k) => `<tr>
+        <td>${k + 1}${F.action('del-item', '×', r.i)}</td>
+        <td class="d"><b>${F.text(`items.${r.i}.name`, 'KOL tier and activation service')}</b>${F.edit || String(r.it.sow ?? '').trim() ? `<br>SOW: ${F.text(`items.${r.i}.sow`, 'e.g. 1x TikTok Video + IG Reels Mirror', '')}` : ''}</td>
+        <td>${F.int(`items.${r.i}.qty`)}</td><td>${F.money(`items.${r.i}.unitFee`)}</td><td>${F.calc(`amount.${r.i}`, rp(r.amount))}</td>
+      </tr>`).join('')}
     </table>
+    ${F.action('add-item', '+ Tambah baris')}
     <table style="width:60%;margin-top:4px;">
-      <tr><td style="color:${M};font-size:8pt;padding:4px 8px;">Subtotal Net Campaign Fee</td><td style="text-align:right;font-weight:bold;padding:4px 8px;">${rp(total)}</td></tr>
-      <tr style="background:${P};color:#fff;font-weight:bold;"><td style="padding:8px;font-size:9pt;">TOTAL NET CAMPAIGN FEE</td><td style="text-align:right;padding:8px;font-size:14pt;">${rp(total)}</td></tr>
+      <tr><td style="color:${M};font-size:8pt;padding:4px 8px;">Subtotal Net Campaign Fee</td><td style="text-align:right;font-weight:bold;padding:4px 8px;">${F.calc('subtotal', rp(total))}</td></tr>
+      <tr style="background:${P};color:#fff;font-weight:bold;"><td style="padding:8px;font-size:9pt;">TOTAL NET CAMPAIGN FEE</td><td style="text-align:right;padding:8px;font-size:14pt;">${F.calc('total', rp(total))}</td></tr>
     </table>
     <p style="font-size:7.8pt;color:${M};margin-top:8px;text-align:justify;"><b style="color:${P}">Catatan Pajak.</b> ${QUOTATION_TERMS.find((x) => x.title === 'Pajak')?.text ?? ''}</p>
 
@@ -265,25 +354,24 @@ export function renderQuotation(d: Data): { html: string; pdf: PdfOptions } {
       <div style="font-size:14pt;font-weight:bold;margin-top:14px;">Approval</div>
       <div style="color:${M};font-size:9pt;margin:4px 0 8px;">Dengan menandatangani bagian di bawah ini, kedua pihak menyatakan telah membaca, memahami, dan menyetujui quotation ini beserta seluruh ketentuannya.</div>
       <div class="sign">
-        <div><span class="h">PROPOSED BY</span><div><b>${COMPANY.director}</b><div class="s">${COMPANY.name}</div><div class="s">${String(ap.proposedDate ?? '').trim() ? dateID(ap.proposedDate) : '&nbsp;'}</div></div></div>
-        <div><span class="h">APPROVED BY</span><div><b>${t(ap.approverName, '&nbsp;')}</b><div class="s">${t(ap.approverCompany ?? c.company, '&nbsp;')}</div><div class="s">${String(ap.approvedDate ?? '').trim() ? dateID(ap.approvedDate) : '&nbsp;'}</div></div></div>
+        <div><span class="h">PROPOSED BY</span><div><b>${COMPANY.director}</b><div class="s">${COMPANY.name}</div><div class="s">${optDate('approval.proposedDate')}</div></div></div>
+        <div><span class="h">APPROVED BY</span><div><b>${F.text('approval.approverName', 'Nama penyetuju (opsional)', '&nbsp;')}</b><div class="s">${F.text('approval.approverCompany', 'Perusahaan', '&nbsp;')}</div><div class="s">${optDate('approval.approvedDate')}</div></div></div>
       </div>
-    </div>
-  </body></html>`
+    </div>`
 
-  return { html, pdf: { footerTemplate: simpleFooter(M), headerTemplate: '<span></span>', margin: { top: '16mm', right: '16mm', bottom: '18mm', left: '16mm' } } }
+  return {
+    html: wrapHtml(mode, css, '16mm 16mm', body),
+    pdf: { footerTemplate: simpleFooter(M), headerTemplate: '<span></span>', margin: { top: '16mm', right: '16mm', bottom: '18mm', left: '16mm' } },
+  }
 }
 
 /* ---------------------------------------------------------------------- SPK */
 
-export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
+export function renderSpk(d: Data, mode: RenderMode = 'pdf'): Rendered {
   const P = '#6f2c91', D = '#43205c', L = '#f3ebf7', INK = '#25212a', M = '#6c6670'
-  const c = obj(d.client)
-  const l1 = obj(d.lampiran1)
-  const r = obj(d.rights)
-  const l2 = obj(d.lampiran2)
+  const F = fields(d, mode)
   const sd = parseDate(d.signDate)
-  const clientName = t(c.company, '[NAMA BADAN USAHA KLIEN]')
+  const client = F.mirror('client.company', '[NAMA BADAN USAHA KLIEN]')
 
   const kv = (rows: [string, string][], head: [string, string], headColor = P) => `
     <table class="kv">
@@ -295,19 +383,17 @@ export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
       <div style="background:${color};color:#fff;font-weight:bold;font-size:9pt;padding:3px 0;">${title}</div>
       <table class="kv">${rows.map(([k, v]) => `<tr><td class="k" style="width:27%">${k}</td><td>${v}</td></tr>`).join('')}</table>
     </div>`
-  const right = (key: string, extra: (x: Data) => string) => {
-    const x = obj(r[key])
-    return x.enabled === true || x.enabled === 'YA' ? `YA${extra(x)}` : 'TIDAK'
+  /** Baris hak konten: centang = YA + isian detail; tidak dicentang = "TIDAK" */
+  const right = (key: string, extra: [string, string, string][]) => {
+    const on = F.v(`rights.${key}.enabled`) === true
+    const detail = on ? extra.map(([label, sub, ph]) => ` - ${label}: ${F.text(`rights.${key}.${sub}`, ph)}`).join('') : ''
+    return `${F.check(`rights.${key}.enabled`)} ${on ? 'YA' : 'TIDAK'}${detail}`
   }
-  const mechanism = l1.mechanism === 'tanpa' ? 'TANPA APPROVAL INDIVIDUAL KLIEN' : 'DENGAN APPROVAL KLIEN'
-  const fullListingApproval = l1.mechanism === 'tanpa'
-    ? 'Tidak berlaku karena menggunakan mekanisme tanpa approval individual'
-    : 'Maksimal 3 (tiga) Hari Kerja'
-  const termin = (x: Data) => `${t(x.percent)}% / ${rp(x.amount)} - jatuh tempo ${String(x.due ?? '').match(/^\d{4}-/) ? dateID(x.due) : t(x.due)}`
-  const biayaTambahan = n(l2.additionalFee) > 0 ? rp(l2.additionalFee) : 'Tidak Ada'
-  const totalTagihan = n(l2.serviceFee) + n(l2.additionalFee)
+  const tanpa = F.v('lampiran1.mechanism') === 'tanpa'
+  const termin = (p: string) => `${F.int(`${p}.percent`, '50', '-')}% / ${F.money(`${p}.amount`)} - jatuh tempo ${F.text(`${p}.due`, 'tanggal / keterangan')}`
+  const spkTotal = n(F.v('lampiran2.serviceFee')) + n(F.v('lampiran2.additionalFee'))
 
-  const html = `<!doctype html><html><head><meta charset="utf-8"><style>${BASE_CSS}
+  const css = `
     body { color: ${INK}; font-size: 10.5pt; line-height: 1.6; }
     .c { text-align: center; }
     p.j { text-align: justify; margin-top: 8px; }
@@ -321,18 +407,25 @@ export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
     .pasal li > span.num { position: absolute; left: -28px; }
     .pasal li p { margin-top: 5px; }
     .lamp { color: ${P}; font-size: 13pt; font-weight: bold; }
-    .hl { background: #fff2cc; }
-  </style></head><body>
+    .hl { background: #fff2cc; }`
+
+  const body = `
     <div class="c" style="color:${D};font-size:18pt;font-weight:bold;">PERJANJIAN KERJA SAMA</div>
     <div class="c" style="color:${P};font-size:13pt;font-weight:bold;">JASA KOL MANAGEMENT</div>
-    <div class="c" style="color:${M};font-weight:bold;font-size:10pt;">Nomor: ${t(d.number)}</div>
+    <div class="c" style="color:${M};font-weight:bold;font-size:10pt;">Nomor: ${F.text('number', 'otomatis saat disimpan')}</div>
 
     <p class="j" style="margin-top:16px;">Pada hari ini, ${sd ? DAYS[sd.getUTCDay()] : '-'}, tanggal ${sd ? sd.getUTCDate() : '-'} bulan ${sd ? MONTHS[sd.getUTCMonth()] : '-'} tahun ${sd ? sd.getUTCFullYear() : '-'}, Para Pihak yang bertanda tangan di bawah ini menerangkan dan menyepakati hal-hal sebagai berikut:</p>
 
     ${party('PIHAK PERTAMA', P, [['Nama Perusahaan', 'PT AZERA CREATOR NETWORK'], ['Diwakili oleh', COMPANY.director], ['Jabatan', 'Direktur'], ['Alamat', 'Gedung Sovoism, Jl. Dr. Cipto No. 20, Bugangan, Semarang Timur, Kota Semarang'], ['NPWP', COMPANY.npwp]])}
     <p class="j" style="margin-top:4px;">Dalam hal ini bertindak secara sah untuk dan atas nama ${COMPANY.name}, selanjutnya disebut PIHAK PERTAMA.</p>
-    ${party('PIHAK KEDUA', D, [['Nama Perusahaan', clientName], ['Diwakili oleh', t(c.signer)], ['Jabatan', t(c.position)], ['Alamat', t(c.address)], ['NPWP', t(c.npwp)]])}
-    <p class="j" style="margin-top:4px;">Dalam hal ini bertindak secara sah untuk dan atas nama ${clientName}, selanjutnya disebut PIHAK KEDUA.</p>
+    ${party('PIHAK KEDUA', D, [
+      ['Nama Perusahaan', F.text('client.company', 'Nama badan usaha klien')],
+      ['Diwakili oleh', F.text('client.signer', 'Nama penandatangan')],
+      ['Jabatan', F.text('client.position', 'Jabatan')],
+      ['Alamat', F.text('client.address', 'Alamat lengkap')],
+      ['NPWP', F.text('client.npwp', 'NPWP')],
+    ])}
+    <p class="j" style="margin-top:4px;">Dalam hal ini bertindak secara sah untuk dan atas nama ${client}, selanjutnya disebut PIHAK KEDUA.</p>
     ${SPK_INTRO.map((x) => `<p class="j">${esc(x)}</p>`).join('')}
 
     ${SPK_PASAL.map((ps, pi) => `
@@ -342,12 +435,12 @@ export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
       </div>`).join('')}
 
     <div class="nobreak" style="margin-top:18px;">
-      <div class="c" style="color:${D};font-weight:bold;">${t(d.city, '[KOTA]')}, ${sd ? dateID(d.signDate) : '[TANGGAL PENANDATANGANAN]'}</div>
+      <div class="c" style="color:${D};font-weight:bold;">${F.text('city', 'Kota', '[KOTA]')}, ${F.edit ? F.date('signDate') : sd ? dateID(d.signDate) : '[TANGGAL PENANDATANGANAN]'}</div>
       <table style="margin-top:14px;text-align:center;color:${D};font-weight:bold;font-size:10pt;">
         <tr><td style="width:50%">PIHAK PERTAMA</td><td>PIHAK KEDUA</td></tr>
-        <tr><td>PT AZERA CREATOR NETWORK</td><td>${clientName}</td></tr>
+        <tr><td>PT AZERA CREATOR NETWORK</td><td>${client}</td></tr>
         <tr><td style="height:110px;"></td><td></td></tr>
-        <tr><td style="color:${INK}">${COMPANY.director}<br>Direktur</td><td style="color:${INK}">${t(c.signer)}<br>${t(c.position)}</td></tr>
+        <tr><td style="color:${INK}">${COMPANY.director}<br>Direktur</td><td style="color:${INK}">${F.mirror('client.signer', '[NAMA PENANDATANGAN]')}<br>${F.mirror('client.position', '[JABATAN]')}</td></tr>
       </table>
     </div>
 
@@ -355,33 +448,33 @@ export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
     <div class="c lamp">LAMPIRAN 1</div>
     <div class="c" style="color:${D};font-weight:bold;margin-bottom:12px;">DETAIL CAMPAIGN DAN RUANG LINGKUP</div>
     ${kv([
-      ['Nama Campaign', t(l1.campaignName)],
-      ['Brand/Produk', t(l1.brandProduct)],
-      ['Periode', `${dateID(l1.periodStart)} s.d. ${dateID(l1.periodEnd)}`],
-      ['Platform', t(l1.platform)],
-      ['Target KOL', t(l1.targetKol)],
-      ['Referensi Sample List', t(l1.sampleList)],
-      ['Status Sample', `Telah disetujui melalui ${t(l1.sampleApprovedVia)} pada ${dateID(l1.sampleApprovedDate)}`],
-      ['Mekanisme Pemilihan Full Listing', mechanism],
-      ['Approval Full Listing', fullListingApproval],
+      ['Nama Campaign', F.text('lampiran1.campaignName', 'Nama campaign')],
+      ['Brand/Produk', F.text('lampiran1.brandProduct', 'Nama brand / produk')],
+      ['Periode', `${F.date('lampiran1.periodStart')} s.d. ${F.date('lampiran1.periodEnd')}`],
+      ['Platform', F.text('lampiran1.platform', 'TikTok / Instagram / X / Threads / Lainnya')],
+      ['Target KOL', F.text('lampiran1.targetKol', 'Jumlah, tier, domisili, niche, kriteria')],
+      ['Referensi Sample List', F.text('lampiran1.sampleList', 'Tautan sample list')],
+      ['Status Sample', `Telah disetujui melalui ${F.text('lampiran1.sampleApprovedVia', 'WhatsApp / Email / Media lain')} pada ${F.date('lampiran1.sampleApprovedDate')}`],
+      ['Mekanisme Pemilihan Full Listing', F.select('lampiran1.mechanism', [['dengan', 'DENGAN APPROVAL KLIEN'], ['tanpa', 'TANPA APPROVAL INDIVIDUAL KLIEN']])],
+      ['Approval Full Listing', tanpa ? 'Tidak berlaku karena menggunakan mekanisme tanpa approval individual' : 'Maksimal 3 (tiga) Hari Kerja'],
       ['Approval Draft Materi Konten', 'Maksimal 3 (tiga) Hari Kerja sejak materi diterima'],
-      ['Deliverables', t(l1.deliverables)],
-      ['Aktivitas Tambahan', t(l1.extraActivities, 'Tidak Ada')],
-      ['Masa Tayang', t(l1.airingDuration)],
-      ['Revisi Termasuk', t(l1.revisions)],
-      ['Insight & Laporan', t(l1.reporting)],
-      ['PIC Azera', t(l1.picAzera)],
-      ['PIC Klien', t(l1.picClient)],
+      ['Deliverables', F.text('lampiran1.deliverables', 'Jumlah dan jenis konten per KOL')],
+      ['Aktivitas Tambahan', F.text('lampiran1.extraActivities', 'Visit / Live / Event / Product delivery (kosong = Tidak Ada)', 'Tidak Ada')],
+      ['Masa Tayang', F.text('lampiran1.airingDuration', 'Durasi konten wajib tetap tayang')],
+      ['Revisi Termasuk', F.text('lampiran1.revisions', 'Jumlah revisi / batasan')],
+      ['Insight & Laporan', F.text('lampiran1.reporting', 'Metrik, format, dan deadline')],
+      ['PIC Azera', F.text('lampiran1.picAzera', 'Nama | Email | WhatsApp')],
+      ['PIC Klien', F.text('lampiran1.picClient', 'Nama | Email | WhatsApp')],
     ], ['KOMPONEN', 'KETERANGAN'])}
 
     <div class="nobreak">
       <div style="color:${D};margin:14px 0 8px;">HAK PENGGUNAAN KONTEN</div>
       ${kv([
-        ['Repost organic di akun brand', right('repost', (x) => ` - Durasi: ${t(x.duration)} - Platform: ${t(x.platform)}`)],
-        ['Paid media / ads', right('paidAds', (x) => ` - Durasi: ${t(x.duration)} - Wilayah: ${t(x.region)}`)],
-        ['Whitelisting / code boost', right('whitelisting', (x) => ` - Durasi: ${t(x.duration)}`)],
-        ['Editing/cutdown', right('editing', (x) => ` - Batasan: ${t(x.limit)}`)],
-        ['Exclusivity', right('exclusivity', (x) => ` - Kategori: ${t(x.category)} - Durasi: ${t(x.duration)}`)],
+        ['Repost organic di akun brand', right('repost', [['Durasi', 'duration', 'durasi'], ['Platform', 'platform', 'platform']])],
+        ['Paid media / ads', right('paidAds', [['Durasi', 'duration', 'durasi'], ['Wilayah', 'region', 'wilayah']])],
+        ['Whitelisting / code boost', right('whitelisting', [['Durasi', 'duration', 'durasi']])],
+        ['Editing/cutdown', right('editing', [['Batasan', 'limit', 'batasan']])],
+        ['Exclusivity', right('exclusivity', [['Kategori', 'category', 'kategori'], ['Durasi', 'duration', 'durasi']])],
       ], ['JENIS HAK', 'KETENTUAN'], D)}
     </div>
 
@@ -389,14 +482,14 @@ export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
     <div class="c lamp">LAMPIRAN 2</div>
     <div class="c" style="color:${D};font-weight:bold;margin-bottom:12px;">NILAI KERJA SAMA DAN PEMBAYARAN</div>
     ${kv([
-      ['Nilai Jasa', rp(l2.serviceFee)],
-      ['Biaya Tambahan', biayaTambahan],
-      ['Total Tagihan', rp(totalTagihan)],
-      ['Termin 1', termin(obj(l2.termin1))],
-      ['Termin 2', termin(obj(l2.termin2))],
-      ['Termin Lain', t(l2.otherTermin, 'Tidak Ada')],
-      ['Biaya Pembatalan', t(l2.cancellationFee)],
-      ['Ketentuan standar yang dikecualikan', t(l2.exceptions, 'Tidak Ada')],
+      ['Nilai Jasa', F.money('lampiran2.serviceFee')],
+      ['Biaya Tambahan', F.money('lampiran2.additionalFee', 'Tidak Ada')],
+      ['Total Tagihan', F.calc('spkTotal', rp(spkTotal))],
+      ['Termin 1', termin('lampiran2.termin1')],
+      ['Termin 2', termin('lampiran2.termin2')],
+      ['Termin Lain', F.text('lampiran2.otherTermin', 'Jika ada (kosong = Tidak Ada)', 'Tidak Ada')],
+      ['Biaya Pembatalan', F.text('lampiran2.cancellationFee', 'Rumus/persentase + biaya yang sudah timbul')],
+      ['Ketentuan standar yang dikecualikan', F.text('lampiran2.exceptions', 'Sebutkan pasal & ketentuan penggantinya (kosong = Tidak Ada)', 'Tidak Ada')],
     ], ['KOMPONEN', 'NILAI / KETENTUAN'])}
     <p class="j" style="font-size:8pt;color:${D};margin-top:4px;line-height:1.5;"><b>Ketentuan Khusus Campaign:</b> Apabila terdapat penyimpangan dari ketentuan standar dalam Perjanjian, setiap penyimpangan harus menyebut nomor pasal yang digantikan serta ketentuan penggantinya. Jika bagian ini tidak diisi atau dinyatakan “Tidak Ada”, seluruh ketentuan standar dalam Perjanjian tetap berlaku.</p>
 
@@ -409,11 +502,10 @@ export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
     <div style="color:${D};margin-top:14px;">ALAMAT PEMBERITAHUAN</div>
     <div style="color:${D};font-weight:bold;margin-top:6px;line-height:2;">
       PIHAK PERTAMA: <span class="hl">${COMPANY.email} | ${COMPANY.whatsapp}</span><br>
-      PIHAK KEDUA: <span class="hl">${t(l2.clientNotice)}</span>
+      PIHAK KEDUA: <span class="hl">${F.text('lampiran2.clientNotice', 'Email | Nomor WhatsApp | Alamat')}</span>
     </div>
     <p class="j" style="color:${M};margin-top:14px;">Lampiran 1 dan Lampiran 2 merupakan bagian yang tidak terpisahkan dari Perjanjian Kerja Sama Jasa KOL Management ini.</p>
-    <p style="text-align:right;color:${M};font-weight:bold;font-size:9pt;margin-top:14px;">Paraf PIHAK PERTAMA: [____] &nbsp;&nbsp; Paraf PIHAK KEDUA: [____]</p>
-  </body></html>`
+    <p style="text-align:right;color:${M};font-weight:bold;font-size:9pt;margin-top:14px;">Paraf PIHAK PERTAMA: [____] &nbsp;&nbsp; Paraf PIHAK KEDUA: [____]</p>`
 
   const headerTemplate = `
     <div style="width:100%;margin:0 18mm;padding-bottom:4px;border-bottom:1px solid #e5e0ea;display:flex;justify-content:space-between;align-items:flex-end;font-family:'Times New Roman',serif;font-size:8pt;">
@@ -424,7 +516,10 @@ export function renderSpk(d: Data): { html: string; pdf: PdfOptions } {
     <div style="width:100%;margin:0 18mm;text-align:right;font-family:'Times New Roman',serif;font-size:7.5pt;color:${M};">
       SPK Azera - Klien &nbsp;|&nbsp; Halaman <span class="pageNumber"></span>
     </div>`
-  return { html, pdf: { headerTemplate, footerTemplate, margin: { top: '28mm', right: '18mm', bottom: '18mm', left: '18mm' } } }
+  return {
+    html: wrapHtml(mode, css, '20mm 18mm', body),
+    pdf: { headerTemplate, footerTemplate, margin: { top: '28mm', right: '18mm', bottom: '18mm', left: '18mm' } },
+  }
 }
 
 export const RENDERERS = { invoice: renderInvoice, quotation: renderQuotation, spk_brand: renderSpk } as const

@@ -53,6 +53,13 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// Editor "isi langsung di dokumen": HTML template mode edit (tiap [ ] jadi kotak isian), tanpa simpan
+router.post('/preview', (req: AuthRequest, res: Response) => {
+  const { type, data } = req.body as { type: unknown; data: unknown }
+  if (!isKind(type) || !validData(data)) { res.status(400).json({ message: 'type/data tidak valid' }); return }
+  res.json({ html: RENDERERS[type](data, 'edit').html })
+})
+
 router.get('/:id', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
