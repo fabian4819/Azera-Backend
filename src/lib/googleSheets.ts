@@ -1,4 +1,5 @@
-import { google, sheets_v4 } from 'googleapis'
+// Paket Sheets saja (<1MB) — BUKAN `googleapis` (209MB, berisi klien ratusan API Google yang tidak dipakai)
+import { auth as googleAuth, sheets, sheets_v4 } from '@googleapis/sheets'
 
 /**
  * Sync satu arah (database → Sheet) real-time — dipanggil fire-and-forget dari route
@@ -36,15 +37,15 @@ function sheetsEnabled(): boolean {
 }
 
 let sheetsClient: sheets_v4.Sheets | null = null
-let auth: InstanceType<typeof google.auth.JWT> | null = null
+let auth: InstanceType<typeof googleAuth.JWT> | null = null
 
 export function getSheetsClient(): sheets_v4.Sheets | null {
   if (!sheetsEnabled()) return null
   if (!auth) {
     const { email, key } = creds()
-    auth = new google.auth.JWT({ email, key, scopes: ['https://www.googleapis.com/auth/spreadsheets'] })
+    auth = new googleAuth.JWT({ email, key, scopes: ['https://www.googleapis.com/auth/spreadsheets'] })
   }
-  if (!sheetsClient) sheetsClient = google.sheets({ version: 'v4', auth })
+  if (!sheetsClient) sheetsClient = sheets({ version: 'v4', auth })
   return sheetsClient
 }
 

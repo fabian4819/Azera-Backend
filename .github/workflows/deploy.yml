@@ -28,10 +28,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Build cache (GitHub Actions cache): layer chromium/npm ci yang isinya tidak berubah tetap
+      # punya digest sama antar build → VPS cuma unduh layer yang benar-benar berubah (dist),
+      # bukan ~440MB tiap deploy. Tanpa ini, tiap push membangun ulang semua layer dari nol.
+      - uses: docker/setup-buildx-action@v3
+
       - uses: docker/build-push-action@v5
         with:
           context: .
           push: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
@@ -45,6 +52,8 @@ jobs:
     steps:
       - uses: appleboy/ssh-action@v1.0.3
         with:
+          # Default 10m — koneksi VPS→GHCR kadang melambat di tengah unduhan (lihat 24 Sep 2026)
+          command_timeout: 30m
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
