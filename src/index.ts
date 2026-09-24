@@ -24,6 +24,7 @@ import invoiceRouter from './modules/finance/invoice.routes'
 import financeRecordRouter from './modules/finance/financeRecord.routes'
 import publicInvoiceRouter from './modules/finance/publicInvoice.routes'
 import importRouter from './modules/imports/import.routes'
+import documentRouter from './modules/documents/document.routes'
 import whatsappRouter from './modules/whatsapp/whatsapp.routes'
 import waTemplateRouter from './modules/whatsapp/waTemplate.routes'
 import leadBotTemplateRouter from './modules/whatsapp/leadBotTemplate.routes'
@@ -83,6 +84,9 @@ app.use('/api/admin', invoiceRouter)
 app.use('/api/admin', financeRecordRouter)
 app.use('/api/invoices', publicInvoiceRouter)
 app.use('/api/admin/import', importRouter)
+
+// Modul 5 — Template dokumen: Quotation / Invoice / SPK (AD-34..36)
+app.use('/api/admin/documents', documentRouter)
 
 // Modul 4 — WhatsApp Automation (AD-29..31)
 app.use('/api/admin/whatsapp', whatsappRouter)

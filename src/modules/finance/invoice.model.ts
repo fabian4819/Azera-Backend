@@ -14,7 +14,7 @@ export interface IInvoice extends Document {
   tenantId: Types.ObjectId
   campaignId: Types.ObjectId
   brandId: Types.ObjectId
-  /** Format INV-AZK-YYYYMM-NNN, kompatibel dengan penomoran bot-cashflow */
+  /** Format INV/PT-ACN/MM/YYYY/NNN (invoice lama: INV-AZK-YYYYMM-NNN) */
   number: string
   /** Kode akses halaman publik invoice — "link + kode" (Pasal spec checklist) */
   accessCode: string

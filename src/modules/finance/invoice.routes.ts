@@ -4,7 +4,8 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { uploadToCloudinary } from '../../lib/cloudinary'
-import { generateInvoicePdf } from '../../lib/invoicePdf'
+import { renderHtmlToPdf } from '../../lib/pdf'
+import { renderInvoice } from '../documents/docTemplates'
 import { nextInvoiceNumber } from './invoiceCounter.model'
 import Invoice from './invoice.model'
 import Campaign from '../campaigns/campaign.model'
@@ -15,13 +16,12 @@ import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
 
-function formatDateID(d: Date): string {
-  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase()
-}
+/** Date → "YYYY-MM-DD" menurut WIB, format yang dipakai template dokumen */
+const ymdJakarta = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d)
 
 /**
- * AD-25: generate invoice — nomor & template PDF identik dengan bot-cashflow
- * (INV-AZK-YYYYMM-NNN), simpan PDF ke Cloudinary, catat pesan WA ringkasan
+ * AD-25: generate invoice — template & nomor dari Google Docs klien (INV/PT-ACN/MM/YYYY/NNN,
+ * 24 Sep 2026, menggantikan template bot-cashflow), simpan PDF ke Cloudinary, catat pesan WA ringkasan
  * (status 'queued' — pengiriman sungguhan baru aktif setelah Baileys, modul 4).
  */
 router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Response) => {
@@ -31,11 +31,12 @@ router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Res
     if (!campaign) { res.status(404).json({ message: 'Campaign not found' }); return }
     const brand = await Brand.findById(campaign.brandId)
 
-    const { items, discount, isDp, dueDate } = req.body as {
+    const { items, discount, isDp, dueDate, reference } = req.body as {
       items: { name: string; description?: string; qty: number | null; rate: number }[]
       discount?: number
       isDp?: boolean
       dueDate?: string
+      reference?: string
     }
     if (!items?.length) { res.status(400).json({ message: 'items wajib diisi' }); return }
 
@@ -47,15 +48,20 @@ router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Res
 
     const number = await nextInvoiceNumber(req.auth!.tenantId)
 
-    const pdfBuffer = await generateInvoicePdf({
-      invoiceNo: number,
-      issueDate: formatDateID(issueDate),
-      dueDate: formatDateID(due),
-      billTo: brand?.namaBrand || 'Client',
-      brandName: brand?.namaBrand,
+    const { html, pdf } = renderInvoice({
+      number,
+      issueDate: ymdJakarta(issueDate),
+      dueDate: ymdJakarta(due),
+      reference,
+      billTo: {
+        name: brand?.namaBrand || 'Client',
+        pic: brand?.namaPIC,
+        contact: [brand?.whatsapp, brand?.email].filter((v) => v && v !== '-').join(' / '),
+      },
       discount: discountAmount,
-      items,
+      items: items.map((i) => ({ name: i.name, description: i.description, qty: i.qty ?? 1, unitFee: i.rate })),
     })
+    const pdfBuffer = await renderHtmlToPdf(html, pdf)
     const pdfUrl = await uploadToCloudinary(pdfBuffer, `invoices/${campaign._id}`)
 
     const invoice = await Invoice.create({

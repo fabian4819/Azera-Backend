@@ -23,12 +23,10 @@
     "mongoose": "^8.4.0",
     "multer": "^1.4.5-lts.1",
     "node-cron": "^4.6.0",
-    "pdf-lib": "^1.17.1",
     "pino": "^10.3.1",
     "puppeteer": "^25.8.0",
     "qrcode": "^1.5.4",
-    "resend": "^6.26.0",
-    "sharp": "^0.35.3"
+    "resend": "^6.26.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
