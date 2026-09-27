@@ -14,26 +14,33 @@
  * dengan link untuk mengaktifkannya — ikuti link itu, tunggu semenit, ulangi.
  */
 import dotenv from 'dotenv'
-import { google } from 'googleapis'
+// auth dari @googleapis/sheets + Drive REST langsung — paket `googleapis` (209MB) sengaja tidak dipasang
+import { auth as googleAuth } from '@googleapis/sheets'
 import { creds } from '../lib/googleSheets'
 
 dotenv.config()
+
+interface DriveFileList {
+  nextPageToken?: string
+  files?: { id?: string; name?: string; owners?: { emailAddress?: string }[]; modifiedTime?: string }[]
+}
 
 async function main() {
   const { email, key, spreadsheetId } = creds()
   if (!email || !key) throw new Error('GOOGLE_SERVICE_ACCOUNT_EMAIL / _PRIVATE_KEY belum diisi di .env')
   console.log(`Service account: ${email}\n`)
 
-  const auth = new google.auth.JWT({
+  const auth = new googleAuth.JWT({
     email, key,
     scopes: ['https://www.googleapis.com/auth/drive.metadata.readonly'],
   })
-  const drive = google.drive({ version: 'v3', auth })
 
   let pageToken: string | undefined
   let n = 0
   do {
-    const res = await drive.files.list({
+    const res = await auth.request<DriveFileList>({
+      url: 'https://www.googleapis.com/drive/v3/files',
+      params: {
       q: "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false",
       fields: 'nextPageToken, files(id, name, owners(emailAddress), modifiedTime)',
       pageSize: 100,
@@ -41,6 +48,7 @@ async function main() {
       // File milik orang lain yang di-share ke service account tidak muncul tanpa ini.
       includeItemsFromAllDrives: true,
       supportsAllDrives: true,
+      },
     })
     for (const f of res.data.files || []) {
       n++
