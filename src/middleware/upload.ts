@@ -10,6 +10,16 @@ export const upload = multer({
   },
 })
 
+// Portfolio — logo + contoh konten (foto/video)
+export const uploadMedia = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^(image|video)\//.test(file.mimetype)) cb(null, true)
+    else cb(new Error('Only image or video files are allowed'))
+  },
+})
+
 // Bukti transfer pembayaran — gambar atau PDF
 export const uploadProof = multer({
   storage: multer.memoryStorage(),
