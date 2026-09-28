@@ -249,7 +249,7 @@ router.post('/snapshots/:id/link', async (req: AuthRequest, res: Response) => {
           profileUrl: snap.profileUrl, followers: snap.followers || 0,
         }],
         niches: req.body.createCreator.niches || [],
-        source: 'import',
+        source: 'extension',
         status: 'reviewing',
       })
     } else {

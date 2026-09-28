@@ -61,7 +61,9 @@ export interface ICreator extends Document {
   complianceStatus: ComplianceStatus
   sp1Until?: Date
   cancelCount: number
-  source: 'form' | 'import'
+  /** form = KOL Register umum, extension = ditambah admin dari KOL Lister,
+   * campaign = daftar lewat link apply campaign, import = import sheet campaign historis */
+  source: 'form' | 'extension' | 'campaign' | 'import'
   status: 'pending' | 'reviewing' | 'approved' | 'rejected'
   createdAt: Date
   updatedAt: Date
@@ -121,7 +123,7 @@ const CreatorSchema = new Schema<ICreator>(
     complianceStatus: { type: String, enum: ['ok', 'sp1', 'sp2_blacklist'], default: 'ok' },
     sp1Until: Date,
     cancelCount: { type: Number, default: 0 },
-    source: { type: String, enum: ['form', 'import'], default: 'form' },
+    source: { type: String, enum: ['form', 'extension', 'campaign', 'import'], default: 'form' },
     status: { type: String, enum: ['pending', 'reviewing', 'approved', 'rejected'], default: 'pending' },
   },
   {

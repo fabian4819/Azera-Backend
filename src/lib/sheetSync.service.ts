@@ -22,6 +22,7 @@ const RATE_NEGO_LABELS: Record<string, string> = { yes: 'Bisa', no: 'Tidak', dep
 // Sama seperti complianceLabels di client/src/pages/admin/Creators.tsx — dipakai juga sebagai opsi
 // dropdown Compliance di sheet, jadi labelnya harus sama persis dengan yang admin lihat di dashboard.
 const COMPLIANCE_LABELS: Record<string, string> = { ok: 'OK', sp1: 'SP1', sp2_blacklist: 'Blacklist' }
+const SOURCE_LABELS: Record<string, string> = { form: 'Form', extension: 'Ekstensi', campaign: 'Link Campaign', import: 'Import Sheet' }
 const STATUS_LABELS: Record<string, string> = { pending: 'Pending', reviewing: 'Reviewing', approved: 'Approved', rejected: 'Rejected' }
 
 // Label persis sama dengan array `activities` di client/src/pages/KOLRegister.tsx — supaya opsi
@@ -120,7 +121,7 @@ export async function syncCreatorToSheet(creator: ICreator): Promise<void> {
     creator.portfolioLink || '',
     creator.cancelCount ?? 0,
     COMPLIANCE_LABELS[creator.complianceStatus] || creator.complianceStatus,
-    creator.source === 'import' ? 'Import' : 'Form',
+    SOURCE_LABELS[creator.source] || creator.source,
     STATUS_LABELS[creator.status] || creator.status,
     fmtDateISO(creator.createdAt),
   ])

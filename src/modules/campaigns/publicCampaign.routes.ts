@@ -135,7 +135,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
         contentStyleOther,
         bankAccount, npwp, mediaKitUrl, portfolioLink,
         address, postalCode, school,
-        source: 'form',
+        source: 'campaign',
       })
     }
 

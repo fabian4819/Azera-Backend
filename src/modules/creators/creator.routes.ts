@@ -3,6 +3,7 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import Creator from './creator.model'
 import CreatorHistory from './creatorHistory.model'
+import Application from '../applications/application.model'
 import SocialSnapshot from '../extension/socialSnapshot.model'
 import { computePerformanceScore } from './performanceScore.service'
 import { syncCreatorToSheet } from '../../lib/sheetSync.service'
@@ -19,8 +20,12 @@ type HeadlineMetrics = Partial<Record<(typeof HEADLINE_METRIC_FIELDS)[number], n
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const { status, complianceStatus, niche } = req.query
+    const { status, complianceStatus, niche, scope } = req.query
     const filter: Record<string, unknown> = { tenantId: req.auth!.tenantId }
+    // Menu Creators (general) vs Campaign Creators — dipisah dari asal masuknya. Tanpa scope = semua
+    // (dipakai ExtensionConnect buat picker creator).
+    if (scope === 'general') filter.source = { $in: ['form', 'extension'] }
+    if (scope === 'campaign') filter.source = { $in: ['campaign', 'import'] }
     if (status) filter.status = status
     if (complianceStatus) filter.complianceStatus = complianceStatus
     if (niche) filter.niches = { $in: [niche] }
@@ -43,13 +48,27 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Nama campaign yang diikuti tiap creator — cuma dihitung buat scope campaign
+    const campaignsByCreator = new Map<string, string[]>()
+    if (scope === 'campaign') {
+      const apps = await Application.find(
+        { tenantId: req.auth!.tenantId, creatorId: { $in: creators.map((c) => c._id) } },
+        { creatorId: 1, campaignId: 1 }
+      ).populate<{ campaignId: { name: string } | null }>('campaignId', 'name')
+      for (const a of apps) {
+        if (!a.campaignId) continue
+        const key = String(a.creatorId)
+        campaignsByCreator.set(key, [...(campaignsByCreator.get(key) || []), a.campaignId.name])
+      }
+    }
+
     const withMetrics = creators.map((c) => {
       const extensionMetrics: Record<string, HeadlineMetrics> = {}
       for (const social of c.socials || []) {
         const m = latestByCreatorPlatform.get(`${c._id}:${social.platform}`)
         if (m) extensionMetrics[social.platform] = m
       }
-      return { ...c.toJSON(), extensionMetrics }
+      return { ...c.toJSON(), extensionMetrics, campaigns: campaignsByCreator.get(String(c._id)) || [] }
     })
 
     res.json(withMetrics)
