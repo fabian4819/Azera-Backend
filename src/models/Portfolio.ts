@@ -48,6 +48,8 @@ export interface IPortfolio extends Document {
   status: 'draft' | 'published'
   brand: string
   title?: string
+  /** Label pendek sub-bubble saat satu brand punya >1 campaign (mis. "Promo Ramadhan"); kosong = pakai title */
+  bubbleLabel?: string
   category: string
   objective?: string
   niches: string[]
@@ -110,6 +112,7 @@ const PortfolioSchema = new Schema<IPortfolio>(
     status: { type: String, enum: ['draft', 'published'], default: 'draft' },
     brand: { type: String, required: true },
     title: String,
+    bubbleLabel: String,
     // 'Event Activation' = nama kategori lama, dinormalkan saat dibaca
     category: { type: String, default: '', get: (v: string) => (v === 'Event Activation' ? 'Event Creator Activation' : v) },
     objective: String,
