@@ -50,6 +50,7 @@ export interface IPortfolio extends Document {
   title?: string
   category: string
   objective?: string
+  niches: string[]
   period?: string
   hashtag?: string
   /** Total Kreator Aktif (unik di seluruh campaign) — nama field lama dipertahankan agar data lama tetap terbaca. */
@@ -112,6 +113,7 @@ const PortfolioSchema = new Schema<IPortfolio>(
     // 'Event Activation' = nama kategori lama, dinormalkan saat dibaca
     category: { type: String, default: '', get: (v: string) => (v === 'Event Activation' ? 'Event Creator Activation' : v) },
     objective: String,
+    niches: { type: [String], default: [] },
     period: String,
     hashtag: String,
     kolCount: Number,

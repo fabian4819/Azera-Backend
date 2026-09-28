@@ -29,7 +29,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (status) filter.status = status
     if (complianceStatus) filter.complianceStatus = complianceStatus
     if (niche) filter.niches = { $in: [niche] }
-    const creators = await Creator.find(filter).sort({ 'performanceScore.overall': -1 })
+    const creators = await Creator.find(filter).sort({ createdAt: -1 })
 
     // Snapshot terbaru per (creator, platform) — satu query buat semua creator di halaman ini,
     // dikelompokkan di memori (jauh lebih murah daripada N query per creator).

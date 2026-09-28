@@ -12,7 +12,7 @@ router.use(requireAuth)
 // multer/busboy taruh field non-file multipart sebagai string flat di req.body —
 // field bersarang dikirim client sebagai JSON.stringify(...), perlu di-parse balik.
 function parseJsonFields(data: Record<string, unknown>) {
-  for (const field of ['topCreators', 'platforms', 'scope', 'affiliate']) {
+  for (const field of ['topCreators', 'platforms', 'scope', 'affiliate', 'niches']) {
     if (typeof data[field] === 'string' && data[field]) {
       try { data[field] = JSON.parse(data[field] as string) } catch { delete data[field] }
     }
