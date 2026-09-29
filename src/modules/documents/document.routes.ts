@@ -33,7 +33,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const type = req.query.type
     if (!isKind(type)) { res.status(400).json({ message: 'type tidak valid' }); return }
     const docs = await DocumentModel.find({ tenantId: req.auth!.tenantId, type }).sort({ updatedAt: -1 }).limit(200)
-    res.json(docs.map((d) => ({ _id: d._id, number: String(d.data.number ?? ''), client: clientName(type, d.data), updatedAt: d.updatedAt })))
+    res.json(docs.map((d) => ({ _id: d._id, number: String(d.data.number ?? ''), client: clientName(type, d.data), mastersheetUrl: d.data.mastersheetUrl || undefined, updatedAt: d.updatedAt })))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
