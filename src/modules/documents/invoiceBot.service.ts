@@ -24,6 +24,13 @@ export interface ParsedInvoice {
   brand?: string
   mastersheetUrl?: string
   discountInput?: string
+  /** Isi baris `Biaya:` apa adanya; undefined = tidak ada (default PPH 21 Rp0) */
+  chargeInputs?: string[]
+  pic?: string
+  npwp?: string
+  contact?: string
+  reference?: string
+  dueInput?: string
   items: ParsedItem[]
 }
 
@@ -59,7 +66,47 @@ export function parseDiscountInput(text: string, subtotal: number): number | nul
   return amount === null || amount < 0 || amount > subtotal ? null : amount
 }
 
-const SECTION_PREFIXES = [/^bill\s+to\s*:/i, /^client\s*:/i, /^campaign\s*:/i, /^brand\s*:/i, /^discount\s*:/i, /^item\s*:/i]
+/**
+ * Baris `Biaya:` → baris di bawah Subtotal Net (template web `charges`). "nama | nominal":
+ * nominal format rate (50rb, 3076,92) atau persen dari Subtotal Net (2%); minus = potongan.
+ * `Biaya: -` (sendirian) = tanpa baris sama sekali.
+ */
+export function parseCharges(inputs: string[], subtotal: number): { label: string; amount: number }[] | string {
+  if (inputs.length === 1 && inputs[0] === '-') return []
+  const out: { label: string; amount: number }[] = []
+  for (const input of inputs) {
+    const [label, value, ...extra] = input.split('|').map((p) => p.trim())
+    if (!label || label === '-' || !value || extra.length) return `❌ Format Biaya salah: "${input}"\nHarus: Biaya: nama | nominal  (mis. \`Biaya: PPH 21 | 50rb\`, \`Biaya: PPh 23 | -2%\`)`
+    const sign = value.startsWith('-') ? -1 : 1
+    const raw = value.replace(/^[-+]\s*/, '')
+    const percent = raw.match(/^(\d+(?:[.,]\d+)?)\s*%$/)
+    const amount = percent ? round2((subtotal * Number(percent[1].replace(',', '.'))) / 100) : parseRateInput(raw)
+    if (amount === null) return `❌ Nominal Biaya tidak valid: "${value}"\nContoh: 50rb, 1.5jt, 3076,92, 2%, -2%`
+    out.push({ label, amount: sign * amount })
+  }
+  return out
+}
+
+/** Due: jumlah hari (14 / 14 hari) atau tanggal (DD/MM/YYYY, YYYY-MM-DD) → "YYYY-MM-DD"; tidak boleh sebelum hari ini */
+export function parseDueInput(text: string, now: Date): string | null {
+  const s = text.trim().toLowerCase()
+  const days = s.match(/^(\d{1,3})\s*(hari|days?)?$/)
+  if (days) return isoDate(addDays(now, Number(days[1])))
+  const ymd = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  const dmy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+  const parts = ymd ? [ymd[1], ymd[2], ymd[3]] : dmy ? [dmy[3], dmy[2], dmy[1]] : null
+  if (!parts) return null
+  const [y, m, d] = parts
+  const date = new Date(Date.UTC(+y, +m - 1, +d))
+  if (date.getUTCMonth() !== +m - 1 || date.getUTCDate() !== +d) return null // 31/02 dsb
+  const iso = date.toISOString().slice(0, 10)
+  return iso < isoDate(now) ? null : iso
+}
+
+/** Section `Nama:` sederhana (satu nilai teks) → field ParsedInvoice */
+const TEXT_SECTIONS = { pic: /^pic\s*:/i, npwp: /^npwp\s*:/i, contact: /^contact\s*:/i, reference: /^reference\s*:/i, dueInput: /^due\s*:/i } as const
+
+const SECTION_PREFIXES = [/^bill\s+to\s*:/i, /^client\s*:/i, /^campaign\s*:/i, /^brand\s*:/i, /^discount\s*:/i, /^item\s*:/i, /^biaya\s*:/i, ...Object.values(TEXT_SECTIONS)]
 const isSectionLine = (line: string) => SECTION_PREFIXES.some((re) => re.test(line))
 
 function parseItems(itemLines: string[]): ParsedItem[] {
@@ -100,13 +147,18 @@ export function parseInvoiceMessage(body: string): ParsedInvoice | string {
   let brand: string | undefined
   let discountInput: string | undefined
   const itemLines: string[] = []
+  const chargeLines: string[] = []
+  const text: Partial<Record<keyof typeof TEXT_SECTIONS, string>> = {}
   for (const line of sectionLines) {
+    const textKey = (Object.keys(TEXT_SECTIONS) as (keyof typeof TEXT_SECTIONS)[]).find((k) => TEXT_SECTIONS[k].test(line))
+    if (textKey) { text[textKey] = line.replace(TEXT_SECTIONS[textKey], '').trim(); continue }
     if (/^bill\s+to\s*:/i.test(line)) billTo = line.replace(/^bill\s+to\s*:\s*/i, '').trim()
     else if (/^client\s*:/i.test(line)) billTo = billTo || line.replace(/^client\s*:\s*/i, '').trim()
     else if (/^campaign\s*:/i.test(line)) campaign = line.replace(/^campaign\s*:\s*/i, '').trim()
     else if (/^brand\s*:/i.test(line)) brand = line.replace(/^brand\s*:\s*/i, '').trim()
     else if (/^discount\s*:/i.test(line)) discountInput = line.replace(/^discount\s*:\s*/i, '').trim()
     else if (/^item\s*:/i.test(line)) itemLines.push(line)
+    else if (/^biaya\s*:/i.test(line)) chargeLines.push(line.replace(/^biaya\s*:\s*/i, '').trim())
   }
 
   // Kompatibilitas lama bot-cashflow: 2 baris non-section pertama = klien & campaign, sisanya item
@@ -124,7 +176,7 @@ export function parseInvoiceMessage(body: string): ParsedInvoice | string {
   if (!itemLines.length) return `❌ Gunakan \`Item: nama | deskripsi | qty | rate\` untuk menambahkan item.`
 
   try {
-    return { billTo, campaign, brand, mastersheetUrl, discountInput, items: parseItems(itemLines) }
+    return { billTo, campaign, brand, mastersheetUrl, discountInput, chargeInputs: chargeLines.length ? chargeLines : undefined, ...text, items: parseItems(itemLines) }
   } catch (err) {
     return (err as Error).message
   }
@@ -141,10 +193,16 @@ async function invoiceHelp(): Promise<string> {
     '```',
     `/invoice`,
     `Bill To: [nama klien]`,
+    `PIC: [nama PIC klien]  (opsional)`,
+    `NPWP: [NPWP klien]  (opsional)`,
+    `Contact: [telepon / email klien]  (opsional)`,
     `Campaign: [nama campaign]`,
+    `Reference: [no. Quotation / SPK]  (opsional)`,
+    `Due: [jumlah hari / DD/MM/YYYY]  (opsional)`,
     `Item: [nama] | [deskripsi] | [qty/-] | [rate]`,
     `Item: [nama 2] | [deskripsi] | [qty/-] | [rate]`,
     `Discount: [10% / 150rb]  (opsional)`,
+    `Biaya: [nama] | [nominal / %]  (opsional, bisa >1)`,
     ``,
     `Brand: [nama brand]  (opsional)`,
     ``,
@@ -155,21 +213,31 @@ async function invoiceHelp(): Promise<string> {
     `*Contoh:*`,
     '```',
     `/invoice`,
-    `Bill To: Pintarnya`,
+    `Bill To: PT Pintarnya Indonesia`,
+    `PIC: Budi Santoso`,
+    `NPWP: 01.234.567.8-901.000`,
+    `Contact: 0812-3456-7890`,
     `Campaign: Pigeon May`,
+    `Reference: QUO/PT-ACN/09/2026/003`,
+    `Due: 14`,
     `Brand: Nike`,
     `Item: Pigeon Nano | 1x VT + IG Reels | 17 | 150rb`,
     `Item: Pigeon Micro | 1x VT + IG Reels | - | 150rb`,
     `Discount: 10%`,
+    `Biaya: PPH 21 | 50rb`,
+    `Biaya: PPh 23 | -2%`,
     ``,
     `Mastersheet`,
     `https://docs.google.com/spreadsheets/d/xxxxxxxx/edit`,
     '```',
     ``,
-    'Section yang tersedia: `Bill To:`, `Campaign:`, `Brand:`, `Discount:`, `Item:`',
+    'Wajib: `Bill To:`, `Campaign:`, `Item:`. Opsional: `PIC:`, `NPWP:`, `Contact:`, `Reference:`, `Due:`, `Brand:`, `Discount:`, `Biaya:`',
     'Gunakan `-` untuk qty bila tidak perlu jumlah.',
     'Discount bisa persentase atau nominal: `10%`, `150rb`, `1.5jt`.',
-    `Due date otomatis *${upperDate(addDays(new Date(), DUE_DAYS))}*`,
+    'Biaya = baris di bawah Subtotal Net (pajak, biaya admin, dll). Nominal atau % dari subtotal; minus (`-2%`, `-50rb`) = potongan.',
+    'Tanpa `Biaya:` → baris *PPH 21 Rp0*. `Biaya: -` → tanpa baris.',
+    'Tanpa `Reference:` → diisi nama campaign (+ brand).',
+    `Due date default ${DUE_DAYS} hari: *${upperDate(addDays(new Date(), DUE_DAYS))}*. Ubah dengan \`Due: 14\` atau \`Due: 15/10/2026\`.`,
   ].join('\n')
 }
 
@@ -194,19 +262,25 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     if (d === null) return { text: `❌ Discount tidak valid: "${parsed.discountInput}"\nContoh: 10%, 150rb, 1.5jt. Discount tidak boleh melebihi subtotal.` }
     discount = d
   }
+  const charges = parsed.chargeInputs ? parseCharges(parsed.chargeInputs, subtotal) : [{ label: 'PPH 21', amount: 0 }]
+  if (typeof charges === 'string') return { text: charges }
+
+  const now = new Date()
+  const dueDate = parsed.dueInput ? parseDueInput(parsed.dueInput, now) : isoDate(addDays(now, DUE_DAYS))
+  if (!dueDate) return { text: `❌ Due tidak valid: "${parsed.dueInput}"\nContoh: \`Due: 14\` (hari) atau \`Due: 15/10/2026\`. Tidak boleh sebelum hari ini.` }
 
   const tenant = await getDefaultTenant()
-  const now = new Date()
   const number = await nextDocumentNumber(tenant._id, 'invoice', now)
-  // Template web tidak punya slot Campaign/Brand → dipakai sebagai REFERENCE (bisa diedit di menu Document)
+  // Template web tidak punya slot Campaign/Brand → dipakai sebagai REFERENCE kalau `Reference:` tidak diisi
   const data = {
     number,
     issueDate: isoDate(now),
-    dueDate: isoDate(addDays(now, DUE_DAYS)),
-    reference: parsed.brand ? `${parsed.campaign} — ${parsed.brand}` : parsed.campaign,
-    billTo: { name: parsed.billTo },
+    dueDate,
+    reference: parsed.reference || (parsed.brand ? `${parsed.campaign} — ${parsed.brand}` : parsed.campaign),
+    billTo: { name: parsed.billTo, pic: parsed.pic, npwp: parsed.npwp, contact: parsed.contact },
     items: parsed.items.map((i) => ({ name: i.name, description: i.description, qty: i.qty ?? '', unitFee: i.rate })),
     discount,
+    charges,
     campaign: parsed.campaign,
     brand: parsed.brand,
     mastersheetUrl: parsed.mastersheetUrl,
@@ -216,15 +290,19 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
   const doc = await DocumentModel.create({ tenantId: tenant._id, type: 'invoice', data, accessCode })
   const previewUrl = `${env.clientOrigin}/api/documents/${doc._id}?code=${accessCode}`
 
-  const total = subtotal - discount
+  const total = subtotal - discount + charges.reduce((s, c) => s + c.amount, 0)
+  const shownCharges = charges.filter((c) => c.amount !== 0)
   const summary = parsed.items.map((i) => `   • ${i.name}: ${i.qty ?? '-'} × ${rp(i.rate)} = ${rp((i.qty ?? 1) * i.rate)}`)
   const reply = [
     `✅ Invoice *${number}*`,
     ``,
     `📋 *${parsed.campaign}*`,
-    `👤 ${parsed.billTo}`,
+    `👤 ${parsed.billTo}${parsed.pic ? ` (PIC: ${parsed.pic})` : ''}`,
+    `📅 Due: ${upperDate(new Date(`${dueDate}T00:00:00+07:00`))}`,
     ...summary,
-    ...(discount > 0 ? [`Subtotal: ${rp(subtotal)}`, `🏷️ Discount: -${rp(discount)}`] : []),
+    ...(discount > 0 || shownCharges.length ? [`Subtotal: ${rp(subtotal)}`] : []),
+    ...(discount > 0 ? [`🏷️ Discount: -${rp(discount)}`] : []),
+    ...shownCharges.map((c) => (c.amount < 0 ? `➖ ${c.label}: -${rp(-c.amount)}` : `➕ ${c.label}: ${rp(c.amount)}`)),
     `💰 Total: *${rp(total)}*`,
     ``,
     `📎 ${previewUrl}`,
