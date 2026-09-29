@@ -17,6 +17,8 @@ export interface IDocument extends MongoDocument {
   brandId?: Types.ObjectId
   data: Record<string, unknown>
   pdfUrl?: string
+  /** Kunci link preview publik (?code=) — diisi saat dokumen dibuat dari bot WA */
+  accessCode?: string
   version: number
   createdAt: Date
   updatedAt: Date
@@ -33,6 +35,7 @@ const DocumentSchema = new Schema<IDocument>(
     brandId: { type: Schema.Types.ObjectId, ref: 'Brand' },
     data: { type: Schema.Types.Mixed, default: {} },
     pdfUrl: String,
+    accessCode: String,
     version: { type: Number, default: 1 },
   },
   { timestamps: true }

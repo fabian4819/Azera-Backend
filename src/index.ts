@@ -31,6 +31,7 @@ import leadBotTemplateRouter from './modules/whatsapp/leadBotTemplate.routes'
 import assetRouter from './modules/assets/asset.routes'
 import publicCreatorRouter from './modules/creators/publicCreator.routes'
 import publicCaseStudyRouter from './modules/documents/publicCaseStudy.routes'
+import publicDocumentRouter from './modules/documents/publicDocument.routes'
 import { picAuthRouter, picPortalRouter, picAdminRouter } from './modules/pic/pic.routes'
 import extensionRouter from './modules/extension/extension.routes'
 import extensionAdminRouter from './modules/extension/extensionAdmin.routes'
@@ -97,6 +98,7 @@ app.use('/api/admin/lead-bot-templates', leadBotTemplateRouter)
 app.use('/api/admin', assetRouter)
 app.use('/api/creators', publicCreatorRouter)
 app.use('/api/portfolio', publicCaseStudyRouter)
+app.use('/api/documents', publicDocumentRouter)
 
 // Ekstensi KOL Lister — admin: kelola kode sambungan, KOL Radar, capture intent
 app.use('/api/admin/extension', extensionAdminRouter)

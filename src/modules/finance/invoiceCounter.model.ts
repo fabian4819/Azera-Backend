@@ -56,6 +56,14 @@ export async function nextDocumentNumber(
   return `${await nextSeq(tenantId, `spk:${ym}`)}/SPK/KOL/PT-ACN/${ROMAN[month - 1]}/${year}`
 }
 
+/** Nomor invoice berikutnya TANPA menaikkan counter — untuk pesan bantuan /invoice di bot WA */
+export async function peekInvoiceNumber(tenantId: Types.ObjectId | string, date = new Date()): Promise<string> {
+  const { year, month } = jakartaYearMonth(date)
+  const mm = String(month).padStart(2, '0')
+  const counter = await InvoiceCounterModel.findOne({ tenantId, key: `${year}${mm}` })
+  return `INV/PT-ACN/${mm}/${year}/${String((counter?.seq ?? 0) + 1).padStart(3, '0')}`
+}
+
 export function nextInvoiceNumber(tenantId: Types.ObjectId | string, date = new Date()): Promise<string> {
   return nextDocumentNumber(tenantId, 'invoice', date)
 }

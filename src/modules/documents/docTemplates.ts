@@ -14,9 +14,10 @@ import { SPK_INTRO, SPK_PASAL, QUOTATION_TERMS } from './templateText'
 
 const ASSETS = path.join(__dirname, '../../../assets/documents')
 const dataUri = (file: string) => `data:image/png;base64,${fs.readFileSync(path.join(ASSETS, file)).toString('base64')}`
-let logoCache: { full: string; mark: string } | null = null
+let logoCache: { full: string; mark: string; stamp: string; signature: string } | null = null
 function logos() {
-  if (!logoCache) logoCache = { full: dataUri('logo.png'), mark: dataUri('logo-mark.png') }
+  // stamp/signature: diekstrak dari Google Docs template Invoice & Quotation (29 Sep 2026)
+  if (!logoCache) logoCache = { full: dataUri('logo.png'), mark: dataUri('logo-mark.png'), stamp: dataUri('stamp.png'), signature: dataUri('signature.png') }
   return logoCache
 }
 
@@ -44,7 +45,12 @@ const n = (v: unknown) => {
   const x = Number(v)
   return Number.isFinite(x) ? x : 0
 }
-export const rp = (v: unknown) => `Rp${Math.round(n(v)).toLocaleString('id-ID')}`
+/** Tanpa pembulatan ke rupiah penuh: 43 × Rp3.076,92 = Rp132.307,56 (maks 2 desimal, buang noise float) */
+export const rp = (v: unknown) => {
+  const x = Math.round(n(v) * 100) / 100
+  const dp = Number.isInteger(x) ? 0 : 2 // pecahan selalu 2 digit: Rp254.076,80 bukan Rp254.076,8
+  return `Rp${x.toLocaleString('id-ID', { minimumFractionDigits: dp, maximumFractionDigits: dp })}`
+}
 const arr = (v: unknown): Data[] => (Array.isArray(v) ? v.map((x) => (x && typeof x === 'object' ? (x as Data) : {})) : [])
 const getPath = (o: unknown, p: string): unknown =>
   p.split('.').reduce<unknown>((acc, k) => (acc && typeof acc === 'object' ? (acc as Data)[k] : undefined), o)
@@ -80,7 +86,7 @@ function fields(d: Data, mode: RenderMode) {
     },
     money(p: string, emptyPdf?: string) {
       if (!edit) return emptyPdf !== undefined && !n(v(p)) ? emptyPdf : rp(v(p))
-      return `Rp<input class="fx num" type="number" min="0" data-k="${p}" data-kind="number" value="${inputVal(p)}" placeholder="0">`
+      return `Rp<input class="fx num" type="number" min="0" step="any" data-k="${p}" data-kind="number" value="${inputVal(p)}" placeholder="0">`
     },
     int(p: string, ph = '1', emptyPdf = '1') {
       if (!edit) return String(v(p) ?? '').trim() ? esc(v(p)) : emptyPdf
@@ -260,8 +266,9 @@ export function renderInvoice(d: Data, mode: RenderMode = 'pdf'): Rendered {
           <tr><td class="k">ACCOUNT NAME</td><td><b>${COMPANY.name}</b></td></tr>
         </table>
       </div>
-      <div style="flex:1;border:1px solid #d9d3f7;background:${LL};text-align:center;padding:10px;height:134px;display:flex;flex-direction:column;justify-content:space-between;">
+      <div style="flex:1;border:1px solid #d9d3f7;background:${LL};text-align:center;padding:10px;height:150px;display:flex;flex-direction:column;justify-content:space-between;align-items:center;">
         <div style="color:${P};font-weight:bold;font-size:8.5pt;">AUTHORIZED BY</div>
+        <img src="${logos().stamp}" style="width:170px;">
         <div><b>${COMPANY.director}</b><div style="font-size:8pt;color:${M};">${COMPANY.name}</div></div>
       </div>
     </div>`
@@ -356,7 +363,7 @@ export function renderQuotation(d: Data, mode: RenderMode = 'pdf'): Rendered {
       <div style="font-size:14pt;font-weight:bold;margin-top:14px;">Approval</div>
       <div style="color:${M};font-size:9pt;margin:4px 0 8px;">Dengan menandatangani bagian di bawah ini, kedua pihak menyatakan telah membaca, memahami, dan menyetujui quotation ini beserta seluruh ketentuannya.</div>
       <div class="sign">
-        <div><span class="h">PROPOSED BY</span><div><b>${COMPANY.director}</b><div class="s">${COMPANY.name}</div><div class="s">${optDate('approval.proposedDate')}</div></div></div>
+        <div><span class="h">PROPOSED BY</span><div><img src="${logos().signature}" style="height:38px;display:block;margin-left:-8px;"><b>${COMPANY.director}</b><div class="s">${COMPANY.name}</div><div class="s">${optDate('approval.proposedDate')}</div></div></div>
         <div><span class="h">APPROVED BY</span><div><b>${F.text('approval.approverName', 'Nama penyetuju (opsional)', '&nbsp;')}</b><div class="s">${F.text('approval.approverCompany', 'Perusahaan', '&nbsp;')}</div><div class="s">${optDate('approval.approvedDate')}</div></div></div>
       </div>
     </div>`

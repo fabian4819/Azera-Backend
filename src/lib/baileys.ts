@@ -12,11 +12,16 @@ import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
 import { WaTrigger, BotId, BOT_IDS, audienceToBot } from '../modules/whatsapp/waTemplate.model'
 import { DEFAULT_TEMPLATES } from '../modules/whatsapp/defaultTemplates'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
+import { handleInvoiceCommand } from '../modules/documents/invoiceBot.service'
 import { recordIncomingMessage, recordOutgoingMessage, backfillHistory, pauseBotForContact } from '../modules/whatsapp/waChat.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
 const SEND_DELAY_MS = 3000 // jarak antar pesan — mitigasi risiko banned (AD-29)
 const RECONNECT_DELAY_MS = 3000
+// Bot invoice (port bot-cashflow) hanya di bot partnership, hanya di grup ini. Nama grup bisa ditiru
+// siapa pun yang memasukkan nomor bot ke grup baru — isi WA_INVOICE_GROUP_JID untuk mengunci ke 1 JID.
+const INVOICE_GROUP_NAME = 'invoice maker'
+const INVOICE_GROUP_JID = process.env.WA_INVOICE_GROUP_JID || ''
 
 const logger = pino({ level: 'silent' })
 
@@ -186,8 +191,11 @@ class WaBot {
 
           if (isGroup) {
             this.resolveGroupName(jid)
-              .then((name) => recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined, senderPhone: participantPhoneFromKey(msg.key) }))
-              .catch((err) => console.error(`WA[${this.id}] save group incoming error:`, err))
+              .then(async (name) => {
+                await recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined, senderPhone: participantPhoneFromKey(msg.key) })
+                if (this.isInvoiceGroup(jid, name)) await this.replyInvoice(jid, text, msg)
+              })
+              .catch((err) => console.error(`WA[${this.id}] group incoming error:`, err))
             continue // pesan grup tidak dilempar ke leadBot.service — brand/KOL adalah alur 1:1
           }
 
@@ -267,6 +275,29 @@ class WaBot {
     this.status = 'disconnected'
     this.currentQr = null
     this.connectedNumber = null
+  }
+
+  private isInvoiceGroup(jid: string, name?: string): boolean {
+    if (this.id !== 'partnership') return false
+    if (INVOICE_GROUP_JID) return jid === INVOICE_GROUP_JID
+    return name?.trim().toLowerCase() === INVOICE_GROUP_NAME
+  }
+
+  /** `/invoice` di grup Invoice Maker → simpan Document invoice di web, balas PDF + link preview (quote pesan asal, seperti bot-cashflow) */
+  private async replyInvoice(jid: string, text: string, quoted: proto.IWebMessageInfo): Promise<void> {
+    let reply: Awaited<ReturnType<typeof handleInvoiceCommand>>
+    try {
+      reply = await handleInvoiceCommand(text, participantPhoneFromKey(quoted.key) || jid)
+    } catch (err) {
+      console.error(`WA[${this.id}] invoice bot error:`, err)
+      reply = { text: '❌ Error saat memproses invoice. Coba lagi.' }
+    }
+    if (!reply || !this.sock || this.status !== 'connected') return
+    const sent = reply.pdf
+      ? await this.sock.sendMessage(jid, { document: reply.pdf, mimetype: 'application/pdf', fileName: reply.fileName, caption: reply.text }, { quoted })
+      : await this.sock.sendMessage(jid, { text: reply.text }, { quoted })
+    if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
+    recordOutgoingMessage(this.id, jid, reply.text, { messageId: sent?.key.id || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
   }
 
   /** Balasan langsung bot percakapan (leadBot.service) — bypass queue karena ini interaktif, bukan notifikasi batch */
