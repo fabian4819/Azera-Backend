@@ -179,7 +179,8 @@ export function renderInvoice(d: Data, mode: RenderMode = 'pdf'): Rendered {
   const rows = itemRows(d, mode)
   const subtotal = rows.reduce((s, r) => s + r.amount, 0)
   const discount = Math.min(n(d.discount), subtotal)
-  const total = subtotal - discount
+  const pph21 = n(d.pph21) // template 29 Sep 2026: baris PPh 21 ditambahkan ke Subtotal Net (gross-up)
+  const total = subtotal - discount + pph21
 
   const css = `
     body { color: ${INK}; }
@@ -237,6 +238,7 @@ export function renderInvoice(d: Data, mode: RenderMode = 'pdf'): Rendered {
     <table class="tot" style="margin-top:12px;">
       <tr><td>Subtotal Net</td><td style="text-align:right;font-weight:bold;">${F.calc('subtotal', rp(subtotal))}</td></tr>
       ${discount > 0 ? `<tr><td>Discount</td><td style="text-align:right;font-weight:bold;">- ${rp(discount)}</td></tr>` : ''}
+      <tr><td>PPH 21</td><td style="text-align:right;font-weight:bold;">${F.money('pph21')}</td></tr>
       <tr class="grand"><td style="width:45%">TOTAL INVOICE</td><td style="text-align:right;font-size:14pt;">${F.calc('total', rp(total))}</td></tr>
     </table>
 
