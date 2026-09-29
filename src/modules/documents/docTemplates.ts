@@ -186,22 +186,23 @@ export interface Rendered { html: string; pdf: PdfOptions }
 
 /**
  * Baris opsional di bawah Subtotal Net (template 29 Sep 2026): default "PPH 21", bisa diganti nama,
- * dihapus, atau ditambah. Nominal minus = potongan. Dokumen lama (field `pph21`, sebelum ada `charges`)
- * dan invoice bot WA tanpa `charges` → satu baris PPH 21. Rumus sama di client (Documents.tsx).
+ * dihapus, atau ditambah. Nominal minus = potongan. Template terbaru tidak punya baris Discount khusus:
+ * field lama `discount` (invoice dari halaman Campaign) jadi baris "Discount" minus di sini, dan `pph21`
+ * (sebelum ada `charges`) jadi baris PPH 21. Rumus sama di client (Documents.tsx → withCharges).
  */
 export function invoiceCharges(d: Data): Data[] {
-  return Array.isArray(d.charges) ? arr(d.charges) : [{ label: 'PPH 21', amount: d.pph21 ?? '' }]
+  const rows = Array.isArray(d.charges) ? arr(d.charges) : [{ label: 'PPH 21', amount: d.pph21 ?? '' }]
+  return n(d.discount) > 0 ? [{ label: 'Discount', amount: -n(d.discount) }, ...rows] : rows
 }
 
 export function renderInvoice(input: Data, mode: RenderMode = 'pdf'): Rendered {
-  const d = Array.isArray(input.charges) ? input : { ...input, charges: invoiceCharges(input) }
+  const d = { ...input, charges: invoiceCharges(input), discount: 0 }
   const P = '#4b2fc4', L = '#f1eeff', LL = '#f8f7fc', M = '#666375', INK = '#111111'
   const F = fields(d, mode)
   const rows = itemRows(d, mode)
   const subtotal = rows.reduce((s, r) => s + r.amount, 0)
-  const discount = Math.min(n(d.discount), subtotal)
   const adj = arr(d.charges)
-  const total = subtotal - discount + adj.reduce((s, c) => s + n(c.amount), 0)
+  const total = subtotal + adj.reduce((s, c) => s + n(c.amount), 0)
 
   const css = `
     body { color: ${INK}; }
@@ -258,7 +259,6 @@ export function renderInvoice(input: Data, mode: RenderMode = 'pdf'): Rendered {
 
     <table class="tot" style="margin-top:12px;">
       <tr><td>Subtotal Net</td><td style="text-align:right;font-weight:bold;">${F.calc('subtotal', rp(subtotal))}</td></tr>
-      ${discount > 0 ? `<tr><td>Discount</td><td style="text-align:right;font-weight:bold;">- ${rp(discount)}</td></tr>` : ''}
       ${adj.map((_, i) => `<tr><td>${F.text(`charges.${i}.label`, 'Nama baris (mis. PPH 21)')}${F.action('del-charge', '×', i)}</td><td style="text-align:right;font-weight:bold;">${F.signedMoney(`charges.${i}.amount`)}</td></tr>`).join('')}
       ${F.edit ? `<tr><td colspan="2" style="border:none;padding:0;">${F.action('add-charge', '+ Tambah baris (biaya / potongan)')}</td></tr>` : ''}
       <tr class="grand"><td style="width:45%">TOTAL INVOICE</td><td style="text-align:right;font-size:14pt;">${F.calc('total', rp(total))}</td></tr>

@@ -262,8 +262,10 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     if (d === null) return { text: `❌ Discount tidak valid: "${parsed.discountInput}"\nContoh: 10%, 150rb, 1.5jt. Discount tidak boleh melebihi subtotal.` }
     discount = d
   }
-  const charges = parsed.chargeInputs ? parseCharges(parsed.chargeInputs, subtotal) : [{ label: 'PPH 21', amount: 0 }]
-  if (typeof charges === 'string') return { text: charges }
+  const extra = parsed.chargeInputs ? parseCharges(parsed.chargeInputs, subtotal) : [{ label: 'PPH 21', amount: 0 }]
+  if (typeof extra === 'string') return { text: extra }
+  // Template terbaru tidak punya baris Discount khusus → jadi baris minus pertama di bawah Subtotal Net
+  const charges = discount > 0 ? [{ label: 'Discount', amount: -discount }, ...extra] : extra
 
   const now = new Date()
   const dueDate = parsed.dueInput ? parseDueInput(parsed.dueInput, now) : isoDate(addDays(now, DUE_DAYS))
@@ -279,7 +281,6 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     reference: parsed.reference || (parsed.brand ? `${parsed.campaign} — ${parsed.brand}` : parsed.campaign),
     billTo: { name: parsed.billTo, pic: parsed.pic, npwp: parsed.npwp, contact: parsed.contact },
     items: parsed.items.map((i) => ({ name: i.name, description: i.description, qty: i.qty ?? '', unitFee: i.rate })),
-    discount,
     charges,
     campaign: parsed.campaign,
     brand: parsed.brand,
@@ -290,7 +291,7 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
   const doc = await DocumentModel.create({ tenantId: tenant._id, type: 'invoice', data, accessCode })
   const previewUrl = `${env.clientOrigin}/api/documents/${doc._id}?code=${accessCode}`
 
-  const total = subtotal - discount + charges.reduce((s, c) => s + c.amount, 0)
+  const total = subtotal + charges.reduce((s, c) => s + c.amount, 0)
   const shownCharges = charges.filter((c) => c.amount !== 0)
   const summary = parsed.items.map((i) => `   • ${i.name}: ${i.qty ?? '-'} × ${rp(i.rate)} = ${rp((i.qty ?? 1) * i.rate)}`)
   const reply = [
@@ -300,8 +301,7 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     `👤 ${parsed.billTo}${parsed.pic ? ` (PIC: ${parsed.pic})` : ''}`,
     `📅 Due: ${upperDate(new Date(`${dueDate}T00:00:00+07:00`))}`,
     ...summary,
-    ...(discount > 0 || shownCharges.length ? [`Subtotal: ${rp(subtotal)}`] : []),
-    ...(discount > 0 ? [`🏷️ Discount: -${rp(discount)}`] : []),
+    ...(shownCharges.length ? [`Subtotal: ${rp(subtotal)}`] : []),
     ...shownCharges.map((c) => (c.amount < 0 ? `➖ ${c.label}: -${rp(-c.amount)}` : `➕ ${c.label}: ${rp(c.amount)}`)),
     `💰 Total: *${rp(total)}*`,
     ``,
