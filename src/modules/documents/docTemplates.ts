@@ -185,13 +185,13 @@ export interface Rendered { html: string; pdf: PdfOptions }
 /* ------------------------------------------------------------------ INVOICE */
 
 /**
- * Baris opsional di bawah Subtotal Net (template 29 Sep 2026): default "PPH 21", bisa diganti nama,
- * dihapus, atau ditambah. Nominal minus = potongan. Template terbaru tidak punya baris Discount khusus:
- * field lama `discount` (invoice dari halaman Campaign) jadi baris "Discount" minus di sini, dan `pph21`
- * (sebelum ada `charges`) jadi baris PPH 21. Rumus sama di client (Documents.tsx → withCharges).
+ * Baris opsional di bawah Subtotal Net (template 29 Sep 2026): tidak diisi = tidak ada baris; bisa
+ * ditambah, diganti nama, dihapus. Nominal minus = potongan. Template terbaru tidak punya baris Discount
+ * khusus: field lama `discount` (invoice dari halaman Campaign) jadi baris "Discount" minus di sini, dan
+ * `pph21` (sebelum ada `charges`) jadi baris PPH 21 kalau ada nilainya. Rumus sama di client (Documents.tsx).
  */
 export function invoiceCharges(d: Data): Data[] {
-  const rows = Array.isArray(d.charges) ? arr(d.charges) : [{ label: 'PPH 21', amount: d.pph21 ?? '' }]
+  const rows = Array.isArray(d.charges) ? arr(d.charges) : n(d.pph21) ? [{ label: 'PPH 21', amount: d.pph21 }] : []
   return n(d.discount) > 0 ? [{ label: 'Discount', amount: -n(d.discount) }, ...rows] : rows
 }
 

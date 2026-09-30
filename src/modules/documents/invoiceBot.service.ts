@@ -24,7 +24,7 @@ export interface ParsedInvoice {
   brand?: string
   mastersheetUrl?: string
   discountInput?: string
-  /** Isi baris `Biaya:` apa adanya; undefined = tidak ada (default PPH 21 Rp0) */
+  /** Isi baris `Biaya:` apa adanya; undefined = tidak ada baris di bawah Subtotal Net */
   chargeInputs?: string[]
   pic?: string
   npwp?: string
@@ -240,7 +240,7 @@ async function invoiceHelp(): Promise<string> {
     'Gunakan `-` untuk qty bila tidak perlu jumlah.',
     'Discount bisa persentase atau nominal: `10%`, `150rb`, `1.5jt`.',
     'Biaya = baris di bawah Subtotal Net (pajak, biaya admin, dll). Nominal atau % dari subtotal; minus (`-2%`, `-50rb`) = potongan.',
-    'Tanpa `Biaya:` → baris *PPH 21 Rp0*. `Biaya: -` → tanpa baris.',
+    'Tanpa `Discount:` / `Biaya:` → tidak ada baris di bawah Subtotal Net.',
     'Tanpa `Reference:` → diisi nama campaign (+ brand).',
     `Due date default ${DUE_DAYS} hari: *${upperDate(addDays(new Date(), DUE_DAYS))}*. Ubah dengan \`Due: 14\` atau \`Due: 15/10/2026\`.`,
   ].join('\n')
@@ -267,7 +267,7 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     if (d === null) return { text: `❌ Discount tidak valid: "${parsed.discountInput}"\nContoh: 10%, 150rb, 1.5jt. Discount tidak boleh melebihi subtotal.` }
     discount = d
   }
-  const extra = parsed.chargeInputs ? parseCharges(parsed.chargeInputs, subtotal) : [{ label: 'PPH 21', amount: 0 }]
+  const extra = parsed.chargeInputs ? parseCharges(parsed.chargeInputs, subtotal) : []
   if (typeof extra === 'string') return { text: extra }
   // Template terbaru tidak punya baris Discount khusus → jadi baris minus pertama di bawah Subtotal Net
   const charges = discount > 0 ? [{ label: 'Discount', amount: -discount }, ...extra] : extra
