@@ -74,4 +74,14 @@ assert.equal(parseDueInput('31/02/2027', now), null) // tanggal tidak ada
 assert.equal(parseDueInput('01/09/2026', now), null) // sebelum hari ini
 assert.equal(parseDueInput('besok', now), null)
 
+// Mastersheet satu baris "Mastersheet: <link>" (bentuk yang dipakai tim di WA, 30 Sep 2026)
+const sheet = 'https://docs.google.com/spreadsheets/d/1Q2hTa-cVml/edit?gid=1642187890#gid=1642187890'
+const one = parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nBiaya: PPH 21 | 50rb\n\nMastersheet: ${sheet}`)
+assert.ok(typeof one !== 'string', String(one))
+assert.equal(one.mastersheetUrl, sheet)
+assert.deepEqual(one.chargeInputs, ['PPH 21 | 50rb'])
+const colonAlone = parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nMastersheet:\n${sheet}`)
+assert.ok(typeof colonAlone !== 'string' && colonAlone.mastersheetUrl === sheet)
+assert.match(String(parseInvoiceMessage('/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nMastersheet: https://evil.example/x')), /Mastersheet tidak valid/)
+
 console.log('invoiceBot selfcheck OK')

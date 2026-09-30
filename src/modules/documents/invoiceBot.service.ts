@@ -106,7 +106,7 @@ export function parseDueInput(text: string, now: Date): string | null {
 /** Section `Nama:` sederhana (satu nilai teks) → field ParsedInvoice */
 const TEXT_SECTIONS = { pic: /^pic\s*:/i, npwp: /^npwp\s*:/i, contact: /^contact\s*:/i, reference: /^reference\s*:/i, dueInput: /^due\s*:/i } as const
 
-const SECTION_PREFIXES = [/^bill\s+to\s*:/i, /^client\s*:/i, /^campaign\s*:/i, /^brand\s*:/i, /^discount\s*:/i, /^item\s*:/i, /^biaya\s*:/i, ...Object.values(TEXT_SECTIONS)]
+const SECTION_PREFIXES = [/^bill\s+to\s*:/i, /^client\s*:/i, /^campaign\s*:/i, /^brand\s*:/i, /^discount\s*:/i, /^item\s*:/i, /^biaya\s*:/i, /^mastersheet\s*:/i, ...Object.values(TEXT_SECTIONS)]
 const isSectionLine = (line: string) => SECTION_PREFIXES.some((re) => re.test(line))
 
 function parseItems(itemLines: string[]): ParsedItem[] {
@@ -129,15 +129,22 @@ function parseItems(itemLines: string[]): ParsedItem[] {
 export function parseInvoiceMessage(body: string): ParsedInvoice | string {
   const lines = body.split('\n').map((l) => l.trim()).filter(Boolean).slice(1)
 
-  const mastersheetIndex = lines.findIndex((line) => line.toLowerCase() === 'mastersheet')
+  // Dua bentuk: "Mastersheet" (atau "Mastersheet:") sendirian + link di baris berikutnya (format bot-cashflow,
+  // harus paling akhir), atau satu baris "Mastersheet: <link>" di mana saja.
+  const mastersheetIndex = lines.findIndex((line) => /^mastersheet\s*:?$/i.test(line))
   let mastersheetUrl: string | undefined
   let sectionLines = lines
   if (mastersheetIndex >= 0) {
     sectionLines = lines.slice(0, mastersheetIndex)
     const rest = lines.slice(mastersheetIndex + 1)
     if (rest.length !== 1) return `❌ Setelah "Mastersheet" harus ada tepat 1 link Google Sheets.`
-    mastersheetUrl = rest[0].replace(/[,.]+$/, '')
-    if (!/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+(?:\/.*)?$/i.test(mastersheetUrl)) {
+    mastersheetUrl = rest[0]
+  }
+  const inline = sectionLines.find((line) => /^mastersheet\s*:\s*\S/i.test(line))
+  if (inline) mastersheetUrl = inline.replace(/^mastersheet\s*:\s*/i, '')
+  if (mastersheetUrl !== undefined) {
+    mastersheetUrl = mastersheetUrl.trim().replace(/[,.]+$/, '')
+    if (!/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+(?:[/?#].*)?$/i.test(mastersheetUrl)) {
       return `❌ Link Mastersheet tidak valid. Gunakan link Google Sheets lengkap.`
     }
   }
@@ -206,8 +213,7 @@ async function invoiceHelp(): Promise<string> {
     ``,
     `Brand: [nama brand]  (opsional)`,
     ``,
-    `Mastersheet`,
-    `[link Google Sheets]  (opsional)`,
+    `Mastersheet: [link Google Sheets]  (opsional)`,
     '```',
     ``,
     `*Contoh:*`,
@@ -227,8 +233,7 @@ async function invoiceHelp(): Promise<string> {
     `Biaya: PPH 21 | 50rb`,
     `Biaya: PPh 23 | -2%`,
     ``,
-    `Mastersheet`,
-    `https://docs.google.com/spreadsheets/d/xxxxxxxx/edit`,
+    `Mastersheet: https://docs.google.com/spreadsheets/d/xxxxxxxx/edit`,
     '```',
     ``,
     'Wajib: `Bill To:`, `Campaign:`, `Item:`. Opsional: `PIC:`, `NPWP:`, `Contact:`, `Reference:`, `Due:`, `Brand:`, `Discount:`, `Biaya:`',
