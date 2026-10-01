@@ -412,9 +412,12 @@ function participantPhoneFromKey(key: proto.IMessageKey & { participantPn?: stri
 // yang sudah disimpan apa adanya di field tujuan (misal Brand.whatsapp) — kalau sudah mengandung "@"
 // dianggap JID lengkap dan dipakai langsung, supaya broadcast/report bisa diarahkan ke grup.
 // Nomor lokal "08xx" → "628xx": JID WhatsApp wajib kode negara, kalau tidak sendMessage cuma "Timed Out".
+// Placeholder import ("import-fdf6…") / "-" ditolak — kalau cuma diambil digitnya, bisa nyasar ke nomor acak.
 function toJid(to: string): string {
   if (to.includes('@')) return to
-  return `${to.replace(/\D/g, '').replace(/^0/, '62')}@s.whatsapp.net`
+  const digits = to.replace(/\D/g, '').replace(/^0/, '62')
+  if (/[a-z]/i.test(to) || digits.length < 10) throw new Error(`Nomor WA tidak valid: ${to}`)
+  return `${digits}@s.whatsapp.net`
 }
 
 export async function enqueueWaMessage(opts: {

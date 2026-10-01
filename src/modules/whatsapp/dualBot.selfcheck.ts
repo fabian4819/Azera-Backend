@@ -27,6 +27,6 @@ assert.equal(botFor('creator_accepted'), 'creator')
 assert.equal(botFor('invoice_new'), 'partnership')
 assert.equal(botFor('invoice_paid'), 'partnership')
 assert.equal(botFor('campaign_started'), 'partnership')
-assert.equal(botFor('daily_progress_report'), 'partnership')
+assert.equal(botFor('daily_progress_report'), 'creator')
 
 console.log('dualBot.selfcheck OK —', WA_TRIGGERS.length, 'trigger dirutekan')

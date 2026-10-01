@@ -12,7 +12,8 @@ const TIMEZONE = 'Asia/Jakarta'
 
 // Daily progress report ditujukan ke tim internal (grup WhatsApp berisi bot + tim AzeraKOL),
 // bukan ke brand — isi ID grup di .env, format JID grup: "xxxxxxxxxxxxxxxxx@g.us"
-// (cara dapat ID-nya: kirim pesan apa saja di grup itu, lalu cek log server untuk baris "WA group message from ...").
+// Dikirim lewat bot Creator, jadi nomor bot itu harus jadi anggota grup. Cara dapat ID-nya: kirim pesan apa saja
+// di grup itu, lalu cari jid "…@g.us" dengan nama grupnya di collection wacontacts (bot: 'creator').
 const TEAM_GROUP_JID = process.env.WA_TEAM_GROUP_JID || ''
 
 function daysUntil(date: Date): number {
@@ -62,7 +63,7 @@ async function runPaymentRemindersForTenant(tenantId: string) {
   }
 }
 
-/** AD-31: daily progress report jam 17:00 ke tiap client dengan campaign aktif */
+/** AD-31: daily progress report jam 17:00 ke grup tim internal, satu pesan per campaign aktif */
 export async function runDailyProgressReport() {
   await connectDB()
   const tenants = await Tenant.find()

@@ -70,8 +70,9 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
     audience: 'client',
     body: 'Yth. {{bill_to}}, campaign *{{campaign}}* telah selesai. Laporan lengkap akan segera menyusul. Terima kasih atas kerja sama yang baik!',
   },
+  // Ke grup tim internal AZERA (bukan brand) — lewat bot Creator/community, bukan Partnership.
   daily_progress_report: {
-    audience: 'client',
+    audience: 'creator',
     body:
       '📊 Progress Report — {{campaign}} ({{tanggal}})\n\n' +
       'Draft masuk: {{draft_count}}\nSudah approve: {{approved_count}}\nMasih revisi: {{revision_count}}\n' +
