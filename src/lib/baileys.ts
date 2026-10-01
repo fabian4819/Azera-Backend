@@ -411,8 +411,10 @@ function participantPhoneFromKey(key: proto.IMessageKey & { participantPn?: stri
 // `to` bisa berupa nomor HP biasa (dikirim 1:1) ATAU JID grup WhatsApp (mis. "12036301234567890@g.us")
 // yang sudah disimpan apa adanya di field tujuan (misal Brand.whatsapp) — kalau sudah mengandung "@"
 // dianggap JID lengkap dan dipakai langsung, supaya broadcast/report bisa diarahkan ke grup.
+// Nomor lokal "08xx" → "628xx": JID WhatsApp wajib kode negara, kalau tidak sendMessage cuma "Timed Out".
 function toJid(to: string): string {
-  return to.includes('@') ? to : `${to.replace(/\D/g, '')}@s.whatsapp.net`
+  if (to.includes('@')) return to
+  return `${to.replace(/\D/g, '').replace(/^0/, '62')}@s.whatsapp.net`
 }
 
 export async function enqueueWaMessage(opts: {
