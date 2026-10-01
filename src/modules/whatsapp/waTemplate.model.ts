@@ -42,6 +42,8 @@ export interface IWaTemplate extends Document {
   /** Body dengan placeholder {{nama}}, {{campaign}}, {{deadline}}, dst */
   body: string
   editable: boolean
+  /** Toggle admin — false = trigger ini tidak dikirim (log tetap dicatat sebagai 'skipped') */
+  enabled: boolean
   createdAt: Date
   updatedAt: Date
 }
@@ -52,6 +54,7 @@ const WaTemplateSchema = new Schema<IWaTemplate>(
     audience: { type: String, enum: ['creator', 'client'], required: true },
     body: { type: String, required: true },
     editable: { type: Boolean, default: true },
+    enabled: { type: Boolean, default: true },
   },
   { timestamps: true }
 )

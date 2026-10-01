@@ -3,7 +3,8 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import LeadBotTemplate from './leadBotTemplate.model'
 import { LEAD_BOT_TRIGGERS } from './leadBotTemplate.model'
-import { ensureAllLeadBotTemplates } from './leadBotTemplate.service'
+import { ensureAllLeadBotTemplates, getAutoReplySettings, setAutoReply } from './leadBotTemplate.service'
+import { BOT_IDS, BotId } from './waTemplate.model'
 import { LEAD_BOT_DEFAULTS } from './leadBotDefaultTemplates'
 import { LOCKED_BRAND_REFERENCE } from './leadBot.service'
 
@@ -26,7 +27,23 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       description: LEAD_BOT_DEFAULTS[t.trigger].description,
       placeholders: LEAD_BOT_DEFAULTS[t.trigger].placeholders || [],
     }))
-    res.json({ templates: withMeta, lockedReference: LOCKED_BRAND_REFERENCE })
+    res.json({ templates: withMeta, lockedReference: LOCKED_BRAND_REFERENCE, autoReply: await getAutoReplySettings() })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.patch('/auto-reply/:bot', async (req: AuthRequest, res: Response) => {
+  try {
+    const bot = req.params.bot as BotId
+    const { enabled } = req.body as { enabled?: unknown }
+    if (!BOT_IDS.includes(bot) || typeof enabled !== 'boolean') {
+      res.status(400).json({ message: 'bot tidak dikenal atau enabled bukan boolean' })
+      return
+    }
+    await connectDB()
+    await setAutoReply(bot, enabled)
+    res.json(await getAutoReplySettings())
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

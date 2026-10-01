@@ -2,7 +2,7 @@ import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
 import { WA_TRIGGERS, WaTrigger, BOT_IDS, BotId } from './waTemplate.model'
 
-export type WaMessageStatus = 'queued' | 'sent' | 'failed'
+export type WaMessageStatus = 'queued' | 'sent' | 'failed' | 'skipped'
 
 export interface IWaMessageLog extends Document {
   tenantId: Types.ObjectId
@@ -24,7 +24,7 @@ const WaMessageLogSchema = new Schema<IWaMessageLog>(
     trigger: { type: String, enum: WA_TRIGGERS, required: true },
     to: { type: String, required: true },
     payload: { type: String, required: true },
-    status: { type: String, enum: ['queued', 'sent', 'failed'], default: 'queued' },
+    status: { type: String, enum: ['queued', 'sent', 'failed', 'skipped'], default: 'queued' },
     error: String,
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign' },
     creatorId: { type: Schema.Types.ObjectId, ref: 'Creator' },

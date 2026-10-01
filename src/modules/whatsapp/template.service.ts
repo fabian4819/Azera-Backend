@@ -21,6 +21,12 @@ export async function getTemplate(tenantId: string | Types.ObjectId, trigger: Wa
   return tpl.body
 }
 
+/** Template yang belum pernah di-seed dianggap aktif (default schema) */
+export async function isTriggerEnabled(tenantId: string | Types.ObjectId, trigger: WaTrigger): Promise<boolean> {
+  const tpl = await WaTemplate.findOne({ tenantId, trigger }, 'enabled')
+  return tpl?.enabled !== false
+}
+
 /** Pastikan semua 15 trigger punya template tersimpan untuk tenant (dipanggil dari GET /admin/wa-templates) */
 export async function ensureAllTemplates(tenantId: string | Types.ObjectId) {
   const existing = await WaTemplate.find({ tenantId })

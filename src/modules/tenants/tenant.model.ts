@@ -6,6 +6,8 @@ export interface ITenant extends Document {
   settings: {
     waNumber?: string
     contactEmail?: string
+    /** Toggle bot balasan otomatis (leadBot) per bot — undefined dianggap aktif */
+    autoReply?: { partnership?: boolean; creator?: boolean }
   }
   createdAt: Date
   updatedAt: Date
@@ -18,6 +20,7 @@ const TenantSchema = new Schema<ITenant>(
     settings: {
       waNumber: String,
       contactEmail: String,
+      autoReply: { partnership: Boolean, creator: Boolean },
     },
   },
   { timestamps: true }

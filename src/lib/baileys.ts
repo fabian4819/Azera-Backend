@@ -9,6 +9,7 @@ import pino from 'pino'
 import path from 'path'
 import fs from 'fs/promises'
 import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
+import { isTriggerEnabled } from '../modules/whatsapp/template.service'
 import { WaTrigger, BotId, BOT_IDS, audienceToBot } from '../modules/whatsapp/waTemplate.model'
 import { DEFAULT_TEMPLATES } from '../modules/whatsapp/defaultTemplates'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
@@ -431,6 +432,8 @@ export async function enqueueWaMessage(opts: {
   bot?: BotId
 }) {
   const botId = opts.bot ?? audienceToBot[DEFAULT_TEMPLATES[opts.trigger].audience]
+  // Test-send (opts.bot) tidak ikut toggle — dipakai cek pairing walau semua automation dimatikan.
+  const skipped = !opts.bot && !(await isTriggerEnabled(opts.tenantId, opts.trigger))
   const log = await WaMessageLog.create({
     tenantId: opts.tenantId,
     bot: botId,
@@ -439,8 +442,9 @@ export async function enqueueWaMessage(opts: {
     payload: opts.payload,
     campaignId: opts.campaignId,
     creatorId: opts.creatorId,
-    status: 'queued',
+    status: skipped ? 'skipped' : 'queued',
+    ...(skipped ? { error: 'Automation dimatikan di Template Pesan' } : {}),
   })
-  bots[botId].enqueue(log._id.toString(), opts.to, opts.payload)
+  if (!skipped) bots[botId].enqueue(log._id.toString(), opts.to, opts.payload)
   return log
 }

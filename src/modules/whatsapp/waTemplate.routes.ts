@@ -26,12 +26,14 @@ router.patch('/:trigger', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ message: 'Trigger tidak dikenal' })
       return
     }
-    const { body } = req.body as { body?: string }
-    if (!body) { res.status(400).json({ message: 'body wajib diisi' }); return }
+    // Body dan toggle bisa disimpan terpisah — kirim salah satu atau keduanya.
+    const { body, enabled } = req.body as { body?: string; enabled?: unknown }
+    if (enabled !== undefined && typeof enabled !== 'boolean') { res.status(400).json({ message: 'enabled harus boolean' }); return }
+    if (!body && enabled === undefined) { res.status(400).json({ message: 'body atau enabled wajib diisi' }); return }
     await connectDB()
     const tpl = await WaTemplate.findOneAndUpdate(
       { tenantId: req.auth!.tenantId, trigger },
-      { body },
+      { ...(body ? { body } : {}), ...(enabled !== undefined ? { enabled } : {}) },
       { new: true, upsert: false }
     )
     if (!tpl) { res.status(404).json({ message: 'Template belum ada, buka daftar dulu (GET /) untuk auto-seed' }); return }

@@ -4,7 +4,7 @@ import { createBrandInquiry } from '../brands/brand.service'
 import { sendDirectMessage } from '../../lib/baileys'
 import { BotId } from './waTemplate.model'
 import { hasBotEngaged, markBotEngaged, isBotPaused } from './waChat.service'
-import { getLeadBotTemplate } from './leadBotTemplate.service'
+import { getLeadBotTemplate, getAutoReplySettings } from './leadBotTemplate.service'
 import { renderTemplate } from './template.service'
 
 /**
@@ -203,6 +203,8 @@ export async function handleIncomingMessage(bot: BotId, jid: string, rawText: st
   const text = rawText.trim()
   if (!text) return
   await connectDB()
+  // Dimatikan admin di halaman Template Bot Lead — bot diam total (pesan masuk tetap tercatat di Inbox).
+  if (!(await getAutoReplySettings())[bot]) return
   const lower = text.toLowerCase()
   const key = sessionKey(bot, jid)
   const session = sessions.get(key)
