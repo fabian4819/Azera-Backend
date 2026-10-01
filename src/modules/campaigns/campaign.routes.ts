@@ -20,7 +20,8 @@ import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, tryAutoTransition, getCreatorSubStages, WorkflowTransitionError, WORKFLOW_TRANSITIONS } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
-import { getCampaignTabUrl, getCampaignTabUrls } from '../../lib/googleSheets'
+import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
+import { getCampaignTabUrl } from '../../lib/googleSheets'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -85,7 +86,8 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Dashboard campaign khusus portal admin: semua campaign beserta tiga shortcut sheet.
+// Dashboard "Semua Campaign" admin. Sheet-nya dibuka di halaman /campaigns/:id/sheet (link Google
+// Sheets ada di sana), jadi di sini tidak perlu panggil API Sheets per load.
 // Harus didefinisikan sebelum /:id supaya "dashboard-links" tidak dianggap sebagai Mongo ID.
 router.get('/dashboard-links', async (req: AuthRequest, res: Response) => {
   try {
@@ -93,13 +95,7 @@ router.get('/dashboard-links', async (req: AuthRequest, res: Response) => {
     const campaigns = await Campaign.find({ tenantId: req.auth!.tenantId })
       .populate('brandId', 'namaBrand')
       .sort({ createdAt: -1 })
-    const masterUrls = await getCampaignTabUrls(campaigns.map((campaign) => campaign.name))
-    res.json(campaigns.map((campaign) => ({
-      ...campaign.toJSON(),
-      masterSheetUrl: masterUrls[campaign.name],
-      reportSheetUrl: env.googleSheetsReportUrl || null,
-      recapPaymentSheetUrl: env.googleSheetsRecapPaymentUrl || null,
-    })))
+    res.json(campaigns)
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -121,6 +117,24 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       reportSheetUrl: env.googleSheetsReportUrl || null,
       recapPaymentSheetUrl: env.googleSheetsRecapPaymentUrl || null,
     })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Tabel ala spreadsheet (Master / Report / Recap Payment) untuk halaman Sheet admin —
+// data dari DB (sheetView.service.ts), sheetUrl cuma buat tombol "Buka di Google Sheets".
+router.get('/:id/sheet/:kind', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const kind = req.params.kind as SheetKind
+    if (!SHEET_KINDS.includes(kind)) { res.status(400).json({ message: 'Sheet tidak dikenal' }); return }
+    const view = await buildSheetView(req.auth!.tenantId, req.params.id, kind)
+    if (!view) { res.status(404).json({ message: 'Not found' }); return }
+    const sheetUrl = kind === 'master'
+      ? await getCampaignTabUrl(view.campaign.name)
+      : (kind === 'report' ? env.googleSheetsReportUrl : env.googleSheetsRecapPaymentUrl) || null
+    res.json({ ...view, sheetUrl })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

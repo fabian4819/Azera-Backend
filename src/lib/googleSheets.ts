@@ -275,38 +275,6 @@ async function getTabUrl(spreadsheetId: string | undefined, tab: string): Promis
   }
 }
 
-/** Resolve banyak link tab campaign dengan satu metadata request, untuk dashboard admin. */
-export async function getCampaignTabUrls(campaignNames: string[]): Promise<Record<string, string | null>> {
-  const spreadsheetId = campaignSpreadsheetId()
-  const result: Record<string, string | null> = {}
-  if (!spreadsheetId) {
-    for (const name of campaignNames) result[name] = null
-    return result
-  }
-
-  const baseUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`
-  const sheets = getSheetsClient()
-  if (!sheets) {
-    for (const name of campaignNames) result[name] = baseUrl
-    return result
-  }
-
-  try {
-    const meta = await sheets.spreadsheets.get({ spreadsheetId })
-    const gidByTitle = new Map(
-      (meta.data.sheets || []).map((sheet) => [sheet.properties?.title, sheet.properties?.sheetId])
-    )
-    for (const name of campaignNames) {
-      const gid = gidByTitle.get(campaignTabPrefix(name))
-      result[name] = `${baseUrl}${gid != null ? `#gid=${gid}` : ''}`
-    }
-  } catch (err) {
-    console.error('Sheets getCampaignTabUrls error:', (err as Error).message)
-    for (const name of campaignNames) result[name] = baseUrl
-  }
-  return result
-}
-
 /* ---------- spreadsheet milik pengguna (jalur ekstensi KOL Lister) ---------- */
 
 /** Terima link lengkap Google Sheets atau ID mentahnya. Selain itu: null. */

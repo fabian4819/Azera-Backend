@@ -4,7 +4,7 @@ import { IApplication } from '../modules/applications/application.model'
 import Application from '../modules/applications/application.model'
 import { ISubmission } from '../modules/submissions/submission.model'
 import Submission from '../modules/submissions/submission.model'
-import Campaign from '../modules/campaigns/campaign.model'
+import Campaign, { ICampaign } from '../modules/campaigns/campaign.model'
 import Creator from '../modules/creators/creator.model'
 import PicUser from '../modules/pic/pic.model'
 import SocialSnapshot, { ISocialSnapshot } from '../modules/extension/socialSnapshot.model'
@@ -136,24 +136,20 @@ function formatCustomAnswer(v: string | string[] | undefined): string {
   return v || ''
 }
 
-async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {
-  const application = await Application.findOne({ tenantId, campaignId, creatorId })
-  if (!application) return
-  const [campaign, creator, latestSubmission, picUser] = await Promise.all([
-    Campaign.findById(campaignId),
-    Creator.findById(creatorId),
-    Submission.findOne({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 }),
-    application.picUserId ? PicUser.findById(application.picUserId).select('name') : null,
-  ])
-  if (!campaign) return
+/** Header tab campaign: kolom dasar + PIC/Partner + 1 kolom per Campaign.customFields (AD-50).
+ * Dipakai bareng sync ke Sheet dan tampilan tabel Master di admin, supaya isinya identik. */
+export function campaignSheetHeaders(campaign: ICampaign): string[] {
+  return [...CAMPAIGN_HEADERS_BASE, 'PIC/Partner', ...(campaign.customFields || []).map((f) => f.label)]
+}
 
-  // AD-50: kolom PIC/Partner + kolom per Campaign.customFields ditambah di belakang kolom dasar —
-  // beda-beda per campaign (customFields campaign lain isinya beda), makanya headers dibangun
-  // di sini, bukan konstanta tetap seperti CAMPAIGN_HEADERS_BASE.
-  const customFields = campaign.customFields || []
-  const headers = [...CAMPAIGN_HEADERS_BASE, 'PIC/Partner', ...customFields.map((f) => f.label)]
-
-  await upsertCampaignRow(campaign.name, String(application._id), [
+export function campaignSheetRow(
+  campaign: ICampaign,
+  application: IApplication,
+  creator: Pick<ICreator, 'name' | 'phone'> | null,
+  latestSubmission: ISubmission | null,
+  picName: string | undefined
+): (string | number)[] {
+  return [
     creator?.name || '',
     creator?.phone || '',
     application.status,
@@ -169,9 +165,28 @@ async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.Objec
     latestSubmission?.parsedInsight?.comments ?? '',
     latestSubmission?.parsedInsight?.shares ?? '',
     latestSubmission ? fmtDateISO(latestSubmission.createdAt) : '',
-    picUser?.name || '',
-    ...customFields.map((f) => formatCustomAnswer(application.customAnswers?.[f.id])),
-  ], headers)
+    picName || '',
+    ...(campaign.customFields || []).map((f) => formatCustomAnswer(application.customAnswers?.[f.id])),
+  ]
+}
+
+async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {
+  const application = await Application.findOne({ tenantId, campaignId, creatorId })
+  if (!application) return
+  const [campaign, creator, latestSubmission, picUser] = await Promise.all([
+    Campaign.findById(campaignId),
+    Creator.findById(creatorId),
+    Submission.findOne({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 }),
+    application.picUserId ? PicUser.findById(application.picUserId).select('name') : null,
+  ])
+  if (!campaign) return
+
+  await upsertCampaignRow(
+    campaign.name,
+    String(application._id),
+    campaignSheetRow(campaign, application, creator, latestSubmission, picUser?.name),
+    campaignSheetHeaders(campaign)
+  )
 }
 
 export function syncApplicationToSheet(application: IApplication): Promise<void> {
