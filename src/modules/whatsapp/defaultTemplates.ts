@@ -22,7 +22,7 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
   },
   brief_campaign: {
     audience: 'creator',
-    body: 'Halo {{nama}}, ini brief lengkap untuk campaign *{{campaign}}*:\n\n{{brief}}\n\nKalau ada pertanyaan langsung chat aja ya!',
+    body: '{{brief}}',
   },
   reminder_draft: {
     audience: 'creator',

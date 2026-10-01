@@ -341,8 +341,7 @@ async function finalizeBrandLead(bot: BotId, jid: string, draft: BrandDraft): Pr
       deskripsi: draft.brief!,
       jasa: draft.jasa,
       source: 'whatsapp',
-    },
-    `${jasaLabel} — ${draft.companyName}`
+    }
   )
 
   const tpl = await getLeadBotTemplate('brand_confirmation')

@@ -209,39 +209,76 @@ router.post('/:id/send-brief', async (req: AuthRequest, res: Response) => {
 })
 
 /**
- * AD-18: AI compose objective+deliverables jadi brief terstruktur. Admin tetap
- * bisa edit hasilnya lewat PATCH /:id sebelum brief final (catatan checklist).
+ * AD-18: AI susun Broadcast Campaign (pesan WA format Azera) dari data campaign.
+ * Disimpan di briefContent; admin tetap bisa edit lewat PATCH /:id sebelum kirim.
  */
+const BROADCAST_EXAMPLE = `*SMARTFREN RUN BANDUNG | AZERA* 🏃🏻‍♂️
+
+*Info event:*
+https://www.instagram.com/p/xxxx/
+
+*Fee talent:*
+* Option 1 (9 Oktober): Rp140.000
+* Option 2 (11 Oktober): Rp100.000 + 🎫 FREE Ticket Smartfren Run senilai Rp150.000
+_fee pic 10k, mg 10k_
+
+*Kriteria*
+- Usia 18-30 tahun
+- All gender
+- Tiktok & Instagram minimal followers 100 (wajib akun aktif)
+
+*OPSI Lokasi & Tanggal*
+> bisa pilih di form
+1️⃣ *Option 1*
+📣 9 Oktober 2026 — Woro-woro
+📍 Braga, Bandung
+⏰ Standby pukul 15.00 WIB (stay 2-3 jam)
+
+*SOW:*
+- 1x Visit sesuai opsi yang dipilih
+- 1x Instagram Reels Mirroring Tiktok Video
+
+*Daftar:*
+https://link-daftar
+
+PIC: AZERA
+Handle by + WA:`
+
 router.post('/:id/generate-brief', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    const brandName = (await Brand.findById(campaign.brandId).select('namaBrand'))?.namaBrand ?? '-'
+    const applyUrl = typeof req.body?.applyUrl === 'string' ? req.body.applyUrl : '-'
 
-    const prompt = `Susun brief campaign KOL berikut jadi dokumen brief yang rapi dan profesional dalam Bahasa Indonesia.
+    const prompt = `Buat pesan WhatsApp "Broadcast Campaign" untuk merekrut creator/talent, PERSIS mengikuti gaya & struktur contoh di bawah (format WA: *bold*, _italic_, > quote, emoji secukupnya).
 
+CONTOH FORMAT:
+${BROADCAST_EXAMPLE}
+
+DATA CAMPAIGN:
 Nama Campaign: ${campaign.name}
-Tujuan (input mentah dari admin): ${campaign.objective}
-Deliverables (kalau ada): ${campaign.deliverables.join(', ') || '(belum ditentukan, tolong usulkan)'}
-Budget: Rp${campaign.budget.toLocaleString('id-ID')}
+Brand: ${brandName}
+Tujuan / detail dari admin: ${campaign.objective}
+Deliverables/SOW: ${campaign.deliverables.join(', ') || '(belum ditentukan)'}
 Kriteria Creator: niche ${campaign.criteria.niches.join('/') || '-'}, min followers ${campaign.criteria.minFollowers ?? '-'}, domisili ${campaign.criteria.provinces.join('/') || '-'}, platform ${campaign.criteria.platforms.join('/') || '-'}
 Timeline: ${campaign.timeline.startDate ?? '-'} s/d ${campaign.timeline.endDate ?? '-'}
+Link daftar: ${applyUrl}
 
-Kembalikan HANYA JSON (tanpa markdown code block) dengan struktur:
-{"objective": "kalimat objective yang rapi", "deliverables": ["deliverable 1", "deliverable 2"], "briefContent": "isi brief lengkap siap dikirim ke creator, mencakup objective, deliverables, dan kriteria"}`
+Aturan:
+- Judul: *NAMA CAMPAIGN | AZERA* + emoji yang relevan.
+- Bagian yang datanya tidak ada (mis. fee, lokasi, info event) tetap tulis judulnya dengan isian "..." supaya admin lengkapi, JANGAN mengarang angka fee/tanggal/lokasi.
+- Akhiri dengan "PIC:" dan "Handle by + WA:" dibiarkan kosong.
+- Kembalikan HANYA teks pesannya, tanpa code block atau penjelasan.`
 
-    const raw = await generateText(prompt, 'Kamu adalah asisten yang menyusun brief campaign influencer marketing untuk agency KOL Indonesia.')
-    const cleaned = raw.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
-    const parsed = JSON.parse(cleaned) as { objective: string; deliverables: string[]; briefContent: string }
-
-    campaign.objective = parsed.objective || campaign.objective
-    if (parsed.deliverables?.length) campaign.deliverables = parsed.deliverables
-    campaign.briefContent = parsed.briefContent
+    const raw = await generateText(prompt, 'Kamu adalah admin agency KOL Indonesia (Azera) yang menulis broadcast lowongan campaign untuk grup WhatsApp talent.')
+    campaign.briefContent = raw.replace(/^```\w*\s*/, '').replace(/```\s*$/, '').trim()
     await campaign.save()
 
     res.json(campaign)
   } catch (err) {
-    res.status(500).json({ message: 'Gagal generate brief', error: (err as Error).message })
+    res.status(500).json({ message: 'Gagal generate broadcast', error: (err as Error).message })
   }
 })
 
