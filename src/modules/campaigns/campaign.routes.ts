@@ -6,7 +6,7 @@ import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
 import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS } from './campaign.model'
 import { upload } from '../../middleware/upload'
-import { writeProgressCell, appendScreenshots, CellError } from './progress.service'
+import { writeProgressCell, appendScreenshots, CellError, ensurePortalToken, portalUrl } from './progress.service'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
 import { generateCampaignInsight } from './insight.service'
 import { buildReportHtml } from '../documents/reportTemplate'
@@ -282,7 +282,9 @@ router.post('/:id/send-brief', async (req: AuthRequest, res: Response) => {
     for (const app of applications) {
       const creator = app.creatorId as unknown as { name: string; phone: string } | null
       if (!creator?.phone) continue
-      const payload = renderTemplate(template, { nama: creator.name, campaign: campaign.name, brief: campaign.briefContent })
+      const payload = renderTemplate(template, {
+        nama: creator.name, campaign: campaign.name, brief: campaign.briefContent, portal_link: portalUrl(await ensurePortalToken(app)),
+      })
       await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger: 'brief_campaign', to: creator.phone, payload, campaignId: String(campaign._id) })
       sent++
     }

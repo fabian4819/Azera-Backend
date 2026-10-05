@@ -218,7 +218,8 @@ router.post('/:id/remind', async (req: AuthRequest, res: Response) => {
     if (!creator?.phone || !campaign) { res.status(400).json({ message: 'Creator atau campaign tidak lengkap' }); return }
 
     const template = await getTemplate(req.auth!.tenantId, trigger)
-    const payload = renderTemplate(template, { nama: creator.name, campaign: campaign.name })
+    const portalLink = application.status === 'accepted' ? portalUrl(await ensurePortalToken(application)) : undefined
+    const payload = renderTemplate(template, { nama: creator.name, campaign: campaign.name, portal_link: portalLink })
     const log = await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger, to: creator.phone, payload, campaignId: String(campaign._id) })
     res.status(201).json(log)
   } catch (err) {
