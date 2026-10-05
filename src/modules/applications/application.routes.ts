@@ -13,6 +13,9 @@ import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { WaTrigger } from '../whatsapp/waTemplate.model'
 import { tryAutoTransition } from '../campaigns/workflow.service'
 import { syncApplicationToSheet } from '../../lib/sheetSync.service'
+import { ensurePortalToken, portalUrl } from '../campaigns/progress.service'
+import { sendEmail } from '../../lib/email'
+import { creatorAcceptedEmail } from '../../lib/emailTemplates'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -91,19 +94,29 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
 
+    // Magic link portal campaign ini — dibuat saat diterima, dikirim lewat WA & email
+    const portalLink = status === 'accepted' ? portalUrl(await ensurePortalToken(application)) : undefined
+
     // AD-30: trigger creator_accepted / creator_rejected
-    const creator = application.creatorId as unknown as { _id: string; name: string; phone: string } | null
+    const creator = application.creatorId as unknown as { _id: string; name: string; phone: string; email?: string } | null
     const campaign = await Campaign.findOne({ _id: application.campaignId, tenantId: req.auth!.tenantId })
     if (creator?.phone && campaign) {
       const trigger = status === 'accepted' ? 'creator_accepted' : 'creator_rejected'
       const template = await getTemplate(req.auth!.tenantId, trigger)
-      const payload = renderTemplate(template, {
+      let payload = renderTemplate(template, {
         nama: creator.name,
         campaign: campaign.name,
         password: generatedPassword,
         grup_link: campaign.waGroupLink,
+        portal_link: portalLink,
       })
+      // Template lama (sudah di-seed/diedit sebelum ada {{portal_link}}) tetap harus bawa link-nya
+      if (portalLink && !template.includes('portal_link')) payload += `\n\nUpdate progress campaign kamu di sini: ${portalLink}`
       await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger, to: creator.phone, payload, campaignId: String(campaign._id), creatorId: String(creator._id) })
+    }
+    if (portalLink && creator?.email && campaign) {
+      const mail = creatorAcceptedEmail(creator.name, campaign.name, portalLink, campaign.waGroupLink)
+      sendEmail(creator.email, mail.subject, mail.html).catch((err) => console.error('Accepted email error:', err))
     }
 
     // AD-32: creator pertama diterima -> auto maju ke creator_approved

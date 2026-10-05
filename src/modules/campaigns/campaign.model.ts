@@ -45,6 +45,39 @@ export interface ICustomField {
   options?: string[]
 }
 
+/**
+ * Field default form Apply. Nama/WA/Email selalu ada & wajib (tidak bisa dihapus admin).
+ * PIC & Handle by default aktif, admin boleh mematikan per campaign.
+ */
+export interface IApplyFields {
+  pic: boolean
+  handleBy: boolean
+  handleByRequired: boolean
+}
+
+/** Akses creator ke satu kolom di tabel portal (magic link). 'edit' cuma berlaku untuk kolom progress. */
+export type CreatorAccess = 'hidden' | 'view' | 'edit'
+
+/** Field Submission yang bisa diikat ke kolom progress — isinya ditulis ke Submission (bukan
+ * disimpan terpisah) supaya Report, analytics, workflow & ekstensi tetap baca dari sumber yang sama. */
+export const SUBMISSION_FIELDS = ['link', 'postedAt', 'views', 'likes', 'comments', 'shares', 'saves', 'reach', 'screenshots'] as const
+export type SubmissionField = (typeof SUBMISSION_FIELDS)[number]
+export const PROGRESS_TYPES = ['text', 'number', 'date', 'link'] as const
+export type ProgressType = (typeof PROGRESS_TYPES)[number]
+
+/**
+ * Kolom tambahan di Master Sheet yang dibuat admin. Tanpa `submission` = kolom bebas (nilai di
+ * Application.progress). Dengan `submission` = nilai dibaca/ditulis ke Submission creator itu
+ * untuk tipe+platform tsb (1 baris per creator, makanya beda platform = beda kolom).
+ */
+export interface IProgressColumn {
+  id: string
+  label: string
+  type: ProgressType
+  submission?: { type: 'draft' | 'post'; platform: 'instagram' | 'tiktok' | 'threads' | 'x'; field: SubmissionField }
+  creatorAccess: CreatorAccess
+}
+
 export interface ICampaign extends Document {
   tenantId: Types.ObjectId
   brandId: Types.ObjectId
@@ -86,6 +119,11 @@ export interface ICampaign extends Document {
   applySlug: string
   /** AD-47: pertanyaan tambahan custom di form Apply, diisi admin lewat CampaignDetail */
   customFields: ICustomField[]
+  applyFields: IApplyFields
+  progressColumns: IProgressColumn[]
+  /** Akses creator ke kolom non-progress di tabel portal (key = columnKey di sheetSync.service.ts).
+   * Tidak ada entry = pakai default (lihat DEFAULT_VIEW_COLUMNS). Nilai 'edit' diperlakukan 'view'. */
+  columnAccess: Map<string, CreatorAccess>
   createdAt: Date
   updatedAt: Date
 }
@@ -97,6 +135,26 @@ const CustomFieldSchema = new Schema<ICustomField>(
     type: { type: String, enum: ['text', 'textarea', 'number', 'select', 'checkbox'], required: true },
     required: { type: Boolean, default: false },
     options: [String],
+  },
+  { _id: false }
+)
+
+const SubmissionBindSchema = new Schema(
+  {
+    type: { type: String, enum: ['draft', 'post'], required: true },
+    platform: { type: String, enum: ['instagram', 'tiktok', 'threads', 'x'], required: true },
+    field: { type: String, enum: SUBMISSION_FIELDS, required: true },
+  },
+  { _id: false }
+)
+
+const ProgressColumnSchema = new Schema<IProgressColumn>(
+  {
+    id: { type: String, required: true },
+    label: { type: String, required: true },
+    type: { type: String, enum: PROGRESS_TYPES, default: 'text' },
+    submission: { type: SubmissionBindSchema, default: undefined },
+    creatorAccess: { type: String, enum: ['hidden', 'view', 'edit'], default: 'edit' },
   },
   { _id: false }
 )
@@ -148,6 +206,13 @@ const CampaignSchema = new Schema<ICampaign>(
     applyOpen: { type: Boolean, default: false },
     applySlug: { type: String, required: true },
     customFields: { type: [CustomFieldSchema], default: [] },
+    applyFields: {
+      pic: { type: Boolean, default: true },
+      handleBy: { type: Boolean, default: true },
+      handleByRequired: { type: Boolean, default: false },
+    },
+    progressColumns: { type: [ProgressColumnSchema], default: [] },
+    columnAccess: { type: Map, of: { type: String, enum: ['hidden', 'view', 'edit'] }, default: {} },
   },
   { timestamps: true }
 )

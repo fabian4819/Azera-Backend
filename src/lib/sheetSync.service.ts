@@ -4,7 +4,7 @@ import { IApplication } from '../modules/applications/application.model'
 import Application from '../modules/applications/application.model'
 import { ISubmission } from '../modules/submissions/submission.model'
 import Submission from '../modules/submissions/submission.model'
-import Campaign, { ICampaign } from '../modules/campaigns/campaign.model'
+import Campaign, { ICampaign, IProgressColumn, CreatorAccess, SubmissionField } from '../modules/campaigns/campaign.model'
 import Creator from '../modules/creators/creator.model'
 import PicUser from '../modules/pic/pic.model'
 import SocialSnapshot, { ISocialSnapshot } from '../modules/extension/socialSnapshot.model'
@@ -136,19 +136,83 @@ function formatCustomAnswer(v: string | string[] | undefined): string {
   return v || ''
 }
 
-/** Header tab campaign: kolom dasar + PIC/Partner + 1 kolom per Campaign.customFields (AD-50).
- * Dipakai bareng sync ke Sheet dan tampilan tabel Master di admin, supaya isinya identik. */
+export type CellKind = 'text' | 'number' | 'date' | 'link' | 'file'
+
+/** Satu kolom tab campaign. `key` stabil (dipakai untuk aturan akses creator), `label` = header. */
+export interface SheetColumn {
+  key: string
+  label: string
+  /** Ada = kolom progress buatan admin (bisa diedit); kosong = kolom sistem/jawaban form (read-only). */
+  progress?: IProgressColumn
+}
+
+/** Kolom tab campaign: dasar + PIC/Partner + jawaban custom (AD-50) + Handle By/Email + kolom
+ * progress. Kolom baru sengaja ditaruh di belakang supaya kolom lama di Google Sheet tidak bergeser.
+ * Dipakai bareng sync ke Sheet, tabel Master admin, dan portal creator — isinya identik. */
+export function campaignSheetColumns(campaign: ICampaign): SheetColumn[] {
+  return [
+    ...CAMPAIGN_HEADERS_BASE.map((h) => ({ key: h, label: h })),
+    { key: 'PIC/Partner', label: 'PIC/Partner' },
+    ...(campaign.customFields || []).map((f) => ({ key: `custom:${f.id}`, label: f.label })),
+    { key: 'Handle By', label: 'Handle By' },
+    { key: 'Email', label: 'Email' },
+    ...(campaign.progressColumns || []).map((c) => ({ key: `progress:${c.id}`, label: c.label, progress: c })),
+  ]
+}
+
 export function campaignSheetHeaders(campaign: ICampaign): string[] {
-  return [...CAMPAIGN_HEADERS_BASE, 'PIC/Partner', ...(campaign.customFields || []).map((f) => f.label)]
+  return campaignSheetColumns(campaign).map((c) => c.label)
+}
+
+const NUMBER_FIELDS = new Set<SubmissionField>(['views', 'likes', 'comments', 'shares', 'saves', 'reach'])
+
+/** Tipe input sel — kolom yang diikat ke Submission tipenya mengikuti field-nya, bukan pilihan admin. */
+export function progressKind(col: IProgressColumn): CellKind {
+  const field = col.submission?.field
+  if (!field) return col.type
+  if (field === 'link') return 'link'
+  if (field === 'postedAt') return 'date'
+  if (field === 'screenshots') return 'file'
+  return 'number'
+}
+
+/** Submission yang "dimiliki" kolom progress ini: terbaru untuk tipe+platform tsb. `submissions` harus urut terbaru dulu. */
+export function boundSubmission(col: IProgressColumn, submissions: ISubmission[]): ISubmission | undefined {
+  const b = col.submission
+  return b ? submissions.find((s) => s.type === b.type && s.platform === b.platform) : undefined
+}
+
+export function progressCell(col: IProgressColumn, application: IApplication, submissions: ISubmission[]): string | number {
+  const field = col.submission?.field
+  if (!field) return application.progress?.[col.id] ?? ''
+  const sub = boundSubmission(col, submissions)
+  if (!sub) return ''
+  if (field === 'link') return sub.link || ''
+  if (field === 'postedAt') return fmtDateISO(sub.postedAt)
+  if (field === 'screenshots') return (sub.insightScreenshotUrls || []).join(' ')
+  return NUMBER_FIELDS.has(field) ? sub.parsedInsight?.[field as 'views'] ?? '' : ''
+}
+
+// Kolom yang boleh dilihat creator lain secara default — sisanya (WA, email, kurasi, jawaban
+// form, dll) tersembunyi sampai admin membukanya, supaya data pribadi tidak bocor antar creator.
+const DEFAULT_VIEW_COLUMNS = new Set(['Creator', 'Status Aplikasi', 'PIC/Partner', 'Handle By'])
+
+export function creatorAccess(campaign: ICampaign, col: SheetColumn): CreatorAccess {
+  if (col.progress) return col.progress.creatorAccess
+  const set = campaign.columnAccess?.get?.(col.key)
+  if (set) return set === 'edit' ? 'view' : set
+  return DEFAULT_VIEW_COLUMNS.has(col.key) ? 'view' : 'hidden'
 }
 
 export function campaignSheetRow(
   campaign: ICampaign,
   application: IApplication,
-  creator: Pick<ICreator, 'name' | 'phone'> | null,
-  latestSubmission: ISubmission | null,
+  creator: Pick<ICreator, 'name' | 'phone' | 'email'> | null,
+  /** Semua submission creator ini di campaign ini, urut terbaru dulu */
+  submissions: ISubmission[],
   picName: string | undefined
 ): (string | number)[] {
+  const latestSubmission = submissions[0]
   return [
     creator?.name || '',
     creator?.phone || '',
@@ -167,16 +231,19 @@ export function campaignSheetRow(
     latestSubmission ? fmtDateISO(latestSubmission.createdAt) : '',
     picName || '',
     ...(campaign.customFields || []).map((f) => formatCustomAnswer(application.customAnswers?.[f.id])),
+    application.handleBy || '',
+    creator?.email || '',
+    ...(campaign.progressColumns || []).map((c) => progressCell(c, application, submissions)),
   ]
 }
 
 async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {
   const application = await Application.findOne({ tenantId, campaignId, creatorId })
   if (!application) return
-  const [campaign, creator, latestSubmission, picUser] = await Promise.all([
+  const [campaign, creator, submissions, picUser] = await Promise.all([
     Campaign.findById(campaignId),
     Creator.findById(creatorId),
-    Submission.findOne({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 }),
+    Submission.find({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 }),
     application.picUserId ? PicUser.findById(application.picUserId).select('name') : null,
   ])
   if (!campaign) return
@@ -184,7 +251,7 @@ async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.Objec
   await upsertCampaignRow(
     campaign.name,
     String(application._id),
-    campaignSheetRow(campaign, application, creator, latestSubmission, picUser?.name),
+    campaignSheetRow(campaign, application, creator, submissions, picUser?.name),
     campaignSheetHeaders(campaign)
   )
 }

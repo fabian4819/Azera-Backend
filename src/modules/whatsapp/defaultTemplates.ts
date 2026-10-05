@@ -10,7 +10,7 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
     audience: 'creator',
     body:
       'Halo {{nama}}! 🎉 Selamat, kamu diterima untuk campaign *{{campaign}}*.\n\n' +
-      'Login ke Talent Portal AzeraKOL pakai nomor WA kamu, password: {{password}}\n' +
+      'Update progress campaign kamu di sini: {{portal_link}}\n' +
       'Gabung grup campaign di sini ya buat update & tanya-tanya: {{grup_link}}\n\n' +
       'Ditunggu kabar baiknya! 🙌',
   },

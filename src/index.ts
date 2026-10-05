@@ -16,6 +16,7 @@ import adminPortfolioRouter from './routes/admin/portfolio'
 import adminDashboardRouter from './routes/admin/dashboard'
 import campaignRouter from './modules/campaigns/campaign.routes'
 import publicCampaignRouter from './modules/campaigns/publicCampaign.routes'
+import portalRouter from './modules/campaigns/portal.routes'
 import applicationRouter from './modules/applications/application.routes'
 import creatorRouter from './modules/creators/creator.routes'
 import talentPortalRouter from './modules/creators/talentPortal.routes'
@@ -74,6 +75,7 @@ app.use('/api/admin/campaigns', campaignRouter)
 app.use('/api/admin/applications', applicationRouter)
 app.use('/api/admin/creators', creatorRouter)
 app.use('/api/campaigns', publicCampaignRouter)
+app.use('/api/portal', portalRouter)
 app.use('/api/creator', talentPortalRouter)
 app.use('/api/pic', picAuthRouter)
 app.use('/api/pic', picPortalRouter)

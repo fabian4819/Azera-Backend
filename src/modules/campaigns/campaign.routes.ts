@@ -4,7 +4,9 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
-import Campaign, { WORKFLOW_STAGES, WorkflowStage } from './campaign.model'
+import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS } from './campaign.model'
+import { upload } from '../../middleware/upload'
+import { writeProgressCell, appendScreenshots, CellError } from './progress.service'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
 import { generateCampaignInsight } from './insight.service'
 import { buildReportHtml } from '../documents/reportTemplate'
@@ -140,14 +142,83 @@ router.get('/:id/sheet/:kind', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// Edit sel kolom progress dari Master Sheet admin — logic sama dengan portal creator (progress.service.ts)
+async function loadCellTarget(req: AuthRequest) {
+  const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+  const application = campaign && await Application.findOne({ _id: req.body.applicationId, campaignId: campaign._id, tenantId: req.auth!.tenantId })
+  if (!campaign || !application) throw new CellError('Baris tidak ditemukan', 404)
+  return { tenantId: req.auth!.tenantId, campaign, application, columnId: String(req.body.columnId), actor: 'admin' as const, userId: req.auth!.userId }
+}
+
+function sendCellError(res: Response, err: unknown) {
+  if (err instanceof CellError) res.status(err.status).json({ message: err.message })
+  else {
+    console.error('Sheet cell error:', err)
+    res.status(500).json({ message: 'Server error' })
+  }
+}
+
+router.patch('/:id/sheet/cell', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    await writeProgressCell(await loadCellTarget(req), req.body.value)
+    res.json({ ok: true })
+  } catch (err) {
+    sendCellError(res, err)
+  }
+})
+
+router.post('/:id/sheet/cell/upload', upload.array('files', 6), async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    await appendScreenshots(await loadCellTarget(req), (req.files as Express.Multer.File[]) || [])
+    res.json({ ok: true })
+  } catch (err) {
+    sendCellError(res, err)
+  }
+})
+
 // workflowStage SENGAJA tidak di sini — harus lewat POST /:id/workflow/transition
 // (AD-32) supaya tervalidasi & tercatat di WorkflowAudit, bukan di-patch bebas.
 const EDITABLE_FIELDS = [
   'name', 'objective', 'deliverables', 'budget', 'timeline', 'criteria',
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
   'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
-  'customFields',
+  'customFields', 'applyFields', 'progressColumns', 'columnAccess',
 ] as const
+
+const ACCESS = ['hidden', 'view', 'edit'] as const
+const PLATFORMS = ['instagram', 'tiktok', 'threads', 'x'] as const
+const has = <T extends string>(list: readonly T[], v: unknown): v is T => list.includes(v as T)
+
+/** Kolom progress dari admin dirapikan di sini (bukan cuma andalkan enum schema, yang tidak jalan
+ * di findOneAndUpdate) — kolom tanpa label dibuang, binding Submission harus lengkap & valid. */
+function sanitizeProgressColumns(input: unknown): IProgressColumn[] {
+  if (!Array.isArray(input)) return []
+  return input.flatMap((c): IProgressColumn[] => {
+    const label = String(c?.label ?? '').trim().slice(0, 80)
+    if (!label) return []
+    const b = c.submission
+    const submission = b && b.type && has(['draft', 'post'] as const, b.type) && has(PLATFORMS, b.platform) && has(SUBMISSION_FIELDS, b.field)
+      ? { type: b.type, platform: b.platform, field: b.field }
+      : undefined
+    return [{
+      id: String(c.id || crypto.randomUUID()),
+      label,
+      type: has(PROGRESS_TYPES, c.type) ? c.type : 'text',
+      submission,
+      creatorAccess: has(ACCESS, c.creatorAccess) ? c.creatorAccess : 'edit',
+    }]
+  })
+}
+
+function sanitizeColumnAccess(input: unknown): Record<string, 'hidden' | 'view'> {
+  const out: Record<string, 'hidden' | 'view'> = {}
+  if (input && typeof input === 'object') {
+    for (const [k, v] of Object.entries(input)) if (v === 'hidden' || v === 'view') out[k] = v
+  }
+  return out
+}
 
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
@@ -155,6 +226,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     const updates: Record<string, unknown> = {}
     for (const field of EDITABLE_FIELDS) {
       if (field in req.body) updates[field] = req.body[field]
+    }
+    if ('progressColumns' in updates) updates.progressColumns = sanitizeProgressColumns(updates.progressColumns)
+    if ('columnAccess' in updates) updates.columnAccess = sanitizeColumnAccess(updates.columnAccess)
+    if ('applyFields' in updates) {
+      const a = (updates.applyFields || {}) as Record<string, unknown>
+      updates.applyFields = { pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true }
     }
     const before = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!before) { res.status(404).json({ message: 'Not found' }); return }

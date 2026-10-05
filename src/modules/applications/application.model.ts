@@ -25,6 +25,12 @@ export interface IApplication extends Document {
    * di-assign ke campaign (lihat POST /:id/pic di campaign.routes.ts), divalidasi di
    * application.routes.ts. Dipakai buat filter dashboard PIC portal per-creator, bukan cuma per-campaign. */
   picUserId?: Types.ObjectId
+  /** Isian bebas "Handle by" dari form Apply (bukan akun, beda dengan PIC) */
+  handleBy?: string
+  /** Nilai kolom progress bebas (Campaign.progressColumns tanpa `submission`), keyed by column id */
+  progress: Record<string, string | number>
+  /** Magic link portal creator untuk campaign ini (/portal/:token) — dibuat saat accepted */
+  portalToken?: string
   /** AD-25: pelacakan pembayaran ke creator — follow-up manual via admin, tanpa otomasi */
   creatorPaymentStatus: 'unpaid' | 'paid'
   createdAt: Date
@@ -52,6 +58,9 @@ const ApplicationSchema = new Schema<IApplication>(
     decidedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     decidedAt: Date,
     picUserId: { type: Schema.Types.ObjectId, ref: 'PicUser' },
+    handleBy: String,
+    progress: { type: Schema.Types.Mixed, default: {} },
+    portalToken: String,
     creatorPaymentStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
   },
   { timestamps: true }
@@ -59,5 +68,6 @@ const ApplicationSchema = new Schema<IApplication>(
 
 withTenant(ApplicationSchema)
 ApplicationSchema.index({ tenantId: 1, campaignId: 1, creatorId: 1 }, { unique: true })
+ApplicationSchema.index({ portalToken: 1 }, { unique: true, partialFilterExpression: { portalToken: { $type: 'string' } } })
 
 export default mongoose.model<IApplication>('Application', ApplicationSchema)

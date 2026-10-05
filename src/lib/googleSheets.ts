@@ -66,7 +66,9 @@ async function ensureTab(
   keyHeader: string = 'ID',
   strict: boolean = false
 ): Promise<void> {
-  const key = `${spreadsheetId}:${tab}`
+  // Header ikut jadi bagian key: kolom campaign bisa berubah (form kustom / kolom progress),
+  // jadi baris header harus ditulis ulang begitu susunannya beda, bukan cuma sekali per proses.
+  const key = `${spreadsheetId}:${tab}:${headers.join('\u0001')}`
   if (ensuredTabs.has(key)) return
   const meta = await sheets.spreadsheets.get({ spreadsheetId })
   const existing = meta.data.sheets?.find((s) => s.properties?.title === tab)

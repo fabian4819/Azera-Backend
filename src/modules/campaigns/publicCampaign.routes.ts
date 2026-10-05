@@ -47,7 +47,8 @@ router.get('/:slug', async (req: Request, res: Response) => {
     }
     // AD-50: PIC/partner dipilih CREATOR sendiri di apply form (bukan admin pasca-review) —
     // pilihannya dibatasi ke PIC yang sudah di-assign admin ke campaign ini (PicUser.campaignIds).
-    const picUsers = await PicUser.find({ tenantId: tenant._id, campaignIds: campaign._id }).select('name')
+    const applyFields = campaign.applyFields ?? { pic: true, handleBy: true, handleByRequired: false }
+    const picUsers = applyFields.pic ? await PicUser.find({ tenantId: tenant._id, campaignIds: campaign._id }).select('name') : []
     res.json({
       name: campaign.name,
       brand: campaign.brandId,
@@ -58,6 +59,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
       eventDetails: campaign.eventDetails,
       timeline: campaign.timeline,
       customFields: campaign.customFields,
+      applyFields,
       picOptions: picUsers.map((p) => ({ _id: p._id, name: p.name })),
     })
   } catch {
@@ -76,15 +78,25 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       return
     }
 
-    const {
-      name, phone, email, birthDate, gender, domicile, socials, activities, niches, nicheOther,
-      contentStyles, contentStyleOther, bankAccount, npwp, mediaKitUrl, portfolioLink,
-      address, postalCode, school,
-      answers, customAnswers, picUserId,
-    } = req.body
+    // Form Apply cukup field default (nama/WA/email + PIC/Handle by) + pertanyaan custom —
+    // creator tidak wajib isi Form Creator (/kol/register) dulu.
+    const { customAnswers, picUserId } = req.body
+    const name = String(req.body.name ?? '').trim()
+    const phone = String(req.body.phone ?? '').trim()
+    const email = String(req.body.email ?? '').trim().toLowerCase()
+    const handleBy = String(req.body.handleBy ?? '').trim().slice(0, 120)
+    const applyFields = campaign.applyFields ?? { pic: true, handleBy: true, handleByRequired: false }
 
-    if (!phone || !name) {
-      res.status(400).json({ message: 'Nama dan nomor WA wajib diisi' })
+    if (!name || !phone || !email) {
+      res.status(400).json({ message: 'Nama, nomor WA, dan email wajib diisi' })
+      return
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      res.status(400).json({ message: 'Format email tidak valid' })
+      return
+    }
+    if (applyFields.handleBy && applyFields.handleByRequired && !handleBy) {
+      res.status(400).json({ message: 'Handle by wajib diisi' })
       return
     }
 
@@ -99,44 +111,32 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       return
     }
 
-    // AD-50: PIC wajib diisi HANYA kalau campaign ini punya PIC yang di-assign admin — campaign
-    // lama/tanpa PIC sama sekali tidak kena validasi ini (backward compatible).
-    const assignedPics = await PicUser.find({ tenantId: tenant._id, campaignIds: campaign._id }).select('_id')
+    // AD-50: PIC wajib diisi HANYA kalau field PIC aktif & campaign ini punya PIC yang di-assign admin.
     let validatedPicUserId: string | undefined
-    if (assignedPics.length > 0) {
-      const match = assignedPics.find((p) => String(p._id) === String(picUserId))
-      if (!match) {
-        res.status(400).json({ message: 'PIC/Partner wajib dipilih' })
-        return
+    if (applyFields.pic) {
+      const assignedPics = await PicUser.find({ tenantId: tenant._id, campaignIds: campaign._id }).select('_id')
+      if (assignedPics.length > 0) {
+        const match = assignedPics.find((p) => String(p._id) === String(picUserId))
+        if (!match) {
+          res.status(400).json({ message: 'PIC/Partner wajib dipilih' })
+          return
+        }
+        validatedPicUserId = String(match._id)
       }
-      validatedPicUserId = String(match._id)
     }
 
     // Duplikat (nomor WA sama) → link ke Creator profile eksisting, bukan bikin baru
     let creator = await Creator.findOne({ tenantId: tenant._id, phone })
+    const emailOwner = await Creator.findOne({ tenantId: tenant._id, email })
+    if (emailOwner && String(emailOwner._id) !== String(creator?._id)) {
+      res.status(409).json({ message: 'Email ini sudah terdaftar dengan nomor WA lain. Gunakan email lain, atau hubungi tim kami kalau ini email kamu.' })
+      return
+    }
     if (!creator) {
-      // Nomor WA baru, tapi email-nya sudah dipakai akun lain — sama seperti publicCreator.routes.ts
-      if (email) {
-        const emailTaken = await Creator.findOne({ tenantId: tenant._id, email })
-        if (emailTaken) {
-          res.status(409).json({ message: 'Email ini sudah terdaftar dengan akun lain. Gunakan email lain, atau hubungi tim kami kalau ini email kamu.' })
-          return
-        }
-      }
-      creator = await Creator.create({
-        tenantId: tenant._id,
-        name, phone, email, gender, domicile,
-        birthDate: birthDate ? new Date(birthDate) : undefined,
-        socials: socials || [],
-        activities: activities || [],
-        niches: niches || [],
-        nicheOther,
-        contentStyles: contentStyles || [],
-        contentStyleOther,
-        bankAccount, npwp, mediaKitUrl, portfolioLink,
-        address, postalCode, school,
-        source: 'campaign',
-      })
+      creator = await Creator.create({ tenantId: tenant._id, name, phone, email, source: 'campaign' })
+    } else if (!creator.email) {
+      creator.email = email
+      await creator.save()
     }
 
     const existingApplication = await Application.findOne({
@@ -154,9 +154,9 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       tenantId: tenant._id,
       campaignId: campaign._id,
       creatorId: creator._id,
-      answers: answers || {},
       customAnswers: customAnswers || {},
       picUserId: validatedPicUserId,
+      handleBy: applyFields.handleBy ? handleBy || undefined : undefined,
       curationResult: curation.result,
       curationReason: curation.reason,
       status: curation.autoRejected ? 'rejected' : 'pending',
