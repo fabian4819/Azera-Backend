@@ -30,6 +30,12 @@ router.use('/:bot', bots)
 const botOf = (req: AuthRequest) => (req as AuthRequest & { bot: BotId }).bot
 
 // AD-29: status koneksi Baileys (disconnected/connecting/qr/connected)
+// Inbox (chat masuk & balasan) berisi percakapan pribadi — tidak dibuka untuk role developer
+bots.use('/contacts', (req: AuthRequest, res: Response, next) => {
+  if (req.auth?.role === 'developer') { res.status(403).json({ message: 'Inbox WhatsApp tidak tersedia untuk role developer' }); return }
+  next()
+})
+
 bots.get('/status', (req: AuthRequest, res: Response) => {
   res.json(getWaStatus(botOf(req)))
 })

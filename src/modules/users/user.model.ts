@@ -1,7 +1,8 @@
 import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
 
-export type UserRole = 'owner' | 'admin' | 'ce' | 'finance'
+/** 'developer' = akses setara admin (tim pengembang), kecuali Inbox WhatsApp (chat pribadi) */
+export type UserRole = 'owner' | 'admin' | 'ce' | 'finance' | 'developer'
 
 export interface IUser extends Document {
   tenantId: Types.ObjectId
@@ -21,7 +22,7 @@ const UserSchema = new Schema<IUser>(
     email: { type: String, required: true },
     password: { type: String, required: true },
     phone: String,
-    role: { type: String, enum: ['owner', 'admin', 'ce', 'finance'], required: true },
+    role: { type: String, enum: ['owner', 'admin', 'ce', 'finance', 'developer'], required: true },
     active: { type: Boolean, default: true },
   },
   { timestamps: true }

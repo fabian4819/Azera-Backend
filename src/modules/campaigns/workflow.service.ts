@@ -1,3 +1,4 @@
+import { effectiveRole } from '../../middleware/auth'
 import { Types } from 'mongoose'
 import { UserRole } from '../users/user.model'
 import Campaign, { WorkflowStage, WORKFLOW_STAGES } from './campaign.model'
@@ -82,16 +83,17 @@ export async function transitionWorkflow(opts: {
   }
   if (isOverride) {
     // Matrix: "Override tahap mana pun | Owner (dan Admin dengan alasan)" — role lain tidak boleh override sama sekali.
-    if (opts.role !== 'owner' && opts.role !== 'admin') {
+    const role = effectiveRole(opts.role)
+    if (role !== 'owner' && role !== 'admin') {
       throw new WorkflowTransitionError('Cuma Owner atau Admin yang boleh override tahap')
     }
-    if (opts.role !== 'owner' && !opts.reason) {
+    if (role !== 'owner' && !opts.reason) {
       throw new WorkflowTransitionError('Override butuh alasan kalau bukan Owner')
     }
   }
   if (!isOverride) {
     const allowedRoles = TRANSITION_ROLES[key] || ['owner', 'admin']
-    if (!allowedRoles.includes(opts.role)) {
+    if (!allowedRoles.includes(effectiveRole(opts.role))) {
       throw new WorkflowTransitionError(`Role ${opts.role} tidak boleh melakukan transisi ini`)
     }
   }
