@@ -27,6 +27,8 @@ export interface SheetTable {
   columns?: ColumnMeta[]
   rowIds?: string[]
   rowStatus?: string[]
+  /** Pendaftar: magic link portal per baris (bukan kolom, dipakai tombol salin "Link") */
+  rowLinks?: string[]
   /** Master: definisi kolom progress mentah, untuk panel Kelola Kolom */
   progressColumns?: IProgressColumn[]
 }
@@ -46,7 +48,7 @@ const sum = (rows: Cell[][], col: number) => rows.reduce((acc, r) => acc + (type
 async function loadCampaignData(tenantId: Types.ObjectId | string, campaign: ICampaign) {
   const applications = await Application.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: 1 })
   const [creators, submissions, pics] = await Promise.all([
-    Creator.find({ tenantId, _id: { $in: applications.map((a) => a.creatorId) } }).select('name phone email bankAccount npwp'),
+    Creator.find({ tenantId, _id: { $in: applications.map((a) => a.creatorId) } }).select('name phone email bankAccount npwp niches domicile socials'),
     Submission.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: -1 }),
     PicUser.find({ tenantId, _id: { $in: applications.map((a) => a.picUserId).filter(Boolean) } }).select('name'),
   ])
@@ -92,10 +94,20 @@ const CURATION_LABELS: Record<string, string> = {
   highly_recommended: 'Highly Recommended', recommended: 'Recommended', need_review: 'Need Review', rejected: 'Rejected',
 }
 
-/** Tab Pendaftar: semua yang apply + tombol approve/reject di frontend (pakai rowIds/rowStatus). */
+/** Tab Pendaftar: semua yang apply + kolom aksi "Status" di frontend (badge + approve/reject/salin link, dari
+ * rowIds/rowStatus/rowLinks), makanya status tidak dijadikan kolom teks lagi.
+ * Link portal sengaja bukan kolom, cuma lewat tombol "Link" di baris yang sudah diterima. */
 function applicantsTable(campaign: ICampaign, d: CampaignData): SheetTable {
   const custom = campaign.customFields || []
-  const headers = ['Creator', 'WhatsApp', 'Email', 'PIC/Partner', 'Handle By', ...custom.map((f) => f.label), 'Hasil Kurasi', 'Alasan Kurasi', 'Status', 'Tanggal Daftar', 'Link Portal']
+  // Kolom ikut field form apply campaign ini: niche, domisili (kalau ada kriteria provinsi/kota), akun per platform
+  const platforms = campaign.criteria?.platforms || []
+  const askDomicile = (campaign.criteria?.provinces?.length || 0) + (campaign.criteria?.cities?.length || 0) > 0
+  const PLATFORM_LABEL: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', threads: 'Threads', x: 'X' }
+  const headers = [
+    'Creator', 'WhatsApp', 'Email', 'Niche', ...(askDomicile ? ['Provinsi', 'Kota'] : []),
+    ...platforms.flatMap((p) => [`${PLATFORM_LABEL[p] ?? p}`, `Followers ${PLATFORM_LABEL[p] ?? p}`]),
+    'PIC/Partner', 'Handle By', ...custom.map((f) => f.label), 'Hasil Kurasi', 'Alasan Kurasi', 'Tanggal Daftar',
+  ]
   const rows: Cell[][] = d.applications.map((a) => {
     const c = d.creatorById.get(String(a.creatorId))
     const ans = (id: string) => {
@@ -104,17 +116,26 @@ function applicantsTable(campaign: ICampaign, d: CampaignData): SheetTable {
     }
     return [
       c?.name || '', c?.phone || '', c?.email || '',
+      (c?.niches || []).join(', '),
+      ...(askDomicile ? [c?.domicile?.province || '', c?.domicile?.city || ''] : []),
+      ...platforms.flatMap((p) => {
+        const acc = c?.socials?.find((x) => x.platform === p)
+        return [acc?.username ? `@${acc.username}` : '', acc ? acc.followers : '']
+      }),
       a.picUserId ? d.picById.get(String(a.picUserId)) || '' : '',
       a.handleBy || '',
       ...custom.map((f) => ans(f.id)),
       CURATION_LABELS[a.curationResult] || a.curationResult,
       a.curationReason || '',
-      a.status,
       fmtDate(a.createdAt),
-      a.status === 'accepted' && a.portalToken ? portalUrl(a.portalToken) : '',
     ]
   })
-  return { headers, rows, rowIds: d.applications.map((a) => String(a._id)), rowStatus: d.applications.map((a) => a.status) }
+  return {
+    headers, rows,
+    rowIds: d.applications.map((a) => String(a._id)),
+    rowStatus: d.applications.map((a) => a.status),
+    rowLinks: d.applications.map((a) => (a.status === 'accepted' && a.portalToken ? portalUrl(a.portalToken) : '')),
+  }
 }
 
 /** 1 baris per konten tayang (submission type post). ER = (like+comment+share+save)/views,
