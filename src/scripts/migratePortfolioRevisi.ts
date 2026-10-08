@@ -2,7 +2,7 @@
  * Skrip sekali-jalan: isi field struktur Portfolio terbaru (revisi "Field Portofolio
  * AZERAKOL.ID", Sep 2026) untuk portfolio lama yang masih pakai format metrics lama.
  *
- * Pemetaan (hanya $set — field lama TIDAK dihapus, jadi kode lama yang masih live aman):
+ * Pemetaan (hanya $set, field lama TIDAK dihapus, jadi kode lama yang masih live aman):
  * - status            → 'published' (data lama memang sudah tayang)
  * - deliverables      → "1× TikTok video + mirroring Instagram Reels per KOL"
  * - scope             → sourcing, briefing, content review, monitoring posting, reporting

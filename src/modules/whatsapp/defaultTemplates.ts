@@ -1,7 +1,7 @@
 import { WaTrigger, WaAudience } from './waTemplate.model'
 
 /**
- * Wording default per trigger — ke client sopan & formal (Bapak/Ibu), ke creator ramah (Kak),
+ * Wording default per trigger, ke client sopan & formal (Bapak/Ibu), ke creator ramah (Kak),
  * sesuai catatan checklist AD-31. Pesan ke creator yang diterima selalu bawa {{portal_link}}.
  * Admin bisa edit lewat /admin/wa-templates.
  */
@@ -28,7 +28,7 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
   },
   reminder_revision: {
     audience: 'creator',
-    body: "Halo Kak {{nama}} 😊\n\nTerima kasih untuk draft campaign *{{campaign}}*-nya! Ada sedikit revisi yang perlu disesuaikan ya, Kak — detailnya akan diinfokan tim kami.\n\nSetelah direvisi, cukup perbarui link draft di dashboard Kakak:\n{{portal_link}}\n\nMakasih banyak atas kerja samanya, Kak 🙏",
+    body: "Halo Kak {{nama}} 😊\n\nTerima kasih untuk draft campaign *{{campaign}}*-nya! Ada sedikit revisi yang perlu disesuaikan ya, Kak, detailnya akan diinfokan tim kami.\n\nSetelah direvisi, cukup perbarui link draft di dashboard Kakak:\n{{portal_link}}\n\nMakasih banyak atas kerja samanya, Kak 🙏",
   },
   reminder_insight: {
     audience: 'creator',
@@ -62,10 +62,10 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
     audience: 'client',
     body: "Halo Bapak/Ibu {{bill_to}}! 🎉\n\nCampaign *{{campaign}}* telah selesai berjalan. Terima kasih atas kerja sama yang luar biasa! 🙌\n\nLaporan lengkap hasil campaign akan segera kami kirimkan. Kami tunggu kolaborasi berikutnya ya 😊",
   },
-  // Ke grup tim internal AZERA (bukan brand) — lewat bot Creator/community, bukan Partnership.
+  // Ke grup tim internal AZERA (bukan brand), lewat bot Creator/community, bukan Partnership.
   daily_progress_report: {
     audience: 'creator',
-    body: "📊 *Progress Report — {{campaign}}*\n🗓️ {{tanggal}}\n\n📝 Draft masuk: {{draft_count}}\n✅ Draft disetujui: {{approved_count}}\n🔁 Masih revisi: {{revision_count}}\n📲 Sudah posting: {{posted_count}}\n📈 Insight masuk: {{insight_count}}\n\nSemangat, tim! 💪",
+    body: "📊 *Progress Report: {{campaign}}*\n🗓️ {{tanggal}}\n\n📝 Draft masuk: {{draft_count}}\n✅ Draft disetujui: {{approved_count}}\n🔁 Masih revisi: {{revision_count}}\n📲 Sudah posting: {{posted_count}}\n📈 Insight masuk: {{insight_count}}\n\nSemangat, tim! 💪",
   },
   broadcast_campaign: {
     audience: 'creator',

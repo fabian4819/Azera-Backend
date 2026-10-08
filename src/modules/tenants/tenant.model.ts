@@ -6,7 +6,7 @@ export interface ITenant extends Document {
   settings: {
     waNumber?: string
     contactEmail?: string
-    /** Toggle bot balasan otomatis (leadBot) per bot — undefined dianggap aktif */
+    /** Toggle bot balasan otomatis (leadBot) per bot, undefined dianggap aktif */
     autoReply?: { partnership?: boolean; creator?: boolean }
   }
   createdAt: Date

@@ -3,7 +3,7 @@ import WaTemplate from './waTemplate.model'
 import { WaTrigger, WA_TRIGGERS } from './waTemplate.model'
 import { DEFAULT_TEMPLATES } from './defaultTemplates'
 
-/** Ganti placeholder {{key}} dengan value dari vars — key tidak ditemukan dibiarkan kosong */
+/** Ganti placeholder {{key}} dengan value dari vars, key tidak ditemukan dibiarkan kosong */
 export function renderTemplate(body: string, vars: Record<string, string | number | undefined>): string {
   return body.replace(/{{\s*(\w+)\s*}}/g, (_match, key: string) => {
     const value = vars[key]
@@ -11,7 +11,7 @@ export function renderTemplate(body: string, vars: Record<string, string | numbe
   })
 }
 
-/** Ambil template tenant untuk trigger tertentu — auto-seed dari default kalau belum ada */
+/** Ambil template tenant untuk trigger tertentu, auto-seed dari default kalau belum ada */
 export async function getTemplate(tenantId: string | Types.ObjectId, trigger: WaTrigger): Promise<string> {
   let tpl = await WaTemplate.findOne({ tenantId, trigger })
   if (!tpl) {

@@ -62,7 +62,7 @@ router.post('/confirm', async (req: AuthRequest, res: Response) => {
       }
 
       try {
-        // Brand model legacy (landing page) belum multi-tenant — tidak ada tenantId untuk difilter
+        // Brand model legacy (landing page) belum multi-tenant, tidak ada tenantId untuk difilter
         let brand = await Brand.findOne({ namaBrand: exactName(row.brandName) })
         if (!brand) {
           brand = await Brand.create({
@@ -98,7 +98,7 @@ router.post('/confirm', async (req: AuthRequest, res: Response) => {
         }
 
         // Report/case study/AI insight membaca daftar creator dari Application accepted
-        // (analytics.service.ts getCampaignCreatorSummaries) — tanpa ini tabel per-creator kosong
+        // (analytics.service.ts getCampaignCreatorSummaries), tanpa ini tabel per-creator kosong
         await Application.updateOne(
           { tenantId, campaignId: campaign._id, creatorId: creator._id },
           { $setOnInsert: { status: 'accepted', curationResult: 'recommended', curationReason: 'Data historis hasil import spreadsheet', decidedAt: new Date() } },

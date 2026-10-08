@@ -6,7 +6,7 @@ import Creator from './creator.model'
  * 4 sub-skor Performance Score (ACC klien 16 Agu 2026, Review PDF hal. 14).
  * Bobot default: Reliability 40% · Quality 25% · Performance 20% · Communication 15%.
  * Kalau Communication null (belum ada data respons), bobotnya didistribusi
- * proporsional ke 3 sub-skor lainnya — bukan diperlakukan sebagai 0.
+ * proporsional ke 3 sub-skor lainnya, bukan diperlakukan sebagai 0.
  *
  * Setiap sub-skor mengembalikan breakdown mentah (bukan cuma angka akhir) supaya
  * bisa "diklik untuk lihat sumber perhitungan" (syarat transparansi dari klien).
@@ -43,9 +43,9 @@ export async function computePerformanceScore(
   const qualityScore =
     total === 0 ? 70 : Math.max(0, Math.min(100, (noRevisionCount / total) * 100 - avgRevisions * 10))
 
-  // Performance: % campaign mencapai KPI — BELUM ada sumber data (Campaign Analytics
+  // Performance: % campaign mencapai KPI, BELUM ada sumber data (Campaign Analytics
   // AD-23 di modul 3 belum dibangun). Default netral, transparan soal keterbatasannya.
-  const performanceScore = { score: 70, note: 'Belum ada data pencapaian KPI campaign (AD-23, Modul 3) — nilai default netral.' }
+  const performanceScore = { score: 70, note: 'Belum ada data pencapaian KPI campaign (AD-23, Modul 3), nilai default netral.' }
 
   // Communication: rata-rata kecepatan respons, kalau datanya ada
   const withResponseTime = history.filter((h) => h.responseTimeHours !== undefined && h.responseTimeHours !== null)

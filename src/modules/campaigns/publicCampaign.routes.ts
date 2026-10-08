@@ -12,11 +12,11 @@ import { syncApplicationToSheet } from '../../lib/sheetSync.service'
 const router = Router()
 
 /**
- * AD-48: dashboard PIC/Handle-by — bukan akun/login individual (jumlah Handle-by
+ * AD-48: dashboard PIC/Handle-by, bukan akun/login individual (jumlah Handle-by
  * terlalu banyak untuk dikelola sebagai User), cukup satu accessCode per campaign
  * (sudah ada di schema sejak AD-18, baru dipakai sekarang), pola sama seperti akses
  * invoice via code (publicInvoice.routes.ts). Read-only, seluruh data campaign
- * (bukan cuma subset per orang) — lihat docs/plan/09-open-questions.md.
+ * (bukan cuma subset per orang), lihat docs/plan/09-open-questions.md.
  */
 router.get('/:id/dashboard', async (req: Request, res: Response) => {
   try {
@@ -34,7 +34,7 @@ router.get('/:id/dashboard', async (req: Request, res: Response) => {
   }
 })
 
-// AD-19: halaman publik /apply/:slug — info campaign untuk ditampilkan di landing page
+// AD-19: halaman publik /apply/:slug, info campaign untuk ditampilkan di landing page
 router.get('/:slug', async (req: Request, res: Response) => {
   try {
     await connectDB()
@@ -45,7 +45,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
       res.status(404).json({ message: 'Campaign tidak ditemukan atau pendaftaran sudah ditutup' })
       return
     }
-    // AD-50: PIC/partner dipilih CREATOR sendiri di apply form (bukan admin pasca-review) —
+    // AD-50: PIC/partner dipilih CREATOR sendiri di apply form (bukan admin pasca-review),
     // pilihannya dibatasi ke PIC yang sudah di-assign admin ke campaign ini (PicUser.campaignIds).
     const applyFields = campaign.applyFields ?? { pic: true, handleBy: true, handleByRequired: false }
     const picUsers = applyFields.pic ? await PicUser.find({ tenantId: tenant._id, campaignIds: campaign._id }).select('name') : []
@@ -67,7 +67,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
   }
 })
 
-// AD-19: submit pendaftaran creator ke campaign — buat/link Creator by nomor WA
+// AD-19: submit pendaftaran creator ke campaign, buat/link Creator by nomor WA
 router.post('/:slug/apply', async (req: Request, res: Response) => {
   try {
     await connectDB()
@@ -78,7 +78,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       return
     }
 
-    // Form Apply cukup field default (nama/WA/email + PIC/Handle by) + pertanyaan custom —
+    // Form Apply cukup field default (nama/WA/email + PIC/Handle by) + pertanyaan custom,
     // creator tidak wajib isi Form Creator (/kol/register) dulu.
     const { customAnswers, picUserId } = req.body
     const name = String(req.body.name ?? '').trim()

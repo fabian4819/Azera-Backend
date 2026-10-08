@@ -1,6 +1,6 @@
 import multer from 'multer'
 
-// Foto KOL & screenshot insight — hanya gambar
+// Foto KOL & screenshot insight, hanya gambar
 export const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -10,7 +10,7 @@ export const upload = multer({
   },
 })
 
-// Portfolio — logo + contoh konten (foto/video)
+// Portfolio, logo + contoh konten (foto/video)
 export const uploadMedia = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },
@@ -20,7 +20,7 @@ export const uploadMedia = multer({
   },
 })
 
-// Bukti transfer pembayaran — gambar atau PDF
+// Bukti transfer pembayaran, gambar atau PDF
 export const uploadProof = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -38,7 +38,7 @@ const SPREADSHEET_MIME_TYPES = [
   'text/plain', // beberapa OS mengirim .csv sebagai text/plain
 ]
 
-// Import data historis — xlsx/csv
+// Import data historis, xlsx/csv
 export const uploadSpreadsheet = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 },
@@ -48,7 +48,7 @@ export const uploadSpreadsheet = multer({
   },
 })
 
-// AD-33: Digital Asset Library — gambar/video/PDF/dokumen umum, lebih permisif
+// AD-33: Digital Asset Library, gambar/video/PDF/dokumen umum, lebih permisif
 export const uploadAsset = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 25 * 1024 * 1024 },

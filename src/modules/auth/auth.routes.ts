@@ -6,7 +6,7 @@ import Creator from '../creators/creator.model'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import { signStaffToken, signCreatorToken } from '../../middleware/auth'
 
-// Staff login (owner/admin/ce/finance) — path dipertahankan sama dengan yang lama
+// Staff login (owner/admin/ce/finance), path dipertahankan sama dengan yang lama
 // (/api/admin/login) supaya client/src/pages/admin/Login.tsx tidak perlu berubah.
 export const staffAuthRouter = Router()
 
@@ -32,11 +32,11 @@ staffAuthRouter.post('/login', async (req: Request, res: Response) => {
   }
 })
 
-// Creator (talent) login — nomor WA + password yang di-set saat diterima campaign
+// Creator (talent) login, nomor WA + password yang di-set saat diterima campaign
 export const creatorAuthRouter = Router()
 
 // Dipakai form sign up creator: sebelum minta email, cek dulu apakah nomor WA ini sudah
-// terdaftar (via /kol/register) dan sudah punya email atau belum — creator lama (sebelum
+// terdaftar (via /kol/register) dan sudah punya email atau belum, creator lama (sebelum
 // field email ada di form KOL) mungkin belum punya, creator baru biasanya sudah.
 creatorAuthRouter.get('/check-phone', async (req: Request, res: Response) => {
   try {

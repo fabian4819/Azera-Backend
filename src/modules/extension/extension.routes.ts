@@ -23,7 +23,7 @@ async function activeCampaignNames(tenantId: string): Promise<string[]> {
   return rows.map((c) => c.name).filter(Boolean)
 }
 
-/** cek koneksi — dipanggil popup ekstensi saat kode ditempel */
+/** cek koneksi, dipanggil popup ekstensi saat kode ditempel */
 router.get('/ping', async (req: ExtRequest, res: Response) => {
   try {
     await connectDB()
@@ -50,7 +50,7 @@ router.get('/ping', async (req: ExtRequest, res: Response) => {
  *
  * Kegagalan di sini TIDAK pernah membatalkan ingest: data KOL-nya sudah masuk
  * AzeraKOL, dan sheet cuma salinan untuk tim. Hasilnya dibalikin terpisah supaya
- * panel bisa bilang "tersimpan, tapi sheet gagal karena X" — bukan menelannya
+ * panel bisa bilang "tersimpan, tapi sheet gagal karena X", bukan menelannya
  * diam-diam (orang yang menempel link ingin tahu barisnya benar-benar masuk).
  */
 async function salinKeSheetPengguna(link: string, akun: AkunInput): Promise<{
@@ -135,7 +135,7 @@ router.post('/post-insight', async (req: ExtRequest, res: Response) => {
     if (matches.length > 1 && !req.body.submissionId) {
       res.status(409).json({
         ok: false,
-        error: `${matches.length} submission cocok dengan link ini — buka di Campaign Analytics untuk pilih.`,
+        error: `${matches.length} submission cocok dengan link ini, buka di Campaign Analytics untuk pilih.`,
         candidates: matches.map((c) => ({ _id: c._id, creator: c.creatorId, campaign: c.campaignId })),
       })
       return
@@ -151,7 +151,7 @@ router.post('/post-insight', async (req: ExtRequest, res: Response) => {
     })
 
     const campaignName = (sub.campaignId as unknown as { name?: string })?.name
-    res.json({ ok: true, mode: 'post', baru: false, campaign: campaignName || '—' })
+    res.json({ ok: true, mode: 'post', baru: false, campaign: campaignName || '-' })
   } catch (err) {
     res.status(400).json({ ok: false, error: (err as Error).message })
   }
@@ -184,7 +184,7 @@ router.get('/capture-intents/:id', async (req: ExtRequest, res: Response) => {
   }
 })
 
-/** fulfill intent — hasil scrape nempel ke creator/submission target tanpa staf pilih manual */
+/** fulfill intent, hasil scrape nempel ke creator/submission target tanpa staf pilih manual */
 router.post('/capture-intents/:id/fulfill', async (req: ExtRequest, res: Response) => {
   try {
     await connectDB()
@@ -242,7 +242,7 @@ function applyMetrics(
   if (m.likes !== undefined) current.likes = m.likes
   if (m.comments !== undefined) current.comments = m.comments
   if (m.shares !== undefined) current.shares = m.shares
-  // reach & saves tidak bisa di-scrape dari luar akun — biarkan admin isi manual
+  // reach & saves tidak bisa di-scrape dari luar akun, biarkan admin isi manual
   current.verifiedByUserId = userId as never
   current.verifiedAt = new Date()
   sub.parsedInsight = current

@@ -1,7 +1,7 @@
 import { env } from '../config/env'
 
 /**
- * Provider-agnostic AI abstraction — lihat docs/plan/01-architecture.md.
+ * Provider-agnostic AI abstraction, lihat docs/plan/01-architecture.md.
  * Text (brief/insight/case study/report) default ke DeepSeek; vision (baca
  * screenshot insight) default ke Gemini Flash karena DeepSeek tidak punya
  * model vision. Ganti provider cukup lewat env, tanpa refactor caller.
@@ -17,7 +17,7 @@ export interface ParsedInsight {
 }
 
 /**
- * Platform yang didukung untuk parsing insight — lihat docs/plan/02-notes-meeting.md
+ * Platform yang didukung untuk parsing insight, lihat docs/plan/02-notes-meeting.md
  * (notes 17 Agu 2026). YouTube di-drop dari scope (keputusan klien 17 Agu 2026).
  */
 export type InsightPlatform = 'instagram' | 'tiktok' | 'threads' | 'x'
@@ -81,7 +81,7 @@ export async function generateText(prompt: string, system?: string): Promise<str
 }
 
 const INSIGHT_BASE_INSTRUCTION =
-  'Baca screenshot insight media sosial ini. Kembalikan HANYA JSON (tanpa penjelasan) dengan field: views, reach, likes, comments, shares, saves — semua angka, gunakan null untuk field yang tidak ada di screenshot ini atau tidak berlaku untuk platform ini.'
+  'Baca screenshot insight media sosial ini. Kembalikan HANYA JSON (tanpa penjelasan) dengan field: views, reach, likes, comments, shares, saves, semua angka, gunakan null untuk field yang tidak ada di screenshot ini atau tidak berlaku untuk platform ini.'
 
 // Label UI Instagram/TikTok/X/Threads yang perlu di-mapping ke nama field kita,
 // dikonfirmasi klien (docs/plan/02-notes-meeting.md, notes 17 Agu 2026).
@@ -91,8 +91,8 @@ const INSIGHT_PLATFORM_HINTS: Record<InsightPlatform, string> = {
   tiktok:
     'Platform: TikTok. Label "Total Penonton" / "Total viewers" masuk field reach. Semua field (views, reach, likes, comments, shares, saves) biasanya tersedia.',
   threads:
-    'Platform: Threads. Field reach dan saves TIDAK ADA di platform ini — set null, jangan dikira-kira. Label "Posting ulang" / "Reposts" masuk field shares.',
-  x: 'Platform: X (Twitter). Field reach dan saves TIDAK ADA di platform ini — set null, jangan dikira-kira. Label "Posting ulang" / "Reposts" / "Retweets" masuk field shares.',
+    'Platform: Threads. Field reach dan saves TIDAK ADA di platform ini, set null, jangan dikira-kira. Label "Posting ulang" / "Reposts" masuk field shares.',
+  x: 'Platform: X (Twitter). Field reach dan saves TIDAK ADA di platform ini, set null, jangan dikira-kira. Label "Posting ulang" / "Reposts" / "Retweets" masuk field shares.',
 }
 
 export async function parseInsightScreenshot(imageUrl: string, platform: InsightPlatform): Promise<ParsedInsight> {

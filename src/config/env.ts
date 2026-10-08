@@ -26,7 +26,7 @@ export const env = {
   waNumber: process.env.WA_NUMBER || '',
 
   // Link statis (bukan per-campaign) ke sheet operasional tim yang dikelola manual di luar
-  // platform — cuma ditampilkan sebagai tombol "Buka Sheet" di CampaignDetail admin, tidak ada
+  // platform, cuma ditampilkan sebagai tombol "Buka Sheet" di CampaignDetail admin, tidak ada
   // sync data ke situ. Beda dari GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID (dibaca lewat googleSheets.ts,
   // itu yang di-sync tiap Application/Submission berubah).
   googleSheetsReportUrl: process.env.GOOGLE_SHEETS_REPORT_URL

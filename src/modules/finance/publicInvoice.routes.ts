@@ -6,7 +6,7 @@ import Invoice from './invoice.model'
 
 const router = Router()
 
-// AD-25: halaman publik per-invoice (link + kode) — client cek status & bayar
+// AD-25: halaman publik per-invoice (link + kode), client cek status & bayar
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     await connectDB()

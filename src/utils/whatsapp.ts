@@ -53,7 +53,7 @@ Langkah selanjutnya:
 
 Balas pesan ini untuk memulai. Selamat bergabung! 🚀
 
-— Tim Azera`
+Tim Azera`
 
   return `https://wa.me/${data.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
 }
@@ -69,7 +69,7 @@ Kamu bisa mendaftar kembali setelah 3 bulan atau setelah ada peningkatan pada pr
 
 Terima kasih atas minat kamu. Semangat terus! 💪
 
-— Tim Azera`
+Tim Azera`
 
   return `https://wa.me/${data.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`
 }

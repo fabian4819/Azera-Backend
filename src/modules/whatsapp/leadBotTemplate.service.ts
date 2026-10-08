@@ -5,7 +5,7 @@ import Tenant from '../tenants/tenant.model'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import { BotId, BOT_IDS } from './waTemplate.model'
 
-/** Toggle bot balasan otomatis per bot — disimpan di Tenant default (bot lead memang single-tenant).
+/** Toggle bot balasan otomatis per bot, disimpan di Tenant default (bot lead memang single-tenant).
  *  Dibaca fresh tiap kali (bukan dari cache getDefaultTenant) supaya toggle langsung berlaku. */
 export async function getAutoReplySettings(): Promise<Record<BotId, boolean>> {
   const tenant = await Tenant.findById((await getDefaultTenant())._id, 'settings.autoReply').lean()
@@ -17,7 +17,7 @@ export async function setAutoReply(bot: BotId, enabled: boolean): Promise<void> 
   await Tenant.updateOne({ _id: (await getDefaultTenant())._id }, { [`settings.autoReply.${bot}`]: enabled })
 }
 
-/** Ambil body tersimpan untuk satu trigger — auto-seed dari default kalau belum ada */
+/** Ambil body tersimpan untuk satu trigger, auto-seed dari default kalau belum ada */
 export async function getLeadBotTemplate(trigger: LeadBotTrigger): Promise<string> {
   let tpl = await LeadBotTemplate.findOne({ trigger })
   if (!tpl) {

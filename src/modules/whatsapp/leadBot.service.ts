@@ -8,39 +8,39 @@ import { getLeadBotTemplate, getAutoReplySettings } from './leadBotTemplate.serv
 import { renderTemplate } from './template.service'
 
 /**
- * Bot percakapan WhatsApp untuk lead masuk (belum jadi klien/creator terdaftar) —
+ * Bot percakapan WhatsApp untuk lead masuk (belum jadi klien/creator terdaftar),
  * beda dari trigger AD-30/31 yang mengirim notifikasi ke Creator/Client yang
  * SUDAH ada di sistem. Ini menyapa nomor yang chat pertama kali ke salah satu bot,
  * lalu kasih 2 pilihan: (1) daftar info Campaign/Brand (bot `partnership`) atau
  * daftar sebagai KOL/Creator (bot `creator`); (2) langsung terhubung ke admin
  * (bot balas "mohon ditunggu" lalu diam, admin ambil alih manual).
  *
- * Bot HANYA merespon di chat pertama nomor tsb (per bot) — `WaContact.botEngaged`
+ * Bot HANYA merespon di chat pertama nomor tsb (per bot), `WaContact.botEngaged`
  * ditandai begitu sapaan pertama terkirim. Nomor yang sudah pernah disapa dibiarkan
- * diam permanen kalau mereka chat lagi (sesi TIDAK punya batas waktu — sekali
+ * diam permanen kalau mereka chat lagi (sesi TIDAK punya batas waktu, sekali
  * disapa, status "aktif/nonaktif"-nya tetap sampai admin klik "Aktifkan lagi" di
  * Inbox atau server restart). Tidak ada kata kunci reset dari sisi lead.
  *
  * Pengecualian: pesan yang formatnya sudah persis seperti isian template Brand
  * (label field cocok, lihat `parseBrandTemplate`) TETAP diproses apa pun status
- * bot untuk nomor itu (nonaktif/di-pause admin) — supaya kalau admin secara manual
+ * bot untuk nomor itu (nonaktif/di-pause admin), supaya kalau admin secara manual
  * minta lead kirim format itu (chat sudah "mati" di sisi bot), pesannya tetap
  * masuk sebagai pendaftaran, bukan cuma nongkrong di Inbox tanpa diproses.
  *
- * Wording pesan (sapaan, menu, dst) diambil dari `LeadBotTemplate` — admin bisa
+ * Wording pesan (sapaan, menu, dst) diambil dari `LeadBotTemplate`, admin bisa
  * edit lewat `/admin/lead-bot-templates`. Yang TIDAK bisa diadmin-edit (lihat
  * `LOCKED_BRAND_REFERENCE` di bawah): label field template Brand & daftar
- * pilihan Jasa/Budget — parser `parseBrandTemplate` mencocokkan teks-teks itu
+ * pilihan Jasa/Budget, parser `parseBrandTemplate` mencocokkan teks-teks itu
  * secara harfiah, jadi mengubahnya lewat DB akan membuat bot gagal baca balasan.
  */
 
 const KOL_REGISTER_URL = 'https://azerakol.id/kol/register'
 
 const JASA_LIST = BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`).join('\n')
-const BUDGET_LIST = BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range} — ${o.label}`).join('\n')
+const BUDGET_LIST = BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range}: ${o.label}`).join('\n')
 
 // Blok yang dikirim apa adanya supaya bisa langsung di-copy brand, diisi, lalu dikirim balik dalam satu pesan.
-// TERKUNCI — bukan bagian dari LeadBotTemplate yang bisa diedit admin, lihat LOCKED_BRAND_REFERENCE.
+// TERKUNCI, bukan bagian dari LeadBotTemplate yang bisa diedit admin, lihat LOCKED_BRAND_REFERENCE.
 const BRAND_TEMPLATE_BLOCK =
   'Nama Lengkap: \n' +
   'No. WhatsApp: \n' +
@@ -51,11 +51,11 @@ const BRAND_TEMPLATE_BLOCK =
   `Budget (isi angka 1-${BRAND_BUDGET_OPTIONS.length}): \n` +
   'Timeline (opsional): '
 
-/** Referensi bagian pesan bot yang TIDAK bisa diubah admin — dipakai `/admin/lead-bot-templates` untuk tampilan read-only */
+/** Referensi bagian pesan bot yang TIDAK bisa diubah admin, dipakai `/admin/lead-bot-templates` untuk tampilan read-only */
 export const LOCKED_BRAND_REFERENCE = {
   templateBlock: BRAND_TEMPLATE_BLOCK,
   jasaOptions: BRAND_JASA_OPTIONS.map((o, i) => `${i + 1}. ${o.label}`),
-  budgetOptions: BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range} — ${o.label}`),
+  budgetOptions: BRAND_BUDGET_OPTIONS.map((o, i) => `${i + 1}. ${o.range}: ${o.label}`),
 }
 
 async function buildBrandTemplateMessage(): Promise<string> {
@@ -167,7 +167,7 @@ const FIELD_DEFS: FieldDef[] = [
       const byIndex = BRAND_BUDGET_OPTIONS[idx - 1]
       const byRange = BRAND_BUDGET_OPTIONS.find((o) => t.toLowerCase().includes(o.range.toLowerCase()) || t.toLowerCase().includes(o.label.toLowerCase()))
       const match = byIndex || byRange
-      return match ? `${match.range} — ${match.label}` : null
+      return match ? `${match.range}: ${match.label}` : null
     },
   },
   {
@@ -187,7 +187,7 @@ const sessions = new Map<string, Session>()
 
 const sessionKey = (bot: BotId, jid: string) => `${bot}:${jid}`
 
-/** Dipanggil saat admin klik "Aktifkan lagi" di Inbox — buang state sesi yang nyangkut
+/** Dipanggil saat admin klik "Aktifkan lagi" di Inbox, buang state sesi yang nyangkut
  * (mis. masih mode 'support'/'brand_template' lama) supaya chat berikutnya benar-benar mulai dari sapaan. */
 export function clearLeadBotSession(bot: BotId, jid: string): void {
   sessions.delete(sessionKey(bot, jid))
@@ -203,14 +203,14 @@ export async function handleIncomingMessage(bot: BotId, jid: string, rawText: st
   const text = rawText.trim()
   if (!text) return
   await connectDB()
-  // Dimatikan admin di halaman Template Bot Lead — bot diam total (pesan masuk tetap tercatat di Inbox).
+  // Dimatikan admin di halaman Template Bot Lead, bot diam total (pesan masuk tetap tercatat di Inbox).
   if (!(await getAutoReplySettings())[bot]) return
   const lower = text.toLowerCase()
   const key = sessionKey(bot, jid)
   const session = sessions.get(key)
 
   // Pengecualian di atas segalanya: pesan yang sudah berbentuk isian template Brand tetap
-  // diproses meski bot nonaktif/di-pause untuk nomor ini — lihat catatan di kepala file.
+  // diproses meski bot nonaktif/di-pause untuk nomor ini, lihat catatan di kepala file.
   if (bot === 'partnership' && parseBrandTemplate(text).matchedAny) {
     sessions.set(key, { mode: 'brand_template' })
     await markBotEngaged(bot, jid)
@@ -221,7 +221,7 @@ export async function handleIncomingMessage(bot: BotId, jid: string, rawText: st
   if (await isBotPaused(bot, jid)) return
 
   if (!session) {
-    // Belum ada percakapan yang sedang berjalan — nomor ini sudah pernah disapa bot
+    // Belum ada percakapan yang sedang berjalan, nomor ini sudah pernah disapa bot
     // sebelumnya? Kalau ya, bot nonaktif untuk nomor ini sampai admin klik "Aktifkan lagi".
     if (await hasBotEngaged(bot, jid)) return
 
@@ -237,7 +237,7 @@ export async function handleIncomingMessage(bot: BotId, jid: string, rawText: st
   } else if (session.mode === 'brand_template') {
     await handleBrandTemplateReply(bot, jid, text)
   }
-  // mode 'support': diam — admin yang balas manual, lihat WhatsAppInbox.
+  // mode 'support': diam, admin yang balas manual, lihat WhatsAppInbox.
 }
 
 async function handleMenuChoice(bot: BotId, jid: string, session: Session, lower: string): Promise<void> {

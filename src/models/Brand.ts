@@ -1,6 +1,6 @@
 import mongoose, { Schema, Document } from 'mongoose'
 
-/** Jasa yang ditanyakan di alur bot WhatsApp (lihat leadBot.service.ts) — beda taksonomi dari `tujuan` form web */
+/** Jasa yang ditanyakan di alur bot WhatsApp (lihat leadBot.service.ts), beda taksonomi dari `tujuan` form web */
 export const BRAND_JASA_OPTIONS = [
   { key: 'nano_micro_kol_campaign', label: 'Nano-Micro KOL Campaign' },
   { key: 'koc_campaign', label: 'KOC Campaign' },
@@ -10,7 +10,7 @@ export const BRAND_JASA_OPTIONS = [
 
 export type BrandJasa = (typeof BRAND_JASA_OPTIONS)[number]['key']
 
-/** Tingkatan budget campaign — dipakai bot WhatsApp (leadBot.service.ts) sebagai pilihan tetap, bukan isian bebas */
+/** Tingkatan budget campaign, dipakai bot WhatsApp (leadBot.service.ts) sebagai pilihan tetap, bukan isian bebas */
 export const BRAND_BUDGET_OPTIONS = [
   { key: 'micro', range: '< Rp 15 Juta', label: 'Simple Micro Activation' },
   { key: 'medium', range: 'Rp 15–45 Juta', label: 'Recommended Medium Campaign' },
@@ -34,7 +34,7 @@ export interface IBrand extends Document {
   deskripsi: string
   status: 'new' | 'reviewed' | 'contacted'
   notes?: string
-  /** Dari mana lead ini masuk — form web landing page atau bot WhatsApp */
+  /** Dari mana lead ini masuk, form web landing page atau bot WhatsApp */
   source: 'web' | 'whatsapp'
   createdAt: Date
   updatedAt: Date

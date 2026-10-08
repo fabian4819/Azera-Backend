@@ -20,9 +20,9 @@ router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
 const ymdJakarta = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d)
 
 /**
- * AD-25: generate invoice — template & nomor dari Google Docs klien (INV/PT-ACN/MM/YYYY/NNN,
+ * AD-25: generate invoice, template & nomor dari Google Docs klien (INV/PT-ACN/MM/YYYY/NNN,
  * 24 Sep 2026, menggantikan template bot-cashflow), simpan PDF ke Cloudinary, catat pesan WA ringkasan
- * (status 'queued' — pengiriman sungguhan baru aktif setelah Baileys, modul 4).
+ * (status 'queued', pengiriman sungguhan baru aktif setelah Baileys, modul 4).
  */
 router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Response) => {
   try {
@@ -78,7 +78,7 @@ router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Res
       pdfUrl,
     })
 
-    // AD-31: trigger invoice_new — kirim ringkasan + link halaman pembayaran ke client
+    // AD-31: trigger invoice_new, kirim ringkasan + link halaman pembayaran ke client
     if (brand?.whatsapp) {
       const template = await getTemplate(req.auth!.tenantId, 'invoice_new')
       const payload = renderTemplate(template, {
@@ -130,7 +130,7 @@ router.patch('/invoices/:id/verify', async (req: AuthRequest, res: Response) => 
     )
     if (!invoice) { res.status(404).json({ message: 'Not found' }); return }
 
-    // AD-31: notifikasi ke client bahwa pembayaran invoice terverifikasi (invoice_paid —
+    // AD-31: notifikasi ke client bahwa pembayaran invoice terverifikasi (invoice_paid,
     // trigger terpisah dari payment_completed milik creator, audience beda)
     const brand = await Brand.findById(invoice.brandId)
     const campaign = await Campaign.findById(invoice.campaignId)

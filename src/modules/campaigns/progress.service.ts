@@ -10,7 +10,7 @@ import { env } from '../../config/env'
 
 /**
  * Edit sel kolom progress di tabel (Master Sheet admin & portal creator). Kolom yang diikat ke
- * Submission menulis ke Submission yang sama dengan yang dulu diisi lewat form upload — jadi
+ * Submission menulis ke Submission yang sama dengan yang dulu diisi lewat form upload, jadi
  * Report, analytics, workflow 17 tahap & ekstensi KOL Lister tetap jalan tanpa perubahan.
  */
 
@@ -29,7 +29,7 @@ interface CellContext {
   application: IApplication
   columnId: string
   actor: Actor
-  /** User admin / creator yang melakukan edit — dicatat di WorkflowAudit lewat tryAutoTransition */
+  /** User admin / creator yang melakukan edit, dicatat di WorkflowAudit lewat tryAutoTransition */
   userId: Types.ObjectId | string
 }
 
@@ -123,7 +123,7 @@ export async function writeProgressCell(ctx: CellContext, raw: unknown): Promise
   await sub.save()
   syncSubmissionToSheet(sub).catch((err) => console.error('Sheet sync error (submission):', err))
 
-  // AD-32: sama dengan alur form upload lama — link pertama kali masuk = submission terkirim
+  // AD-32: sama dengan alur form upload lama, link pertama kali masuk = submission terkirim
   if (field === 'link' && value && !hadLink) {
     if (sub.type === 'draft') await transition(ctx, 'waiting_draft', 'content_review')
     else {

@@ -32,7 +32,7 @@ export interface AuthContext {
 
 export interface AuthRequest extends Request {
   auth?: AuthContext
-  /** @deprecated gunakan req.auth.userId — dipertahankan untuk kompatibilitas routes landing page lama */
+  /** @deprecated gunakan req.auth.userId, dipertahankan untuk kompatibilitas routes landing page lama */
   adminId?: string
 }
 

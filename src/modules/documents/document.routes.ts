@@ -7,7 +7,7 @@ import DocumentModel from './document.model'
 import { RENDERERS, DocKind } from './docTemplates'
 
 /**
- * AD-34/35/36: menu Document — Quotation, Invoice, SPK (klien) dari template Google Docs klien.
+ * AD-34/35/36: menu Document, Quotation, Invoice, SPK (klien) dari template Google Docs klien.
  * Form kosong (tidak terhubung ke campaign, keputusan 24 Sep 2026); PDF dirender saat diunduh.
  */
 const router = Router()
@@ -21,7 +21,7 @@ function validData(data: unknown): data is Record<string, unknown> {
   return !!data && typeof data === 'object' && !Array.isArray(data) && JSON.stringify(data).length <= MAX_DATA_BYTES
 }
 
-/** Judul baris di daftar dokumen — nama klien per jenis template */
+/** Judul baris di daftar dokumen, nama klien per jenis template */
 function clientName(kind: DocKind, data: Record<string, unknown>): string {
   const pick = (o: unknown, k: string) => String((o as Record<string, unknown> | undefined)?.[k] ?? '')
   return kind === 'invoice' ? pick(data.billTo, 'name') : pick(data.client, 'company')

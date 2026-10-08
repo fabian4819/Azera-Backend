@@ -1,6 +1,6 @@
 import dotenv from 'dotenv'
 // .env.local (gitignored) lets you override just a few vars (e.g. MONGODB_URI) for
-// local dev without touching .env — loaded first, so its values win; .env fills the rest.
+// local dev without touching .env, loaded first, so its values win; .env fills the rest.
 dotenv.config({ path: '.env.local' })
 dotenv.config({ path: '.env' })
 import express from 'express'
@@ -46,7 +46,7 @@ app.use(helmet())
 
 // Ekstensi KOL Lister memanggil dari origin `chrome-extension://<id>` (atau tanpa
 // origin dari service worker). Route `/api/ext/*` di-auth pakai kode sambungan
-// jangka panjang di header, bukan cookie — jadi CORS terbuka aman di sini
+// jangka panjang di header, bukan cookie, jadi CORS terbuka aman di sini
 // (browser tidak auto-attach header itu, tidak ada risiko CSRF). Harus terdaftar
 // SEBELUM cors global supaya preflight OPTIONS-nya tidak dijawab dengan origin ketat.
 app.use(
@@ -59,18 +59,18 @@ app.use(
 app.use(cors({ origin: env.clientOrigin }))
 app.use(express.json())
 
-// Landing page (publik) — belum dimigrasi ke modul platform, lihat docs/plan/modul-5-*
+// Landing page (publik), belum dimigrasi ke modul platform, lihat docs/plan/modul-5-*
 app.use('/api/brands', brandsRouter)
 app.use('/api/portfolio', portfolioRouter)
 
-// Auth — staff login (/api/admin/login) & creator login (/api/creator/login)
+// Auth, staff login (/api/admin/login) & creator login (/api/creator/login)
 app.use('/api/admin', staffAuthRouter)
 app.use('/api/creator', creatorAuthRouter)
 app.use('/api/admin/brands', adminBrandsRouter)
 app.use('/api/admin/portfolio', adminPortfolioRouter)
 app.use('/api/admin/dashboard', adminDashboardRouter)
 
-// Modul 2 — Modul Inti (AD-18..22)
+// Modul 2, Modul Inti (AD-18..22)
 app.use('/api/admin/campaigns', campaignRouter)
 app.use('/api/admin/applications', applicationRouter)
 app.use('/api/admin/creators', creatorRouter)
@@ -81,28 +81,28 @@ app.use('/api/pic', picAuthRouter)
 app.use('/api/pic', picPortalRouter)
 app.use('/api/admin/pic', picAdminRouter)
 
-// Modul 3 — Analitik & Finance (AD-23..28)
+// Modul 3, Analitik & Finance (AD-23..28)
 app.use('/api/admin', submissionRouter)
 app.use('/api/admin', invoiceRouter)
 app.use('/api/admin', financeRecordRouter)
 app.use('/api/invoices', publicInvoiceRouter)
 app.use('/api/admin/import', importRouter)
 
-// Modul 5 — Template dokumen: Quotation / Invoice / SPK (AD-34..36)
+// Modul 5, Template dokumen: Quotation / Invoice / SPK (AD-34..36)
 app.use('/api/admin/documents', documentRouter)
 
-// Modul 4 — WhatsApp Automation (AD-29..31)
+// Modul 4, WhatsApp Automation (AD-29..31)
 app.use('/api/admin/whatsapp', whatsappRouter)
 app.use('/api/admin/wa-templates', waTemplateRouter)
 app.use('/api/admin/lead-bot-templates', leadBotTemplateRouter)
 
-// Modul 5 — Asset Library, Landing Page (AD-33..)
+// Modul 5, Asset Library, Landing Page (AD-33..)
 app.use('/api/admin', assetRouter)
 app.use('/api/creators', publicCreatorRouter)
 app.use('/api/portfolio', publicCaseStudyRouter)
 app.use('/api/documents', publicDocumentRouter)
 
-// Ekstensi KOL Lister — admin: kelola kode sambungan, KOL Radar, capture intent
+// Ekstensi KOL Lister, admin: kelola kode sambungan, KOL Radar, capture intent
 app.use('/api/admin/extension', extensionAdminRouter)
 
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }))

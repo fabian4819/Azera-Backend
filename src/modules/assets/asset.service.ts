@@ -19,7 +19,7 @@ export interface LibraryItem {
 /**
  * AD-33: gabungan file upload manual (Asset) + dokumen yang sudah otomatis
  * dihasilkan modul lain (brief, insight screenshot, draft/final content link,
- * report PDF, invoice PDF, case study) — supaya admin tidak perlu cari manual
+ * report PDF, invoice PDF, case study), supaya admin tidak perlu cari manual
  * di Google Drive, semua kategori tampil di satu tempat per campaign.
  */
 export async function getAssetLibrary(campaignId: string | Types.ObjectId, tenantId: string | Types.ObjectId): Promise<LibraryItem[]> {
@@ -46,7 +46,7 @@ export async function getAssetLibrary(campaignId: string | Types.ObjectId, tenan
       items.push({
         id: `submission-link-${s._id}`,
         category: s.type === 'draft' ? 'draft' : 'final_content',
-        label: `${s.type === 'draft' ? 'Draft' : 'Final Content'} — ${s.platform}`,
+        label: `${s.type === 'draft' ? 'Draft' : 'Final Content'}: ${s.platform}`,
         fileUrl: s.link,
         tags: [s.platform],
         source: 'auto',
@@ -57,7 +57,7 @@ export async function getAssetLibrary(campaignId: string | Types.ObjectId, tenan
       items.push({
         id: `submission-insight-${s._id}-${i}`,
         category: 'insight',
-        label: `Insight Screenshot — ${s.platform}`,
+        label: `Insight Screenshot: ${s.platform}`,
         fileUrl: url,
         tags: [s.platform],
         source: 'auto',

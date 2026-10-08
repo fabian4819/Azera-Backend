@@ -21,7 +21,7 @@ export interface IApplication extends Document {
   status: ApplicationStatus
   decidedByUserId?: Types.ObjectId
   decidedAt?: Date
-  /** PIC/Handle-by yang "pegang" creator ini di campaign — harus salah satu PIC yang sudah
+  /** PIC/Handle-by yang "pegang" creator ini di campaign, harus salah satu PIC yang sudah
    * di-assign ke campaign (lihat POST /:id/pic di campaign.routes.ts), divalidasi di
    * application.routes.ts. Dipakai buat filter dashboard PIC portal per-creator, bukan cuma per-campaign. */
   picUserId?: Types.ObjectId
@@ -29,9 +29,9 @@ export interface IApplication extends Document {
   handleBy?: string
   /** Nilai kolom progress bebas (Campaign.progressColumns tanpa `submission`), keyed by column id */
   progress: Record<string, string | number>
-  /** Magic link portal creator untuk campaign ini (/portal/:token) — dibuat saat accepted */
+  /** Magic link portal creator untuk campaign ini (/portal/:token), dibuat saat accepted */
   portalToken?: string
-  /** AD-25: pelacakan pembayaran ke creator — follow-up manual via admin, tanpa otomasi */
+  /** AD-25: pelacakan pembayaran ke creator, follow-up manual via admin, tanpa otomasi */
   creatorPaymentStatus: 'unpaid' | 'paid'
   createdAt: Date
   updatedAt: Date

@@ -3,7 +3,7 @@ import { withTenant } from '../../db/tenantPlugin'
 import { BOT_IDS, BotId } from './waTemplate.model'
 
 /**
- * Satu thread percakapan WhatsApp (bukan grup — lihat baileys.ts, pesan grup tidak
+ * Satu thread percakapan WhatsApp (bukan grup, lihat baileys.ts, pesan grup tidak
  * masuk inbox). botPaused dipakai admin untuk ambil alih chat manual tanpa bentrok
  * sama auto-reply leadBot.service.ts.
  */
@@ -15,7 +15,7 @@ export interface IWaContact extends Document {
   phone?: string
   name?: string
   botPaused: boolean
-  /** true kalau bot lead-intake (leadBot.service.ts) sudah pernah menyapa nomor ini —
+  /** true kalau bot lead-intake (leadBot.service.ts) sudah pernah menyapa nomor ini,
    * dipakai supaya bot cuma merespon di chat pertama, nomor lama dibiarkan diam. */
   botEngaged: boolean
   lastMessageAt: Date

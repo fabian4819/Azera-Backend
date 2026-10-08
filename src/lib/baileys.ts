@@ -17,10 +17,10 @@ import { handleInvoiceCommand } from '../modules/documents/invoiceBot.service'
 import { recordIncomingMessage, recordOutgoingMessage, backfillHistory, pauseBotForContact } from '../modules/whatsapp/waChat.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
-const SEND_DELAY_MS = 3000 // jarak antar pesan — mitigasi risiko banned (AD-29)
+const SEND_DELAY_MS = 3000 // jarak antar pesan, mitigasi risiko banned (AD-29)
 const RECONNECT_DELAY_MS = 3000
 // Bot invoice (port bot-cashflow) hanya di bot partnership, hanya di grup ini. Nama grup bisa ditiru
-// siapa pun yang memasukkan nomor bot ke grup baru — isi WA_INVOICE_GROUP_JID untuk mengunci ke 1 JID.
+// siapa pun yang memasukkan nomor bot ke grup baru, isi WA_INVOICE_GROUP_JID untuk mengunci ke 1 JID.
 const INVOICE_GROUP_NAME = 'invoice maker'
 const INVOICE_GROUP_JID = process.env.WA_INVOICE_GROUP_JID || ''
 
@@ -36,7 +36,7 @@ interface QueueItem {
 
 /**
  * Satu koneksi Baileys independen. Sebelumnya semua state ini global di level modul
- * (satu bot). Sekarang dua instance: `partnership` (brand/klien) dan `creator` (KOL) —
+ * (satu bot). Sekarang dua instance: `partnership` (brand/klien) dan `creator` (KOL),
  * masing-masing nomor, pairing, auth dir, dan antrian kirim sendiri.
  * docs/superpowers/specs/2026-09-10-whatsapp-dual-bot-design.md
  */
@@ -60,11 +60,11 @@ class WaBot {
   private processing = false
 
   // Nama grup (subject) tidak ikut di setiap event pesan grup, cuma bisa didapat lewat
-  // sock.groupMetadata() (panggilan API terpisah) — di-cache di memori supaya tidak nge-hit
+  // sock.groupMetadata() (panggilan API terpisah), di-cache di memori supaya tidak nge-hit
   // API itu berulang-ulang untuk grup yang sama tiap pesan masuk.
   private readonly groupNames = new Map<string, string>()
 
-  // Message id dari tiap pesan yang KITA kirim (dashboard/bot) — dicek di listener messages.upsert
+  // Message id dari tiap pesan yang KITA kirim (dashboard/bot), dicek di listener messages.upsert
   // supaya echo pengiriman sendiri tidak dicatat dobel sebagai "pesan dari HP fisik". Diisi SYNCHRONOUS
   // begitu sock.sendMessage() selesai (sebelum recordOutgoingMessage yang async), jadi tidak ada celah
   // race seperti kalau pakai cek ke database. Entry dibuang begitu echo-nya terpakai (lihat delete() di listener).
@@ -99,13 +99,13 @@ class WaBot {
 
   async connect(): Promise<void> {
     // Guard lama cuma cek `connecting` (yang balik false lagi begitu socket selesai DIBUAT, jauh
-    // sebelum benar-benar 'open'/'close') dan `status==='connected'` — ada celah: selama status masih
+    // sebelum benar-benar 'open'/'close') dan `status==='connected'`, ada celah: selama status masih
     // 'connecting'/'qr' (socket sudah hidup, belum sempat 'connected'), panggilan connect() lain (mis.
     // reconnect timer nyusul admin klik "Hubungkan", atau race serupa) bisa lolos dan bikin socket KEDUA
-    // yang pakai auth session SAMA secara bersamaan — dua socket rebutan ratchet Signal yang sama itu
+    // yang pakai auth session SAMA secara bersamaan, dua socket rebutan ratchet Signal yang sama itu
     // yang bikin sesi korup ("Bad MAC" / "Key used already or never filled" di log, pesan jadi dobel
     // karena WhatsApp resend pesan yang gagal di-ack bersih). Fix: block juga kalau `this.sock` masih ada,
-    // apa pun status koneksinya — cuma boleh socket baru kalau yang lama sudah benar2 ditutup (sock=null).
+    // apa pun status koneksinya, cuma boleh socket baru kalau yang lama sudah benar2 ditutup (sock=null).
     if (this.connecting || this.sock) return
     this.connecting = true
     this.status = 'connecting'
@@ -115,12 +115,12 @@ class WaBot {
       const { state, saveCreds } = await useMultiFileAuthState(this.authDir)
 
       // syncFullHistory: minta riwayat chat lengkap dari WhatsApp saat pairing (default Baileys cuma
-      // kirim window singkat) — supaya inbox dashboard bisa terisi histori lama, bukan cuma pesan baru.
+      // kirim window singkat), supaya inbox dashboard bisa terisi histori lama, bukan cuma pesan baru.
       const sock = makeWASocket({ auth: state, logger, syncFullHistory: true })
       this.sock = sock
 
       // Tanpa guard generasi di sini, socket LAMA yang masih menutup diri (mis. abis logout()) bisa
-      // menulis ulang file auth setelah fs.rm() di logout() jalan — bikin folder auth kotor lagi walau
+      // menulis ulang file auth setelah fs.rm() di logout() jalan, bikin folder auth kotor lagi walau
       // baru saja dibersihkan, dan koneksi berikutnya nyoba resume sesi basi (QR gak muncul).
       sock.ev.on('creds.update', () => {
         if (myGeneration !== this.generation) return
@@ -128,7 +128,7 @@ class WaBot {
       })
 
       sock.ev.on('connection.update', (update: Partial<ConnectionState>) => {
-        if (myGeneration !== this.generation) return // socket ini sudah digantikan (logout/connect ulang) — abaikan event basi
+        if (myGeneration !== this.generation) return // socket ini sudah digantikan (logout/connect ulang), abaikan event basi
         const { connection, lastDisconnect, qr } = update
 
         if (qr) {
@@ -153,7 +153,7 @@ class WaBot {
           this.sock = null
           if (loggedOut) {
             this.connectedNumber = null
-            // WA sendiri yang sudah invalidate sesi ini (mis. device di-unlink dari HP) — kalau file
+            // WA sendiri yang sudah invalidate sesi ini (mis. device di-unlink dari HP), kalau file
             // auth dibiarkan, setiap percobaan connect berikutnya cuma nyoba resume sesi mati ini lagi
             // dan diam-diam gagal tanpa pernah munculin QR baru. Hapus supaya connect berikutnya mulai
             // fresh dan benar-benar generate QR baru.
@@ -168,8 +168,8 @@ class WaBot {
       })
 
       // Lead bot: pesan masuk dari lawan bicara → jalur bot ini (brand template / redirect KOL / support).
-      // Grup direkam untuk visibilitas Inbox admin saja (TIDAK masuk alur lead bot — brand/KOL adalah
-      // percakapan 1:1). Pesan dari nomor bot sendiri (fromMe) direkam kalau BELUM pernah tercatat —
+      // Grup direkam untuk visibilitas Inbox admin saja (TIDAK masuk alur lead bot, brand/KOL adalah
+      // percakapan 1:1). Pesan dari nomor bot sendiri (fromMe) direkam kalau BELUM pernah tercatat,
       // itu tandanya dikirim langsung dari HP fisik, bukan echo dari kiriman dashboard/bot kita sendiri.
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (myGeneration !== this.generation) return
@@ -183,7 +183,7 @@ class WaBot {
 
           if (msg.key.fromMe) {
             const messageId = msg.key.id
-            if (messageId && this.sentMessageIds.delete(messageId)) continue // echo dari kiriman kita sendiri (dashboard/bot) — sudah dicatat saat dikirim
+            if (messageId && this.sentMessageIds.delete(messageId)) continue // echo dari kiriman kita sendiri (dashboard/bot), sudah dicatat saat dikirim
             recordOutgoingMessage(this.id, jid, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save phone-outgoing error:`, err))
             // Admin balas manual dari HP = ambil alih chat, bot berhenti untuk kontak ini (tidak berlaku utk grup, tidak ada alur bot di grup)
             if (!isGroup) pauseBotForContact(this.id, jid).catch((err) => console.error(`WA[${this.id}] auto-pause error:`, err))
@@ -197,19 +197,19 @@ class WaBot {
                 if (this.isInvoiceGroup(jid, name)) await this.replyInvoice(jid, text, msg)
               })
               .catch((err) => console.error(`WA[${this.id}] group incoming error:`, err))
-            continue // pesan grup tidak dilempar ke leadBot.service — brand/KOL adalah alur 1:1
+            continue // pesan grup tidak dilempar ke leadBot.service, brand/KOL adalah alur 1:1
           }
 
           recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name: msg.pushName || undefined, phone: phoneFromKey(jid, msg.key) }).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
-          // Pengecekan bot-paused sekarang di dalam handleIncomingMessage (leadBot.service.ts) —
+          // Pengecekan bot-paused sekarang di dalam handleIncomingMessage (leadBot.service.ts),
           // supaya pesan berformat template Brand tetap diproses meski nomor ini di-pause admin.
           handleIncomingMessage(this.id, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
         }
       })
 
-      // Sinkron riwayat chat lama yang sudah ada di WhatsApp SEBELUM device ini ditautkan —
+      // Sinkron riwayat chat lama yang sudah ada di WhatsApp SEBELUM device ini ditautkan,
       // Baileys mengirim ini sekali (kadang dalam beberapa batch) setelah pairing sukses. Termasuk
-      // grup sekarang — nama grup (subject) datang dari `chats`, BUKAN dari `contacts` (yang isinya
+      // grup sekarang, nama grup (subject) datang dari `chats`, BUKAN dari `contacts` (yang isinya
       // orang, bukan grup).
       sock.ev.on('messaging-history.set', ({ messages, contacts, chats }) => {
         if (myGeneration !== this.generation) return
@@ -218,7 +218,7 @@ class WaBot {
         for (const c of contacts) {
           const name = c.name || c.notify
           if (c.id && name) contactNames[c.id] = name
-          // c.id sering @lid — nomor asli ada di c.jid. Petakan dua-duanya supaya cocok dgn remoteJid pesan.
+          // c.id sering @lid, nomor asli ada di c.jid. Petakan dua-duanya supaya cocok dgn remoteJid pesan.
           const pn = digitsOf(c.jid?.split('@')[0])
           if (pn) {
             if (c.id) contactPhones[c.id] = pn
@@ -301,7 +301,7 @@ class WaBot {
     recordOutgoingMessage(this.id, jid, reply.text, { messageId: sent?.key.id || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
   }
 
-  /** Balasan langsung bot percakapan (leadBot.service) — bypass queue karena ini interaktif, bukan notifikasi batch */
+  /** Balasan langsung bot percakapan (leadBot.service), bypass queue karena ini interaktif, bukan notifikasi batch */
   async sendDirect(to: string, text: string): Promise<void> {
     if (!this.sock || this.status !== 'connected') return
     try {
@@ -313,7 +313,7 @@ class WaBot {
     }
   }
 
-  /** Balasan manual admin dari inbox dashboard — error dilempar balik ke route (biar admin tahu kalau gagal). */
+  /** Balasan manual admin dari inbox dashboard, error dilempar balik ke route (biar admin tahu kalau gagal). */
   async sendManual(jid: string, text: string): Promise<void> {
     if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
     const sent = await this.sock.sendMessage(toJid(jid), { text })
@@ -399,7 +399,7 @@ function phoneFromKey(remoteJid: string, key: proto.IMessageKey & { senderPn?: s
   return digitsOf(key.senderPn?.split('@')[0])
 }
 
-// Sama seperti phoneFromKey, tapi untuk PENGIRIM DI DALAM GRUP — remoteJid pesan grup adalah jid
+// Sama seperti phoneFromKey, tapi untuk PENGIRIM DI DALAM GRUP, remoteJid pesan grup adalah jid
 // grupnya sendiri, bukan pengirim, jadi identitas pengirim harus dari key.participant (bisa juga @lid)
 // + key.participantPn sebagai nomor aslinya.
 function participantPhoneFromKey(key: proto.IMessageKey & { participantPn?: string | null }): string | undefined {
@@ -410,10 +410,10 @@ function participantPhoneFromKey(key: proto.IMessageKey & { participantPn?: stri
 }
 
 // `to` bisa berupa nomor HP biasa (dikirim 1:1) ATAU JID grup WhatsApp (mis. "12036301234567890@g.us")
-// yang sudah disimpan apa adanya di field tujuan (misal Brand.whatsapp) — kalau sudah mengandung "@"
+// yang sudah disimpan apa adanya di field tujuan (misal Brand.whatsapp), kalau sudah mengandung "@"
 // dianggap JID lengkap dan dipakai langsung, supaya broadcast/report bisa diarahkan ke grup.
 // Nomor lokal "08xx" → "628xx": JID WhatsApp wajib kode negara, kalau tidak sendMessage cuma "Timed Out".
-// Placeholder import ("import-fdf6…") / "-" ditolak — kalau cuma diambil digitnya, bisa nyasar ke nomor acak.
+// Placeholder import ("import-fdf6…") / "-" ditolak, kalau cuma diambil digitnya, bisa nyasar ke nomor acak.
 function toJid(to: string): string {
   if (to.includes('@')) return to
   const digits = to.replace(/\D/g, '').replace(/^0/, '62')
@@ -428,11 +428,11 @@ export async function enqueueWaMessage(opts: {
   payload: string
   campaignId?: string
   creatorId?: string
-  /** Override tujuan bot — hanya dipakai test-send; trigger lain diarahkan otomatis lewat audience template. */
+  /** Override tujuan bot, hanya dipakai test-send; trigger lain diarahkan otomatis lewat audience template. */
   bot?: BotId
 }) {
   const botId = opts.bot ?? audienceToBot[DEFAULT_TEMPLATES[opts.trigger].audience]
-  // Test-send (opts.bot) tidak ikut toggle — dipakai cek pairing walau semua automation dimatikan.
+  // Test-send (opts.bot) tidak ikut toggle, dipakai cek pairing walau semua automation dimatikan.
   const skipped = !opts.bot && !(await isTriggerEnabled(opts.tenantId, opts.trigger))
   const log = await WaMessageLog.create({
     tenantId: opts.tenantId,

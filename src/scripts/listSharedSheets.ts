@@ -6,15 +6,15 @@
  * Baca-saja, tidak mengubah apa pun. Dipakai untuk menjawab "sheet campaign ini
  * sudah di-share belum?" tanpa membuka satu per satu Share dialog-nya.
  *
- * Scope Drive diminta DI SINI saja, bukan di googleSheets.ts — server yang jalan
+ * Scope Drive diminta DI SINI saja, bukan di googleSheets.ts, server yang jalan
  * sehari-hari tidak butuh melihat daftar file, dan token dengan hak lebih luas
  * dari yang dipakai adalah hak yang bocor kalau kredensialnya bocor.
  *
  * Butuh Google Drive API aktif di project GCP-nya. Kalau belum, Google membalas
- * dengan link untuk mengaktifkannya — ikuti link itu, tunggu semenit, ulangi.
+ * dengan link untuk mengaktifkannya, ikuti link itu, tunggu semenit, ulangi.
  */
 import dotenv from 'dotenv'
-// auth dari @googleapis/sheets + Drive REST langsung — paket `googleapis` (209MB) sengaja tidak dipasang
+// auth dari @googleapis/sheets + Drive REST langsung, paket `googleapis` (209MB) sengaja tidak dipasang
 import { auth as googleAuth } from '@googleapis/sheets'
 import { creds } from '../lib/googleSheets'
 
@@ -63,7 +63,7 @@ async function main() {
     pageToken = res.data.nextPageToken || undefined
   } while (pageToken)
 
-  if (!n) console.log('(kosong — belum ada spreadsheet yang di-share ke email ini)')
+  if (!n) console.log('(kosong, belum ada spreadsheet yang di-share ke email ini)')
   else console.log(`\n${n} spreadsheet bisa diakses.`)
 }
 

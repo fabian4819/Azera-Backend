@@ -9,9 +9,9 @@ export interface CampaignAnalytics {
   totalLikes: number
   totalComments: number
   totalShares: number
-  /** null kalau tidak ada satupun post di platform yang punya reach (IG/TikTok) — bukan 0 */
+  /** null kalau tidak ada satupun post di platform yang punya reach (IG/TikTok), bukan 0 */
   totalReach: number | null
-  /** null kalau tidak ada satupun post di platform yang punya saves (IG/TikTok) — bukan 0 */
+  /** null kalau tidak ada satupun post di platform yang punya saves (IG/TikTok), bukan 0 */
   totalSaves: number | null
   engagementRate: number
   costPerView: number | null
@@ -23,7 +23,7 @@ export interface CampaignAnalytics {
 
 /**
  * AD-23: agregasi insight per campaign. Reach & saves cuma ada di IG/TikTok
- * (notes klien 17 Agu) — kalau campaign cuma jalan di X/Threads, totalReach
+ * (notes klien 17 Agu), kalau campaign cuma jalan di X/Threads, totalReach
  * dan totalSaves harus null (unknown), bukan 0 (sudah tercapai/tidak ada).
  */
 export async function computeCampaignAnalytics(
@@ -104,7 +104,7 @@ export interface CreatorSummary {
   costPerView: number | null
 }
 
-/** Ringkasan performa per creator accepted di campaign — dipakai AD-24 (insight) & AD-26 (report) */
+/** Ringkasan performa per creator accepted di campaign, dipakai AD-24 (insight) & AD-26 (report) */
 export async function getCampaignCreatorSummaries(
   campaignId: string | Types.ObjectId,
   tenantId: string | Types.ObjectId

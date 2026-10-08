@@ -12,7 +12,7 @@ import { getCreatorsTabUrl } from '../../lib/googleSheets'
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
 
-// Metrik headline (bukan semua field snapshot) — cukup buat kolom tabel Creators bisa
+// Metrik headline (bukan semua field snapshot), cukup buat kolom tabel Creators bisa
 // di-sort/filter per platform tanpa bikin payload list membengkak dengan raw sampleRows dll.
 const HEADLINE_METRIC_FIELDS = ['followers', 'engagementRate', 'avgViews', 'avgLikes'] as const
 type HeadlineMetrics = Partial<Record<(typeof HEADLINE_METRIC_FIELDS)[number], number>>
@@ -22,7 +22,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     await connectDB()
     const { status, complianceStatus, niche, scope } = req.query
     const filter: Record<string, unknown> = { tenantId: req.auth!.tenantId }
-    // Menu Creators (general) vs Campaign Creators — dipisah dari asal masuknya. Tanpa scope = semua
+    // Menu Creators (general) vs Campaign Creators, dipisah dari asal masuknya. Tanpa scope = semua
     // (dipakai ExtensionConnect buat picker creator).
     if (scope === 'general') filter.source = { $in: ['form', 'extension'] }
     if (scope === 'campaign') filter.source = { $in: ['campaign', 'import'] }
@@ -31,7 +31,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (niche) filter.niches = { $in: [niche] }
     const creators = await Creator.find(filter).sort({ createdAt: -1 })
 
-    // Snapshot terbaru per (creator, platform) — satu query buat semua creator di halaman ini,
+    // Snapshot terbaru per (creator, platform), satu query buat semua creator di halaman ini,
     // dikelompokkan di memori (jauh lebih murah daripada N query per creator).
     const snapshots = await SocialSnapshot.find(
       { tenantId: req.auth!.tenantId, creatorId: { $in: creators.map((c) => c._id) } },
@@ -48,7 +48,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Nama campaign yang diikuti tiap creator — cuma dihitung buat scope campaign
+    // Nama campaign yang diikuti tiap creator, cuma dihitung buat scope campaign
     const campaignsByCreator = new Map<string, string[]>()
     if (scope === 'campaign') {
       const apps = await Application.find(
@@ -77,7 +77,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Link tombol "Buka Sheet" di halaman list Creators — semua creator ada di satu tab "Creators"
+// Link tombol "Buka Sheet" di halaman list Creators, semua creator ada di satu tab "Creators"
 // di master spreadsheet (bukan per-creator), jadi ini bukan route :id. Ditaruh sebelum GET /:id
 // biar 'sheet-url' tidak ketangkep sebagai :id.
 router.get('/sheet-url', async (_req: AuthRequest, res: Response) => {
@@ -132,7 +132,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 const SP1_DURATION_DAYS = 90
 
 /**
- * AD-21 Penalty & Compliance: record-only, sistem TIDAK hitung denda — cukup
+ * AD-21 Penalty & Compliance: record-only, sistem TIDAK hitung denda, cukup
  * catat histori. Suspension tetap otomatis: cancel setelah accepted -> SP1 (90
  * hari); 3x cancel -> blacklist (SP2). Trigger recompute performance score.
  */

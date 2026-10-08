@@ -2,9 +2,9 @@ import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
 
 /**
- * AD-33: kategori dikonfirmasi klien (Review PDF hal. 9) — Brand -> Campaign -> kategori.
+ * AD-33: kategori dikonfirmasi klien (Review PDF hal. 9), Brand -> Campaign -> kategori.
  * Sebagian kategori (Brief, Insight, Final Content, Final Report, Invoice, Case Study) biasanya
- * sudah otomatis terisi dari data lain (briefContent, Submission, Document, Invoice) — lihat
+ * sudah otomatis terisi dari data lain (briefContent, Submission, Document, Invoice), lihat
  * asset.service.ts getAssetLibrary(). Model ini menyimpan file yang di-upload manual.
  */
 export const ASSET_CATEGORIES = [

@@ -8,7 +8,7 @@ import Campaign from '../campaigns/campaign.model'
 import { getCampaignDashboardData } from '../campaigns/dashboard.service'
 import { getCampaignTabUrl } from '../../lib/googleSheets'
 
-// PIC/Handle-by account — sign up tanpa accessCode, akun dibuat kosong
+// PIC/Handle-by account, sign up tanpa accessCode, akun dibuat kosong
 // (campaignIds: []). Admin yang assign campaign ke akun ini (lihat endpoint
 // /:id/pic di campaign.routes.ts), baru muncul di dashboard PIC.
 export const picAuthRouter = Router()
@@ -100,9 +100,9 @@ picPortalRouter.get('/campaigns/:id/dashboard', async (req: AuthRequest, res: Re
     }
     const data = await getCampaignDashboardData(campaign, req.auth!.userId)
     // masterSheetUrl cuma ditambah di sini (akun PIC login, sudah authenticated), BUKAN di
-    // getCampaignDashboardData itu sendiri — fungsi itu juga dipakai publicCampaign.routes.ts
+    // getCampaignDashboardData itu sendiri, fungsi itu juga dipakai publicCampaign.routes.ts
     // (akses-kode publik, tanpa login) yang tidak boleh bocorin link spreadsheet internal.
-    // Cuma master sheet yang ditampilkan ke PIC — report & recap payment cuma di dashboard admin.
+    // Cuma master sheet yang ditampilkan ke PIC, report & recap payment cuma di dashboard admin.
     const masterSheetUrl = await getCampaignTabUrl(campaign.name)
     res.json({ ...data, masterSheetUrl })
   } catch {
@@ -110,7 +110,7 @@ picPortalRouter.get('/campaigns/:id/dashboard', async (req: AuthRequest, res: Re
   }
 })
 
-// Daftar akun PIC/Handle-by untuk menu admin — dipakai buat cari email saat assign ke campaign.
+// Daftar akun PIC/Handle-by untuk menu admin, dipakai buat cari email saat assign ke campaign.
 export const picAdminRouter = Router()
 picAdminRouter.use(requireAuth, requireRole('owner', 'admin', 'ce'))
 

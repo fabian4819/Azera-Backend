@@ -10,7 +10,7 @@ import { portalUrl } from './progress.service'
 
 /**
  * Tabel ala spreadsheet untuk halaman "Sheet" admin (Master / Report / Recap Payment).
- * Dibangun dari DB — sumber yang sama dengan sync ke Google Sheets — jadi tetap jalan
+ * Dibangun dari DB, sumber yang sama dengan sync ke Google Sheets, jadi tetap jalan
  * tanpa kredensial Google dan tidak kena kuota API tiap admin buka halaman.
  */
 export type SheetKind = 'master' | 'report' | 'recap' | 'applicants'
@@ -36,7 +36,7 @@ export interface ColumnMeta {
   /** Ada = sel bisa diedit (kolom progress); id kolom progress-nya */
   progressId?: string
   kind?: CellKind
-  /** Aturan akses creator (portal magic link) — ditampilkan & diatur di admin */
+  /** Aturan akses creator (portal magic link), ditampilkan & diatur di admin */
   access: 'hidden' | 'view' | 'edit'
 }
 
@@ -145,7 +145,7 @@ function reportTable(d: CampaignData): SheetTable {
   }
 }
 
-/** 1 baris per creator yang diterima — data transfer fee + status bayar. */
+/** 1 baris per creator yang diterima, data transfer fee + status bayar. */
 function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
   const headers = ['Creator', 'WhatsApp', 'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP', 'Fee Creator', 'Status Pembayaran']
   const fee = campaign.fee?.creatorFee ?? 0

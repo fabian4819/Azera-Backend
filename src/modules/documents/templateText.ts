@@ -1,6 +1,6 @@
 /**
  * Teks baku template dokumen, diekstrak otomatis dari Google Docs klien (24 Sep 2026)
- * — jangan diketik ulang manual; kalau template klien berubah, ekstrak ulang.
+ *, jangan diketik ulang manual; kalau template klien berubah, ekstrak ulang.
  */
 
 export const SPK_INTRO: string[] = [

@@ -19,7 +19,7 @@ assert.ok(Number.isNaN(cellToNumber('N/A')))
 assert.ok(exactName('Brand (ID)').test('brand (id)'))
 assert.ok(!exactName('A.B').test('AxB'))
 
-// Confirm memvalidasi ulang — errors dari client tidak dipercaya
+// Confirm memvalidasi ulang, errors dari client tidak dipercaya
 const base = { campaignName: 'C', brandName: 'B', creatorName: 'K', platform: 'instagram' }
 assert.deepStrictEqual(validateRow(base), [])
 assert.strictEqual(validateRow({ ...base, platform: 'youtube' }).length, 1)
@@ -32,7 +32,7 @@ const checked = checkSingleCampaign([mk('Ramadan', 'Brand A'), mk('ramadan ', 'b
 assert.deepStrictEqual(checked.map((r) => r.errors.length), [0, 0, 1, 1])
 
 async function main() {
-  // CSV: nilai harus tetap string mentah — exceljs default mengubah "12.500" jadi 12.5 dan tanggal jadi format US
+  // CSV: nilai harus tetap string mentah, exceljs default mengubah "12.500" jadi 12.5 dan tanggal jadi format US
   const csv = await parseImportFile(Buffer.from('Nama Campaign,Brand,Nama Creator,Platform,Views,Tanggal Posting\nC,B,K,x,12.500,03-04-2026\n'), 'a.csv')
   assert.strictEqual(csv.rows[0].views, 12500)
   assert.strictEqual(csv.rows[0].postedAt, '2026-04-03T00:00:00.000Z')

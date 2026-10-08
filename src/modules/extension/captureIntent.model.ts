@@ -6,7 +6,7 @@ import { SocialPlatform } from '../creators/creator.model'
  * Alur "redirect dari web": staf di CreatorDetail / CampaignDetail klik "Buka
  * profil & tarik metrik". Server bikin intent ini, balikin URL sosmed dengan
  * hash `#azk=<intentId>`. Ekstensi baca hash, tanya server intent-nya buat apa
- * (target creator / submission), scrape, lalu fulfill — hasilnya langsung
+ * (target creator / submission), scrape, lalu fulfill, hasilnya langsung
  * nempel ke record yang benar tanpa staf pilih manual.
  */
 export type CaptureIntentType = 'profile' | 'post'

@@ -26,10 +26,10 @@ router.get('/campaigns/:campaignId/submissions', async (req: AuthRequest, res: R
 
 /**
  * AD-23: baca semua screenshot submission ini lewat AI vision, gabung jadi satu
- * parsedInsight — beberapa screenshot untuk 1 post biasanya panel insight yang
+ * parsedInsight, beberapa screenshot untuk 1 post biasanya panel insight yang
  * berbeda (views di 1 gambar, likes/comments di gambar lain), jadi digabung
  * per-field (ambil nilai pertama yang tidak null), bukan ditimpa/dirata-rata.
- * Hasil ini BELUM verified — admin masih perlu cek/koreksi manual (AI bisa salah baca).
+ * Hasil ini BELUM verified, admin masih perlu cek/koreksi manual (AI bisa salah baca).
  */
 router.post('/submissions/:id/parse-insight', async (req: AuthRequest, res: Response) => {
   try {

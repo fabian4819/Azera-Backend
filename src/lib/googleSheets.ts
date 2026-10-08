@@ -1,31 +1,31 @@
-// Paket Sheets saja (<1MB) — BUKAN `googleapis` (209MB, berisi klien ratusan API Google yang tidak dipakai)
+// Paket Sheets saja (<1MB), BUKAN `googleapis` (209MB, berisi klien ratusan API Google yang tidak dipakai)
 import { auth as googleAuth, sheets, sheets_v4 } from '@googleapis/sheets'
 
 /**
- * Sync satu arah (database → Sheet) real-time — dipanggil fire-and-forget dari route
+ * Sync satu arah (database → Sheet) real-time, dipanggil fire-and-forget dari route
  * setiap kali Creator/Application/Submission dibuat/diubah, sama seperti pola
  * `sendEmail(...).catch(...)` yang sudah dipakai di modul lain. Kalau kredensial belum
- * di-setup (env kosong), semua fungsi di sini jadi no-op diam-diam — supaya dev/deploy
+ * di-setup (env kosong), semua fungsi di sini jadi no-op diam-diam, supaya dev/deploy
  * tanpa kredensial Google tidak ikut rusak.
  *
  * Creator dan campaign memakai dua spreadsheet tetap: GOOGLE_SHEETS_SPREADSHEET_ID untuk tab
  * "Creators", dan GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID untuk satu tab gabungan per campaign.
- * BUKAN file terpisah per campaign — service account non-Workspace (akun Google
+ * BUKAN file terpisah per campaign, service account non-Workspace (akun Google
  * gratis) punya kuota storage Drive 0, jadi tidak bisa bikin FILE baru sama sekali (dicoba & gagal
- * dgn "storage quota exceeded" walau file diletakkan di folder yang di-share) — tapi MENAMBAH TAB
+ * dgn "storage quota exceeded" walau file diletakkan di folder yang di-share), tapi MENAMBAH TAB
  * ke file yang sudah ada (dan sudah di-share Editor ke service account) tidak kena batasan itu.
  *
  * Setup: docs/superpowers/specs/2026-09-15-google-sheets-sync-design.md
  */
 
-// SENGAJA fungsi, BUKAN const top-level — const top-level dievaluasi saat modul ini di-load,
+// SENGAJA fungsi, BUKAN const top-level, const top-level dievaluasi saat modul ini di-load,
 // yang bisa kejadian SEBELUM dotenv.config() di index.ts sempat jalan (urutan resolusi modul,
 // bukan urutan baris kode yang kelihatan). Ini persis alasan config/env.ts pakai `get mongodbUri()`
 // (getter), bukan const biasa, untuk env var yang sama-sama krusial. Dibaca ulang tiap dipanggil.
 export function creds() {
   const spreadsheetId = process.env.GOOGLE_SHEETS_SPREADSHEET_ID
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  // Private key di .env biasanya satu baris dengan literal "\n" — perlu diganti ke newline asli
+  // Private key di .env biasanya satu baris dengan literal "\n", perlu diganti ke newline asli
   // (JWT signing gagal diam-diam/berisik kalau formatnya masih literal \n, bukan newline sungguhan).
   const key = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n')
   return { spreadsheetId, email, key }
@@ -49,12 +49,12 @@ export function getSheetsClient(): sheets_v4.Sheets | null {
   return sheetsClient
 }
 
-// Google tab name: max 100 char, tidak boleh [ ] * ? / \ : — campaign apa saja bisa jadi nama tab aman.
+// Google tab name: max 100 char, tidak boleh [ ] * ? / \ :, campaign apa saja bisa jadi nama tab aman.
 export function campaignTabPrefix(campaignName: string): string {
   return campaignName.replace(/[[\]*?/\\:]/g, ' ').trim().slice(0, 80)
 }
 
-// Tab yang sudah dipastikan ada + punya header — dicek sekali per (spreadsheet, tab), bukan
+// Tab yang sudah dipastikan ada + punya header, dicek sekali per (spreadsheet, tab), bukan
 // tiap panggilan (hemat 1-2 API call per sync, tab tidak akan hilang sendiri selama proses jalan).
 const ensuredTabs = new Set<string>()
 
@@ -73,7 +73,7 @@ async function ensureTab(
   const meta = await sheets.spreadsheets.get({ spreadsheetId })
   const existing = meta.data.sheets?.find((s) => s.properties?.title === tab)
   // Di spreadsheet milik orang lain (jalur ekstensi), tab dengan nama yang sama
-  // bisa saja sudah dipakai untuk hal lain — dan `values.update` di bawah menimpa
+  // bisa saja sudah dipakai untuk hal lain, dan `values.update` di bawah menimpa
   // baris 1-nya tanpa tanya. Di mode strict: header asing = berhenti, jangan
   // sentuh apa pun. Tab kosong/baru tetap boleh, itu memang milik kita.
   if (strict && existing) {
@@ -122,7 +122,7 @@ async function ensureTab(
 }
 
 /** Cari baris existing lewat kolom A (ID) → update kalau ketemu, append kalau belum ada.
- * ponytail: baca-lalu-tulis ini bukan atomik (race kalau 2 sync utk ID sama nyaris bersamaan) —
+ * ponytail: baca-lalu-tulis ini bukan atomik (race kalau 2 sync utk ID sama nyaris bersamaan),
  * risiko rendah untuk data campaign/creator yang jarang berubah sub-detik, tidak ditambah locking. */
 async function upsertRow(
   spreadsheetId: string | undefined,
@@ -146,7 +146,7 @@ async function upsertRow(
     const ids = (col.data.values || []).map((r) => r[0])
     const idx = ids.indexOf(id)
     // USER_ENTERED bikin Sheets otomatis parse angka/tanggal/formula (perlu utk HYPERLINK() dan
-    // kolom tanggal beneran) — tapi itu artinya string digit-only (no. HP/NPWP/rekening) bisa
+    // kolom tanggal beneran), tapi itu artinya string digit-only (no. HP/NPWP/rekening) bisa
     // "dimakan" jadi angka & kehilangan digit 0 di depan. Apostrof di depan maksa tetap teks;
     // apostrofnya sendiri tidak ikut jadi bagian value pas dibaca balik lewat API.
     const guard = (v: string | number) =>
@@ -176,7 +176,7 @@ async function upsertRow(
 }
 
 /** Error Google -> satu kalimat yang menyebut langkah berikutnya, bukan kode HTTP.
- * 403 hampir selalu berarti spreadsheet-nya belum di-share ke service account —
+ * 403 hampir selalu berarti spreadsheet-nya belum di-share ke service account,
  * itu kegagalan paling sering di jalur ekstensi, jadi emailnya ikut disebut. */
 function pesanGoogle(err: unknown): string {
   const e = err as { code?: number | string; message?: string }
@@ -191,7 +191,7 @@ function pesanGoogle(err: unknown): string {
 }
 
 // Kolom A tab Creators BUKAN 'ID' generik, tapi WhatsApp (key bisnis yang manusia kenali &
-// unique per creator — {tenantId,phone} unique index di creator.model.ts) — sesuai permintaan
+// unique per creator, {tenantId,phone} unique index di creator.model.ts), sesuai permintaan
 // buang kolom ID mentah dari sheet. CREATOR_HEADERS di bawah TIDAK termasuk WhatsApp karena
 // itu sudah jadi kolom A/key, bukan bagian row data.
 export const CREATOR_KEY_HEADER = 'WhatsApp'
@@ -218,8 +218,8 @@ export function creatorColIndex(header: string): number {
 }
 
 // Application + Submission digabung jadi SATU tab per campaign (bukan 2 tab terpisah seperti
-// sebelumnya) di spreadsheet KHUSUS campaign (GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID — file beda
-// dari spreadsheet Creators), 1 baris per creator/application — sesuai contoh sheet operasional
+// sebelumnya) di spreadsheet KHUSUS campaign (GOOGLE_SHEETS_CAMPAIGN_SPREADSHEET_ID, file beda
+// dari spreadsheet Creators), 1 baris per creator/application, sesuai contoh sheet operasional
 // tim ("Pigeon Teens": satu tab berisi data creator + tracking submission-nya sekaligus).
 // Kolom dasar yang selalu ada. Sync-caller (sheetSync.service.ts) menambah kolom PIC/Partner +
 // kolom per Campaign.customFields di belakangnya secara dinamis (beda-beda per campaign), makanya
@@ -235,7 +235,7 @@ function campaignSpreadsheetId(): string | undefined {
     || '1Vv7LHY4WmU510bQdjJfZRx4QwVXFpkOBF0Ucu2CKpKU'
 }
 
-// USER_ENTERED (bukan RAW) — perlu supaya HYPERLINK() di kolom medsos dievaluasi sebagai formula
+// USER_ENTERED (bukan RAW), perlu supaya HYPERLINK() di kolom medsos dievaluasi sebagai formula
 // (bukan teks literal "=HYPERLINK(...)") dan Tanggal Daftar (ISO yyyy-mm-dd) dikenali Sheets
 // sebagai tipe Date beneran, bukan teks.
 export function upsertCreatorRow(phone: string, row: (string | number)[]): Promise<void> {
@@ -260,7 +260,7 @@ export function getCampaignTabUrl(campaignName: string): Promise<string | null> 
 }
 
 /** Link ke tab spesifik di sebuah spreadsheet. Kalau tab belum pernah disync (belum ada baris),
- * balikin link ke spreadsheet tanpa #gid — tab-nya baru dibuat begitu ada data pertama yang
+ * balikin link ke spreadsheet tanpa #gid, tab-nya baru dibuat begitu ada data pertama yang
  * di-sync (lihat ensureTab di atas). */
 async function getTabUrl(spreadsheetId: string | undefined, tab: string): Promise<string | null> {
   if (!spreadsheetId) return null
@@ -289,7 +289,7 @@ export function parseSpreadsheetId(input: string): string | null {
 }
 
 /** Spreadsheet operasional AzeraKOL sendiri. Pemegang token ekstensi tidak boleh
- * menyuruh server menulis ke sana lewat field link — itu jalur untuk sheet campaign
+ * menyuruh server menulis ke sana lewat field link, itu jalur untuk sheet campaign
  * milik pengguna, bukan pintu belakang ke master sheet. */
 export function isMasterSpreadsheet(id: string): boolean {
   return id === creds().spreadsheetId || id === campaignSpreadsheetId()
@@ -297,7 +297,7 @@ export function isMasterSpreadsheet(id: string): boolean {
 
 /**
  * Satu baris ke spreadsheet yang linknya ditempel pengguna. Melempar kalau gagal
- * (beda dari sync internal yang sengaja diam) — pengirimnya menunggu jawaban.
+ * (beda dari sync internal yang sengaja diam), pengirimnya menunggu jawaban.
  * Balikin link langsung ke tab-nya.
  */
 export async function upsertExternalSheetRow(

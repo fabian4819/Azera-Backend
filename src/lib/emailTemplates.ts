@@ -2,7 +2,7 @@ function escape(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
-/** Kerangka email bermerek AzeraKOL — isi `body` sudah HTML aman (escape di pemanggil). */
+/** Kerangka email bermerek AzeraKOL, isi `body` sudah HTML aman (escape di pemanggil). */
 function layout(body: string): string {
   return `
   <div style="font-family: 'Segoe UI', Arial, sans-serif; background: #f8f9ff; padding: 32px 16px;">
@@ -38,7 +38,7 @@ const P = 'margin: 0 0 16px; font-size: 0.95rem; color: #464652; line-height: 1.
 /** AD-49 follow-up: konfirmasi ke email creator setelah submit form /kol/register. */
 export function creatorRegistrationEmail(name: string): { subject: string; html: string } {
   return {
-    subject: 'Pendaftaran KOL Kamu Sudah Kami Terima — AzeraKOL',
+    subject: 'Pendaftaran KOL Kamu Sudah Kami Terima | AzeraKOL',
     html: layout(`
         <h1 style="margin: 0 0 12px; font-size: 1.25rem; color: #191c20;">Halo, ${escape(name)}! 👋</h1>
         <p style="${P}">Terima kasih sudah mendaftar sebagai creator di AzeraKOL Network. Profil kamu sedang kami review.</p>
@@ -46,10 +46,10 @@ export function creatorRegistrationEmail(name: string): { subject: string; html:
   }
 }
 
-/** Creator diterima di campaign — berisi magic link portal (tabel progress campaign). */
+/** Creator diterima di campaign, berisi magic link portal (tabel progress campaign). */
 export function creatorAcceptedEmail(name: string, campaign: string, portalLink: string, groupLink?: string): { subject: string; html: string } {
   return {
-    subject: `Selamat, kamu diterima di campaign ${campaign} — AzeraKOL`,
+    subject: `Selamat, kamu diterima di campaign ${campaign} | AzeraKOL`,
     html: layout(`
         <h1 style="margin: 0 0 12px; font-size: 1.25rem; color: #191c20;">Selamat, ${escape(name)}! 🎉</h1>
         <p style="${P}">Kamu diterima untuk campaign <strong>${escape(campaign)}</strong>.</p>

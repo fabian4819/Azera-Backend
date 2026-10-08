@@ -2,8 +2,8 @@ import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
 
 /**
- * Akun PIC/Handle-by campaign. Beda dari draf awal (hierarki akun per campaign) —
- * satu akun bisa terhubung ke banyak campaign. Sign up TIDAK butuh accessCode —
+ * Akun PIC/Handle-by campaign. Beda dari draf awal (hierarki akun per campaign),
+ * satu akun bisa terhubung ke banyak campaign. Sign up TIDAK butuh accessCode,
  * akun dibuat kosong (campaignIds: []), admin yang assign campaign ke akun ini
  * dari CampaignDetail (lihat campaign.routes.ts endpoint /:id/pic), baru muncul
  * di dashboard PIC.

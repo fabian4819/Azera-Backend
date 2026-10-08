@@ -16,7 +16,7 @@ export interface IInvoice extends Document {
   brandId: Types.ObjectId
   /** Format INV/PT-ACN/MM/YYYY/NNN (invoice lama: INV-AZK-YYYYMM-NNN) */
   number: string
-  /** Kode akses halaman publik invoice — "link + kode" (Pasal spec checklist) */
+  /** Kode akses halaman publik invoice, "link + kode" (Pasal spec checklist) */
   accessCode: string
   billTo: string
   items: IInvoiceItem[]
@@ -31,7 +31,7 @@ export interface IInvoice extends Document {
   verifiedByUserId?: Types.ObjectId
   verifiedAt?: Date
   pdfUrl?: string
-  /** AD-31: offset reminder (H-7/H-3/H-1/due) yang sudah dikirim — cegah kirim dobel dari cron harian */
+  /** AD-31: offset reminder (H-7/H-3/H-1/due) yang sudah dikirim, cegah kirim dobel dari cron harian */
   remindersSent: string[]
   createdAt: Date
   updatedAt: Date

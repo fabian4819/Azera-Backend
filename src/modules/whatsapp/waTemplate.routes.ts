@@ -8,7 +8,7 @@ import { ensureAllTemplates } from './template.service'
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin'))
 
-// AD-30/31: daftar 15 template (auto-seed default kalau belum ada) — admin bisa edit wording
+// AD-30/31: daftar 15 template (auto-seed default kalau belum ada), admin bisa edit wording
 router.get('/', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -26,7 +26,7 @@ router.patch('/:trigger', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ message: 'Trigger tidak dikenal' })
       return
     }
-    // Body dan toggle bisa disimpan terpisah — kirim salah satu atau keduanya.
+    // Body dan toggle bisa disimpan terpisah, kirim salah satu atau keduanya.
     const { body, enabled } = req.body as { body?: string; enabled?: unknown }
     if (enabled !== undefined && typeof enabled !== 'boolean') { res.status(400).json({ message: 'enabled harus boolean' }); return }
     if (!body && enabled === undefined) { res.status(400).json({ message: 'body atau enabled wajib diisi' }); return }

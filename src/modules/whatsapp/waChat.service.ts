@@ -10,11 +10,11 @@ const PREVIEW_LEN = 80
 
 /**
  * Sebelum pemisahan dua bot, semua data WA milik satu nomor (nomor lead/partnership).
- * Baris lama tidak punya field `bot` — set ke 'partnership' sekali saat startup. Juga
- * `syncIndexes()` di sini — Mongoose otomatis BIKIN index baru yang dideklarasikan di schema
+ * Baris lama tidak punya field `bot`, set ke 'partnership' sekali saat startup. Juga
+ * `syncIndexes()` di sini, Mongoose otomatis BIKIN index baru yang dideklarasikan di schema
  * (mis. unique `{tenantId,bot,jid}`) tapi TIDAK otomatis HAPUS index lama yang sudah tidak
  * dipakai (mis. unique `{tenantId,jid}` dari sebelum pemisahan bot). Kalau dibiarkan, dua-duanya
- * aktif sekaligus — index lama itu masih memblokir insert concurrent (mis. beberapa pesan grup
+ * aktif sekaligus, index lama itu masih memblokir insert concurrent (mis. beberapa pesan grup
  * yang ramai masuk nyaris bersamaan) walau secara logic sudah valid di index yang baru.
  */
 export async function backfillBotDiscriminator() {
@@ -30,7 +30,7 @@ export async function backfillBotDiscriminator() {
 }
 
 /** `findOneAndUpdate(..., {upsert:true})` biasa TIDAK aman kalau dua pesan buat kontak yang SAMA
- * (jid) datang nyaris bersamaan — keduanya bisa sama-sama tidak menemukan doc lalu sama-sama coba
+ * (jid) datang nyaris bersamaan, keduanya bisa sama-sama tidak menemukan doc lalu sama-sama coba
  * insert, yang kalah kena error duplicate key. Ini gampang kejadian di grup yang ramai (banyak
  * pesan berturut-turut), jauh lebih jarang di chat 1:1. Retry sekali: percobaan kedua pasti
  * ketemu doc yang barusan dibikin lawannya, jadi update biasa, bukan insert lagi.
@@ -50,11 +50,11 @@ async function upsertWaContact(
   }
 }
 
-/** Insert WaChatMessage sekali per messageId — Baileys kadang mengirim ulang event
+/** Insert WaChatMessage sekali per messageId, Baileys kadang mengirim ulang event
  * 'messages.upsert' yang sama (reconnect dsb), tanpa ini pesan yang sama kecatat dobel jadi
  * beberapa bubble identik di Inbox. Index unique+sparse {tenantId,bot,jid,messageId} di model
  * yang menegakkan ini; di sini cukup tangkap duplicate-key (11000) dan anggap "sudah tercatat".
- * Pesan tanpa messageId (jarang, tapi bisa) tetap diinsert apa adanya — tidak ada yang bisa
+ * Pesan tanpa messageId (jarang, tapi bisa) tetap diinsert apa adanya, tidak ada yang bisa
  * dibandingkan buat dedupe. */
 async function insertChatMessageOnce(doc: {
   tenantId: import('mongoose').Types.ObjectId
@@ -77,7 +77,7 @@ async function insertChatMessageOnce(doc: {
 
 interface RecordIncomingOpts {
   messageId?: string
-  /** Nama kontak (1:1) ATAU nama grup (subject) — jadi `WaContact.name` */
+  /** Nama kontak (1:1) ATAU nama grup (subject), jadi `WaContact.name` */
   name?: string
   phone?: string
   /** Cuma untuk grup: nama pengirim pesan INI di dalam grup (lihat WaChatMessage.senderName) */
@@ -90,7 +90,7 @@ export async function recordIncomingMessage(bot: BotId, jid: string, text: strin
   await connectDB()
   const tenant = await getDefaultTenant()
   const inserted = await insertChatMessageOnce({ tenantId: tenant._id, bot, jid, direction: 'in', text, messageId: opts.messageId, senderName: opts.senderName, senderPhone: opts.senderPhone })
-  if (!inserted) return // event duplikat dari Baileys — pesan sudah tercatat, jangan tambah unreadCount lagi
+  if (!inserted) return // event duplikat dari Baileys, pesan sudah tercatat, jangan tambah unreadCount lagi
   await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
     {
@@ -110,7 +110,7 @@ export async function recordOutgoingMessage(bot: BotId, jid: string, text: strin
   await connectDB()
   const tenant = await getDefaultTenant()
   const inserted = await insertChatMessageOnce({ tenantId: tenant._id, bot, jid, direction: 'out', text, messageId: opts.messageId })
-  if (!inserted) return // event duplikat dari Baileys — pesan sudah tercatat
+  if (!inserted) return // event duplikat dari Baileys, pesan sudah tercatat
   await upsertWaContact(
     { tenantId: tenant._id, bot, jid },
     {
@@ -120,7 +120,7 @@ export async function recordOutgoingMessage(bot: BotId, jid: string, text: strin
   )
 }
 
-/** Admin balas langsung dari HP fisik (bukan lewat dashboard) — perlakukan sama seperti ambil alih
+/** Admin balas langsung dari HP fisik (bukan lewat dashboard), perlakukan sama seperti ambil alih
  * manual dari Inbox: bot berhenti auto-respon untuk kontak ini. */
 export async function pauseBotForContact(bot: BotId, jid: string): Promise<void> {
   await connectDB()
@@ -138,7 +138,7 @@ export async function isBotPaused(bot: BotId, jid: string): Promise<boolean> {
   return contact?.botPaused ?? false
 }
 
-/** Nomor ini sudah pernah disapa bot lead-intake sebelumnya? (leadBot.service.ts — bot cuma merespon di chat pertama) */
+/** Nomor ini sudah pernah disapa bot lead-intake sebelumnya? (leadBot.service.ts, bot cuma merespon di chat pertama) */
 export async function hasBotEngaged(bot: BotId, jid: string): Promise<boolean> {
   await connectDB()
   const tenant = await getDefaultTenant()
@@ -155,7 +155,7 @@ export async function markBotEngaged(bot: BotId, jid: string): Promise<void> {
   )
 }
 
-/** Admin klik "Aktifkan lagi" di Inbox — nomor ini dianggap belum pernah dilayani bot lagi,
+/** Admin klik "Aktifkan lagi" di Inbox, nomor ini dianggap belum pernah dilayani bot lagi,
  * chat berikutnya dari nomor ini dapat sapaan + menu dari awal. */
 export async function resetBotEngagement(bot: BotId, jid: string) {
   await connectDB()
@@ -173,13 +173,13 @@ interface HistoryEntry {
   text: string
   messageId: string
   timestamp: Date
-  /** Cuma untuk grup — nama & nomor pengirim pesan ini */
+  /** Cuma untuk grup, nama & nomor pengirim pesan ini */
   senderName?: string
   senderPhone?: string
 }
 
 /** Sinkronisasi riwayat chat lama (dikirim Baileys sekali lewat event 'messaging-history.set' saat
- * device baru ditautkan) — dipisah dari recordIncomingMessage/recordOutgoingMessage karena datanya
+ * device baru ditautkan), dipisah dari recordIncomingMessage/recordOutgoingMessage karena datanya
  * bisa ratusan/ribuan pesan sekaligus, jadi ditulis pakai bulk write, bukan satu-satu. Upsert by
  * messageId supaya aman kalau event ini sampai terkirim ulang (reconnect dsb), tidak dobel.
  */

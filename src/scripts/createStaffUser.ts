@@ -1,5 +1,5 @@
 /**
- * Buat akun staff (login /admin/login) — belum ada UI manajemen user.
+ * Buat akun staff (login /admin/login), belum ada UI manajemen user.
  *   npx tsx src/scripts/createStaffUser.ts <email> <role> "<nama>"
  * Role: owner | admin | ce | finance | developer. Password digenerate & dicetak sekali.
  * Kalau email sudah ada, akun tidak diubah (aman dijalankan ulang).
@@ -26,7 +26,7 @@ async function main() {
   const tenant = await getDefaultTenant()
   const existing = await User.findOne({ tenantId: tenant._id, email: email.toLowerCase() })
   if (existing) {
-    console.log(`Akun ${email} sudah ada (role ${existing.role}) — tidak diubah.`)
+    console.log(`Akun ${email} sudah ada (role ${existing.role}), tidak diubah.`)
   } else {
     const password = crypto.randomBytes(9).toString('base64url')
     await User.create({ tenantId: tenant._id, email: email.toLowerCase(), name, role, password: await bcrypt.hash(password, 12) })

@@ -4,7 +4,7 @@ import { BOT_IDS, BotId } from './waTemplate.model'
 
 export type WaChatDirection = 'in' | 'out'
 
-/** Satu pesan dalam percakapan (lihat WaContact untuk thread-nya) — beda dari WaMessageLog
+/** Satu pesan dalam percakapan (lihat WaContact untuk thread-nya), beda dari WaMessageLog
  * yang cuma mencatat pesan keluar hasil trigger otomatis (broadcast/reminder/report). */
 export interface IWaChatMessage extends Document {
   tenantId: Types.ObjectId
@@ -13,9 +13,9 @@ export interface IWaChatMessage extends Document {
   direction: WaChatDirection
   text: string
   messageId?: string
-  /** Nama pengirim DI DALAM grup (jid grup ada di field `jid` di atas) — kosong untuk chat 1:1. */
+  /** Nama pengirim DI DALAM grup (jid grup ada di field `jid` di atas), kosong untuk chat 1:1. */
   senderName?: string
-  /** Nomor WA pengirim DI DALAM grup — kosong untuk chat 1:1 (nomornya sudah ada di WaContact.phone). */
+  /** Nomor WA pengirim DI DALAM grup, kosong untuk chat 1:1 (nomornya sudah ada di WaContact.phone). */
   senderPhone?: string
   createdAt: Date
 }
@@ -35,9 +35,9 @@ const WaChatMessageSchema = new Schema<IWaChatMessage>(
 
 withTenant(WaChatMessageSchema)
 WaChatMessageSchema.index({ tenantId: 1, bot: 1, jid: 1, createdAt: 1 })
-// Baileys kadang mengirim ulang event 'messages.upsert' yang sama (reconnect dsb) — tanpa index ini
+// Baileys kadang mengirim ulang event 'messages.upsert' yang sama (reconnect dsb), tanpa index ini
 // pesan yang sama kecatat dobel jadi 2+ bubble identik di Inbox. partialFilterExpression (bukan
-// sparse) — sparse cuma exclude field yang HILANG, sedangkan sejumlah baris lama punya messageId
+// sparse), sparse cuma exclude field yang HILANG, sedangkan sejumlah baris lama punya messageId
 // tersimpan literal `null` (bukan hilang), yang tetap ikut index kalau cuma sparse dan bentrok
 // sesama null. Filter $type 'string' exclude null & missing dua-duanya.
 WaChatMessageSchema.index(

@@ -9,7 +9,7 @@ import { syncCreatorToSheet } from '../../lib/sheetSync.service'
 const router = Router()
 
 // AD-50: dipakai CampaignApply.tsx step 1 (wizard) buat cek nomor WA sebelum nampilin form profil
-// lengkap — kalau sudah ada, skip langsung ke step 2 (pertanyaan campaign).
+// lengkap, kalau sudah ada, skip langsung ke step 2 (pertanyaan campaign).
 router.get('/exists', async (req: Request, res: Response) => {
   try {
     await connectDB()
@@ -50,7 +50,7 @@ router.post('/register', async (req: Request, res: Response) => {
       return
     }
 
-    // Nomor WA baru, tapi email-nya sudah dipakai akun lain — jangan sampai satu email nyambung
+    // Nomor WA baru, tapi email-nya sudah dipakai akun lain, jangan sampai satu email nyambung
     // ke lebih dari satu profil creator.
     const emailTaken = await Creator.findOne({ tenantId: tenant._id, email })
     if (emailTaken) {

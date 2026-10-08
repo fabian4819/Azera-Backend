@@ -29,12 +29,12 @@ export interface ICreator extends Document {
   phone: string
   password?: string
   email?: string
-  /** Opsional — creator hasil import historis (AD-28) mungkin belum punya data ini */
+  /** Opsional, creator hasil import historis (AD-28) mungkin belum punya data ini */
   gender?: Gender
-  /** Tidak pernah diserialisasi ke JSON (lihat toJSON transform di bawah) — dashboard/API/sheet
+  /** Tidak pernah diserialisasi ke JSON (lihat toJSON transform di bawah), dashboard/API/sheet
    * cuma pernah lihat `age` (virtual, dihitung dari ini), bukan tanggal lahir mentahnya. */
   birthDate?: Date
-  /** Virtual, dihitung dari birthDate — bukan field tersimpan */
+  /** Virtual, dihitung dari birthDate, bukan field tersimpan */
   age?: number
   domicile?: { province?: string; city?: string }
   socials: ISocialAccount[]
@@ -45,14 +45,14 @@ export interface ICreator extends Document {
   contentStyleOther?: string
   bankAccount?: { bankName: string; accountNumber: string; accountName: string }
   npwp?: string
-  /** AD-49: estimasi rate 1x video posting, sebagai referensi awal — bukan kesepakatan final */
+  /** AD-49: estimasi rate 1x video posting, sebagai referensi awal, bukan kesepakatan final */
   rateEstimateType?: 'nominal' | 'unknown'
   rateEstimateAmount?: number
   rateNegotiable?: 'yes' | 'no' | 'depends'
   mediaKitUrl?: string
   portfolioLink?: string
   photoUrl?: string
-  /** AD-50: dikumpulkan di apply-flow campaign (step profil) — dipakai buat kirim produk & data
+  /** AD-50: dikumpulkan di apply-flow campaign (step profil), dipakai buat kirim produk & data
    * campaign yang butuh alamat fisik/almamater (mis. eligibility seragam sekolah/almet). */
   address?: string
   postalCode?: string
@@ -130,7 +130,7 @@ const CreatorSchema = new Schema<ICreator>(
     timestamps: true,
     toJSON: {
       virtuals: true,
-      // birthDate dipakai buat HITUNG usia saja — jangan pernah keluar ke response API. Berlaku
+      // birthDate dipakai buat HITUNG usia saja, jangan pernah keluar ke response API. Berlaku
       // di semua endpoint (dashboard, dan sheet/export kalau ada nanti), bukan cuma di satu route.
       transform: (_doc, ret) => {
         delete ret.birthDate
@@ -140,7 +140,7 @@ const CreatorSchema = new Schema<ICreator>(
   }
 )
 
-// Usia dibulatkan ke bawah (belum ulang tahun tahun ini = belum genap) — bukan field tersimpan,
+// Usia dibulatkan ke bawah (belum ulang tahun tahun ini = belum genap), bukan field tersimpan,
 // selalu dihitung ulang dari birthDate saat dokumen diserialisasi.
 CreatorSchema.virtual('age').get(function (this: ICreator) {
   if (!this.birthDate) return undefined
@@ -155,7 +155,7 @@ CreatorSchema.virtual('age').get(function (this: ICreator) {
 
 withTenant(CreatorSchema)
 CreatorSchema.index({ tenantId: 1, phone: 1 }, { unique: true })
-// Creator hasil import (source 'import') tidak punya email — jangan sampai dianggap "duplikat"
+// Creator hasil import (source 'import') tidak punya email, jangan sampai dianggap "duplikat"
 // satu sama lain. Pakai partial, BUKAN sparse: sparse di index compound tetap mengindeks dokumen
 // selama salah satu field (tenantId) ada, jadi email kosong kedua kena E11000.
 CreatorSchema.index(

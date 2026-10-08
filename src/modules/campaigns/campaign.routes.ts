@@ -108,7 +108,7 @@ router.get('/dashboard-links', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Grup WA (WaContact @g.us) milik bot partnership — share broadcast listing dikirim lewat WA partnership.
+// Grup WA (WaContact @g.us) milik bot partnership, share broadcast listing dikirim lewat WA partnership.
 router.get('/wa-groups', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -124,7 +124,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     await connectDB()
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
-    // 3 link sheet — cuma di sini (route admin), BUKAN di dashboard.service.ts, karena itu juga
+    // 3 link sheet, cuma di sini (route admin), BUKAN di dashboard.service.ts, karena itu juga
     // dipakai jalur akses-kode publik (publicCampaign.routes.ts) yang tidak boleh bocorin link
     // ke spreadsheet internal. masterSheetUrl per-campaign (tab-nya beda tiap campaign); report
     // & recap payment statis (1 sheet dipakai bareng semua campaign).
@@ -140,7 +140,7 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Tabel ala spreadsheet (Master / Report / Recap Payment) untuk halaman Sheet admin —
+// Tabel ala spreadsheet (Master / Report / Recap Payment) untuk halaman Sheet admin,
 // data dari DB (sheetView.service.ts), sheetUrl cuma buat tombol "Buka di Google Sheets".
 router.get('/:id/sheet/:kind', async (req: AuthRequest, res: Response) => {
   try {
@@ -158,7 +158,7 @@ router.get('/:id/sheet/:kind', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Edit sel kolom progress dari Master Sheet admin — logic sama dengan portal creator (progress.service.ts)
+// Edit sel kolom progress dari Master Sheet admin, logic sama dengan portal creator (progress.service.ts)
 async function loadCellTarget(req: AuthRequest) {
   const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
   const application = campaign && await Application.findOne({ _id: req.body.applicationId, campaignId: campaign._id, tenantId: req.auth!.tenantId })
@@ -194,7 +194,7 @@ router.post('/:id/sheet/cell/upload', upload.array('files', 6), async (req: Auth
   }
 })
 
-// workflowStage SENGAJA tidak di sini — harus lewat POST /:id/workflow/transition
+// workflowStage SENGAJA tidak di sini, harus lewat POST /:id/workflow/transition
 // (AD-32) supaya tervalidasi & tercatat di WorkflowAudit, bukan di-patch bebas.
 const EDITABLE_FIELDS = [
   'name', 'objective', 'deliverables', 'budget', 'timeline', 'criteria',
@@ -213,7 +213,7 @@ const PLATFORMS = ['instagram', 'tiktok', 'threads', 'x'] as const
 const has = <T extends string>(list: readonly T[], v: unknown): v is T => list.includes(v as T)
 
 /** Kolom progress dari admin dirapikan di sini (bukan cuma andalkan enum schema, yang tidak jalan
- * di findOneAndUpdate) — kolom tanpa label dibuang, binding Submission harus lengkap & valid. */
+ * di findOneAndUpdate), kolom tanpa label dibuang, binding Submission harus lengkap & valid. */
 function sanitizeProgressColumns(input: unknown): IProgressColumn[] {
   if (!Array.isArray(input)) return []
   return input.flatMap((c): IProgressColumn[] => {
@@ -260,7 +260,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     )
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
 
-    // AD-31: campaign_started / campaign_completed — kirim ke client saat status berubah
+    // AD-31: campaign_started / campaign_completed, kirim ke client saat status berubah
     if (updates.status && updates.status !== before.status && ['active', 'completed'].includes(updates.status as string)) {
       const trigger = updates.status === 'active' ? 'campaign_started' : 'campaign_completed'
       const brand = await Brand.findById(campaign.brandId)
@@ -341,7 +341,7 @@ _fee pic 10k, mg 10k_
 *OPSI Lokasi & Tanggal*
 > bisa pilih di form
 1️⃣ *Option 1*
-📣 9 Oktober 2026 — Woro-woro
+📣 9 Oktober 2026: Woro-woro
 📍 Braga, Bandung
 ⏰ Standby pukul 15.00 WIB (stay 2-3 jam)
 
@@ -406,7 +406,7 @@ router.get('/:id/analytics', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// AD-24: AI Campaign Insight — analisis pencapaian target, platform terbaik, creator paling efisien
+// AD-24: AI Campaign Insight, analisis pencapaian target, platform terbaik, creator paling efisien
 router.post('/:id/generate-insight', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -417,7 +417,7 @@ router.post('/:id/generate-insight', async (req: AuthRequest, res: Response) => 
   }
 })
 
-// AD-26: Auto Report Generator — HTML->PDF via Puppeteer, ganti trigger WA "Final Report Ready" yang di-drop
+// AD-26: Auto Report Generator, HTML->PDF via Puppeteer, ganti trigger WA "Final Report Ready" yang di-drop
 router.post('/:id/generate-report', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -449,7 +449,7 @@ router.post('/:id/generate-report', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// AD-27: Auto Case Study Generator (model content website — model IG di-drop)
+// AD-27: Auto Case Study Generator (model content website, model IG di-drop)
 router.post('/:id/generate-case-study', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -474,7 +474,7 @@ interface BroadcastBody {
   recipients: string[] | 'all_creators'
 }
 
-// AD-31: Broadcast Campaign — kirim ke daftar nomor manual atau semua creator approved
+// AD-31: Broadcast Campaign, kirim ke daftar nomor manual atau semua creator approved
 router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -498,7 +498,7 @@ router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
 
     const template = await getTemplate(req.auth!.tenantId, 'broadcast_campaign')
     const payload = renderTemplate(template, {
-      urgent_label: body.urgent ? '🚨 URGENT — ' : '',
+      urgent_label: body.urgent ? '🚨 URGENT: ' : '',
       title: body.title,
       location_schedule: body.location || body.schedule ? `📍 ${body.location || '-'}\n🗓️ ${body.schedule || '-'}\n\n` : '',
       fee: body.fee,
@@ -585,7 +585,7 @@ router.get('/:id/workflow', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// AD-32: transisi tahap tervalidasi (guard transisi + role) — owner/admin-dengan-alasan bisa override
+// AD-32: transisi tahap tervalidasi (guard transisi + role), owner/admin-dengan-alasan bisa override
 router.post('/:id/workflow/transition', async (req: AuthRequest, res: Response) => {
   try {
     const { toStage, reason, override } = req.body as { toStage?: WorkflowStage; reason?: string; override?: boolean }
@@ -613,7 +613,7 @@ router.post('/:id/workflow/transition', async (req: AuthRequest, res: Response) 
   }
 })
 
-// PIC/Handle-by akun (PicUser) yang di-assign admin ke campaign ini — muncul di
+// PIC/Handle-by akun (PicUser) yang di-assign admin ke campaign ini, muncul di
 // dashboard PIC begitu ditambahkan. Akun PIC sign up sendiri tanpa accessCode,
 // jadi satu-satunya cara campaign muncul di dashboard mereka adalah lewat sini.
 router.get('/:id/pic', async (req: AuthRequest, res: Response) => {

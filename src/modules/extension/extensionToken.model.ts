@@ -6,7 +6,7 @@ import crypto from 'crypto'
  * kode di halaman "Hubungkan Ekstensi", tempel di popup ekstensi. Setiap request
  * dari ekstensi membawa kode ini di header `X-Azera-Ext-Token`.
  *
- * Yang disimpan hanya hash-nya (sha256) — kode plaintext hanya ditampilkan sekali
+ * Yang disimpan hanya hash-nya (sha256), kode plaintext hanya ditampilkan sekali
  * saat dibuat, persis seperti personal access token.
  */
 export interface IExtensionToken extends Document {
@@ -25,7 +25,7 @@ export interface IExtensionToken extends Document {
 
 /**
  * Sengaja TIDAK pakai withTenant: lookup di `requireExtensionToken` hanya tahu
- * hash token (belum tahu tenant), jadi query by hash saja — guard tenant-plugin
+ * hash token (belum tahu tenant), jadi query by hash saja, guard tenant-plugin
  * akan melempar untuk query tanpa tenantId. tenantId tetap disimpan sebagai field
  * biasa dan selalu ikut difilter di route admin.
  */

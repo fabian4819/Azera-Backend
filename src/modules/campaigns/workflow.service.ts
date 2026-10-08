@@ -7,7 +7,7 @@ import Application, { IApplication } from '../applications/application.model'
 import Submission from '../submissions/submission.model'
 
 /**
- * AD-32: graf transisi valid — linear 1..17, dengan 2 pengecualian kondisional
+ * AD-32: graf transisi valid, linear 1..17, dengan 2 pengecualian kondisional
  * (docs/plan/modul-4-automation-workflow.md):
  * - creator_approved(6) bisa lompat ke brief_sent(8) langsung (client_approval di-skip per campaign)
  * - content_review(10) bisa ke revision(11) yang loop balik ke content_review(10)
@@ -32,7 +32,7 @@ export const WORKFLOW_TRANSITIONS: Record<WorkflowStage, WorkflowStage[]> = {
   completed: [],
 }
 
-/** Role yang boleh melakukan transisi tertentu — key: "from->to". Tidak ada entry = owner/admin saja. */
+/** Role yang boleh melakukan transisi tertentu, key: "from->to". Tidak ada entry = owner/admin saja. */
 const TRANSITION_ROLES: Record<string, UserRole[]> = {
   'draft->listing': ['owner', 'admin', 'ce'],
   'listing->open_registration': ['owner', 'admin'],
@@ -82,7 +82,7 @@ export async function transitionWorkflow(opts: {
     throw new WorkflowTransitionError(`Transisi ${fromStage} -> ${opts.toStage} tidak valid. Gunakan override kalau ini disengaja.`)
   }
   if (isOverride) {
-    // Matrix: "Override tahap mana pun | Owner (dan Admin dengan alasan)" — role lain tidak boleh override sama sekali.
+    // Matrix: "Override tahap mana pun | Owner (dan Admin dengan alasan)", role lain tidak boleh override sama sekali.
     const role = effectiveRole(opts.role)
     if (role !== 'owner' && role !== 'admin') {
       throw new WorkflowTransitionError('Cuma Owner atau Admin yang boleh override tahap')
@@ -115,7 +115,7 @@ export async function transitionWorkflow(opts: {
   return campaign
 }
 
-/** Best-effort auto-transition dipakai sebagai side-effect dari aksi lain — tidak pernah throw. */
+/** Best-effort auto-transition dipakai sebagai side-effect dari aksi lain, tidak pernah throw. */
 export async function tryAutoTransition(opts: {
   campaignId: string
   tenantId: string
@@ -136,7 +136,7 @@ export async function tryAutoTransition(opts: {
       override: true,
     })
   } catch {
-    // best-effort — jangan ganggu aksi utama
+    // best-effort, jangan ganggu aksi utama
   }
 }
 
@@ -144,7 +144,7 @@ export type CreatorSubStage =
   | 'brief_sent' | 'waiting_draft' | 'content_review' | 'revision'
   | 'waiting_post' | 'posted' | 'waiting_insight' | 'insight_collected'
 
-/** AD-32: tahap 8-15 sebenarnya per-creator — dihitung dari Submission, bukan disimpan terpisah */
+/** AD-32: tahap 8-15 sebenarnya per-creator, dihitung dari Submission, bukan disimpan terpisah */
 export function computeCreatorSubStage(submissions: { type: string; status: string; parsedInsight?: { views?: number } }[]): CreatorSubStage {
   const posts = submissions.filter((s) => s.type === 'post')
   const drafts = submissions.filter((s) => s.type === 'draft')

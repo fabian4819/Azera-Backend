@@ -1,6 +1,6 @@
 /**
  * Cek satu-jalan: `npx tsx src/lib/googleSheets.test.ts`
- * Yang dijaga di sini cuma logika murni — yang menyentuh Google diuji dengan
+ * Yang dijaga di sini cuma logika murni, yang menyentuh Google diuji dengan
  * menempel link sungguhan, bukan mock yang ikut salah kalau asumsinya salah.
  */
 import assert from 'node:assert'
@@ -17,7 +17,7 @@ assert.strictEqual(parseSpreadsheetId('https://docs.google.com/document/d/' + ID
 assert.strictEqual(parseSpreadsheetId('bukan link'), null)
 assert.strictEqual(parseSpreadsheetId(''), null)
 
-// regex yang sama dipakai panel ekstensi utk menolak sebelum kirim — kalau dua
+// regex yang sama dipakai panel ekstensi utk menolak sebelum kirim, kalau dua
 // sisi ini berbeda, pengguna dapat "link tidak dikenali" dari sisi yang salah.
 const sheetSah = (v: string) =>
   /\/spreadsheets\/d\/[a-zA-Z0-9-_]{20,}/.test(v) || /^[a-zA-Z0-9-_]{20,}$/.test(String(v).trim())
@@ -44,4 +44,4 @@ assert.strictEqual(row[1], 'budi')
 assert.strictEqual(row[KOL_LISTER_HEADERS.indexOf('ER %')], 2, 'basis views harus pakai er_views_percent')
 assert.strictEqual(row[KOL_LISTER_HEADERS.indexOf('Following')], '', 'angka kosong -> sel kosong, bukan 0')
 
-console.log('ok — googleSheets + baris KOL Lister')
+console.log('ok, googleSheets + baris KOL Lister')

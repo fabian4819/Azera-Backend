@@ -44,7 +44,7 @@ assert.deepEqual(ok.items.map((i) => [i.qty, i.rate]), [[43, 3076.92], [null, 15
 assert.match(String(parseInvoiceMessage('/invoice\nCampaign: X\nItem: a | b | 1 | 1rb')), /Bill To/)
 assert.match(String(parseInvoiceMessage('/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1')), /Format item salah/)
 
-// Biaya: baris di bawah Subtotal Net — nominal, persen dari subtotal, minus = potongan
+// Biaya: baris di bawah Subtotal Net, nominal, persen dari subtotal, minus = potongan
 assert.deepEqual(parseCharges(['PPH 21 | 50rb', 'PPh 23 | -2%', 'Biaya Admin | 3076,92'], 132_307.56), [
   { label: 'PPH 21', amount: 50_000 },
   { label: 'PPh 23', amount: -2646.15 },

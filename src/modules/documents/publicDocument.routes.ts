@@ -6,7 +6,7 @@ import DocumentModel from './document.model'
 import { renderInvoice } from './docTemplates'
 
 /**
- * Link preview invoice publik (?code=) — pengganti link Google Drive di bot invoice WA
+ * Link preview invoice publik (?code=), pengganti link Google Drive di bot invoice WA
  * (invoiceBot.service.ts). Isi selalu dirender dari data terbaru, jadi edit di menu
  * Document langsung ikut. Dokumen tanpa accessCode (dibuat dari web) tidak bisa dibuka di sini.
  */

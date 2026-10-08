@@ -7,7 +7,7 @@ const router = Router()
 
 /**
  * AD-10: Portfolio publik membaca case study hasil Auto Case Study Generator
- * (AD-27, model "content website") — bukan PDF, dirender sebagai halaman web
+ * (AD-27, model "content website"), bukan PDF, dirender sebagai halaman web
  * yang screenshot-friendly (client screenshot buat post IG, keputusan 16 Agu).
  */
 router.get('/case-studies', async (_req: Request, res: Response) => {

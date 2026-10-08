@@ -7,7 +7,7 @@ import { env } from '../config/env'
  * tenants when a route forgets to scope its query.
  *
  * In non-production, a query without tenantId throws immediately instead of
- * silently returning cross-tenant data — catches the mistake in dev.
+ * silently returning cross-tenant data, catches the mistake in dev.
  */
 export function withTenant(schema: Schema) {
   schema.add({

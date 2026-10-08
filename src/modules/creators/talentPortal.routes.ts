@@ -46,7 +46,7 @@ router.get('/campaigns', async (req: AuthRequest, res: Response) => {
     })
       .populate('campaignId')
       .sort({ createdAt: -1 })
-    // Update progress sekarang lewat tabel portal (magic link), bukan form upload — login lama
+    // Update progress sekarang lewat tabel portal (magic link), bukan form upload, login lama
     // cukup jadi pintu masuk ke link tsb.
     const items = await Promise.all(applications.map(async (a) => ({
       applicationId: a._id, campaign: a.campaignId, portalToken: await ensurePortalToken(a),

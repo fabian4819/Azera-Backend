@@ -8,7 +8,7 @@ import { buildPortalView } from './sheetView.service'
 import { writeProgressCell, appendScreenshots, CellError } from './progress.service'
 
 /**
- * Portal creator via magic link (/portal/:token) — tanpa login. Token = Application.portalToken,
+ * Portal creator via magic link (/portal/:token), tanpa login. Token = Application.portalToken,
  * dibuat saat creator diterima. Creator lihat tabel campaign (kolom sesuai aturan akses admin)
  * dan cuma bisa edit sel kolom progress 'edit' di barisnya sendiri.
  */

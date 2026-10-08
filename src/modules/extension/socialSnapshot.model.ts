@@ -13,7 +13,7 @@ export const SNAPSHOT_PLATFORMS: SnapshotPlatform[] = [
 
 /**
  * Satu tarikan metrik profil KOL dari ekstensi KOL Lister. Time-series: satu
- * baris per tarikan, tidak ditimpa — jadi pertumbuhan followers / ER bisa
+ * baris per tarikan, tidak ditimpa, jadi pertumbuhan followers / ER bisa
  * digambar sebagai grafik di CreatorDetail.
  *
  * `creatorId` null = KOL prospek (username belum ada di DB_KOL). Muncul di
@@ -22,7 +22,7 @@ export const SNAPSHOT_PLATFORMS: SnapshotPlatform[] = [
 export interface ISocialSnapshot extends Document {
   tenantId: Types.ObjectId
   platform: SnapshotPlatform
-  /** handle tanpa @, lowercase — kunci pencocokan ke Creator.socials.username */
+  /** handle tanpa @, lowercase, kunci pencocokan ke Creator.socials.username */
   username: string
   profileUrl?: string
   displayName?: string
@@ -56,7 +56,7 @@ export interface ISocialSnapshot extends Document {
   organicPosts?: number
   postsPerWeek?: number
   postRangeDays?: number
-  /** rasio post terbesar : median — >= 5 berarti rata-rata ditarik outlier */
+  /** rasio post terbesar : median, >= 5 berarti rata-rata ditarik outlier */
   outlierRatio?: number
   roundedNumbers?: boolean
 
@@ -82,7 +82,7 @@ export interface ISocialSnapshot extends Document {
   /** field yang scraper GAGAL ambil (butuh isi manual) */
   missingFields: string[]
 
-  /** diisi staf di panel ekstensi — berguna untuk prospek yang belum jadi Creator */
+  /** diisi staf di panel ekstensi, berguna untuk prospek yang belum jadi Creator */
   niche?: string
   notes?: string
   /** campaign yang lagi dipertimbangkan buat KOL ini (shortlist, belum deal) */

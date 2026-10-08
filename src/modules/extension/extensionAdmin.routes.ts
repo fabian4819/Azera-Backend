@@ -19,7 +19,7 @@ const PROFILE_URL: Record<SocialPlatform, (h: string) => string> = {
 }
 
 // Data historis kadang isi "-", "0", "A", "tidakada" dsb sebagai penanda "belum diisi"
-// alih-alih benar-benar kosong. Jangan dipakai bikin link — hasilnya nyasar/404.
+// alih-alih benar-benar kosong. Jangan dipakai bikin link, hasilnya nyasar/404.
 const PLACEHOLDER_HANDLES = new Set(['-', '0', 'a', 'na', 'n/a', 'tidakada', 'tidak ada', 'belum ada', 'none', 'null', 'xx'])
 function isRealHandle(h: string): boolean {
   if (h.length < 2 || PLACEHOLDER_HANDLES.has(h.toLowerCase())) return false
@@ -167,7 +167,7 @@ router.get('/snapshots', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// riwayat lengkap satu handle — buat grafik pertumbuhan di CreatorDetail / radar
+// riwayat lengkap satu handle, buat grafik pertumbuhan di CreatorDetail / radar
 router.get('/snapshots/history', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -297,7 +297,7 @@ router.post('/capture-intents', async (req: AuthRequest, res: Response) => {
       }
       handle = normalizeHandle(acct.username)
       if (!isRealHandle(handle)) {
-        res.status(400).json({ message: `Username ${platform} creator ini belum valid ("${acct.username}") — perbaiki dulu di profil creator` })
+        res.status(400).json({ message: `Username ${platform} creator ini belum valid ("${acct.username}"), perbaiki dulu di profil creator` })
         return
       }
       // Selalu bangun dari handle, bukan acct.profileUrl (yang sering diketik manual

@@ -37,7 +37,7 @@ export function normalizePostUrl(input: string): string {
 
 /**
  * Baris akun dari panel ekstensi (`snapshotRow` di panel.js). Nama field-nya
- * snake_case dan sebagian beda dari model — dipetakan di `ingestSnapshot`.
+ * snake_case dan sebagian beda dari model, dipetakan di `ingestSnapshot`.
  */
 export interface SampleRowInput {
   post?: string | null
@@ -106,7 +106,7 @@ function numOrNull(v: unknown): number | null {
 /**
  * Simpan snapshot + coba cocokkan ke Creator lewat socials.username (case-insensitive).
  * Kalau ketemu: update `followers` di social account itu (data manual milik staf
- * — kategori/rate/kontak — TIDAK disentuh, sama seperti aturan KOL Lister).
+ *, kategori/rate/kontak, TIDAK disentuh, sama seperti aturan KOL Lister).
  */
 export async function ingestSnapshot(
   tenantId: string,
@@ -155,7 +155,7 @@ export async function ingestSnapshot(
     outlierRatio: num(akun.outlier_ratio),
     roundedNumbers: akun.angka_dibulatkan === 'ya' ? true : undefined,
   }
-  // yang benar-benar "belum kebaca" cuma angka inti — sisanya turunan sampel
+  // yang benar-benar "belum kebaca" cuma angka inti, sisanya turunan sampel
   const CORE = ['followers', 'following', 'postsCount', 'avgLikes', 'avgComments', 'engagementRate'] as const
   const missing = CORE.filter((k) => metrics[k] === undefined)
 
@@ -183,7 +183,7 @@ export async function ingestSnapshot(
     creator = await Creator.findOne({ _id: opts.forceCreatorId, tenantId })
   } else if (canLink) {
     // Pencocokan: username akun sosial (platform + handle). Dinormalkan di kedua
-    // sisi — stored bisa "@Handle", "handle/", "instagram.com/handle", spasi —
+    // sisi, stored bisa "@Handle", "handle/", "instagram.com/handle", spasi,
     // jadi perbandingannya di JS, bukan regex query.
     const kandidat = await Creator.find({ tenantId, 'socials.platform': platform }).select('name socials')
     creator =
@@ -258,7 +258,7 @@ export async function findSubmissionsByPostUrl(tenantId: string, postUrl: string
  * tab dengan nama ini + header kita di baris 1. Tab lain tidak pernah disentuh. */
 export const KOL_LISTER_TAB = 'KOL Lister'
 /** Kolom A = kunci baris. Ada dua gunanya: penanda tab ini milik ekstensi, dan
- * kunci upsert — kirim ulang KOL yang sama memperbarui barisnya, bukan menumpuk. */
+ * kunci upsert, kirim ulang KOL yang sama memperbarui barisnya, bukan menumpuk. */
 export const KOL_LISTER_KEY_HEADER = 'KOL'
 
 export const KOL_LISTER_HEADERS = [

@@ -13,7 +13,7 @@ router.use(requireAuth, requireRole('owner', 'admin'))
 
 /**
  * Template pesan bot lead-intake (Brand/KOL/Support di WhatsApp, lihat leadBot.service.ts).
- * `lockedReference` dikirim apa adanya (bukan dari DB) — label field template Brand & daftar
+ * `lockedReference` dikirim apa adanya (bukan dari DB), label field template Brand & daftar
  * pilihan Jasa/Budget TIDAK adjustable, karena parser bot mencocokkannya secara harfiah.
  */
 router.get('/', async (req: AuthRequest, res: Response) => {

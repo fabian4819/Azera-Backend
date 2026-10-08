@@ -2,7 +2,7 @@ import puppeteer, { Browser } from 'puppeteer'
 
 /**
  * Render HTML → PDF buffer via headless Chromium. Renders are queued
- * one-at-a-time — VPS RAM budget only accounts for a single Puppeteer
+ * one-at-a-time, VPS RAM budget only accounts for a single Puppeteer
  * spike at once (lihat docs/plan/01-architecture.md).
  */
 
@@ -31,7 +31,7 @@ export function renderHtmlToPdf(html: string, options: PdfOptions = {}): Promise
     const browser = await getBrowser()
     const page = await browser.newPage()
     try {
-      // Dokumen berisi isian user (sudah di-escape) — JS tetap dimatikan sebagai lapisan kedua
+      // Dokumen berisi isian user (sudah di-escape), JS tetap dimatikan sebagai lapisan kedua
       await page.setJavaScriptEnabled(false)
       await page.setContent(html, { waitUntil: 'load' })
       const withHeaderFooter = !!(options.headerTemplate || options.footerTemplate)

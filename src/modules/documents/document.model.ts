@@ -17,7 +17,7 @@ export interface IDocument extends MongoDocument {
   brandId?: Types.ObjectId
   data: Record<string, unknown>
   pdfUrl?: string
-  /** Kunci link preview publik (?code=) — diisi saat dokumen dibuat dari bot WA */
+  /** Kunci link preview publik (?code=), diisi saat dokumen dibuat dari bot WA */
   accessCode?: string
   version: number
   createdAt: Date

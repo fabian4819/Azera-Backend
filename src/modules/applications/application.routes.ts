@@ -21,7 +21,7 @@ const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
 
 // Dipakai di tiap endpoint yang me-return satu application buat REPLACE baris di tabel Pendaftar
-// (CampaignDetail.tsx) — kalau latestSubmission gak ikut, kolom submission di baris itu kosong
+// (CampaignDetail.tsx), kalau latestSubmission gak ikut, kolom submission di baris itu kosong
 // sesaat sampai reload (sama kelasnya dengan bug creatorId/picUserId yang kemarin ketemu pas testing).
 async function findLatestSubmission(tenantId: unknown, campaignId: unknown, creatorId: unknown) {
   return Submission.findOne({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 })
@@ -39,9 +39,9 @@ router.get('/campaign/:campaignId', async (req: AuthRequest, res: Response) => {
       .populate('picUserId', 'name email')
       .sort({ createdAt: -1 })
 
-    // Submission terbaru per creator — sama seperti logika syncCampaignRow (sheetSync.service.ts),
+    // Submission terbaru per creator, sama seperti logika syncCampaignRow (sheetSync.service.ts),
     // supaya tabel Pendaftar di website nunjukin data yang SAMA PERSIS dengan mastersheet campaign
-    // (bukan cuma tombol redirect ke Sheet — website tetap jadi display utama, Sheet cuma penunjang).
+    // (bukan cuma tombol redirect ke Sheet, website tetap jadi display utama, Sheet cuma penunjang).
     const submissions = await Submission.find({ tenantId: req.auth!.tenantId, campaignId: campaign._id }).sort({ createdAt: -1 })
     const latestByCreator = new Map<string, (typeof submissions)[number]>()
     for (const s of submissions) {
@@ -49,9 +49,9 @@ router.get('/campaign/:campaignId', async (req: AuthRequest, res: Response) => {
       if (!latestByCreator.has(key)) latestByCreator.set(key, s)
     }
     const withSubmissions = applications.map((a) => {
-      // creatorId sudah di-populate jadi dokumen Creator penuh di atas — _id-nya yang dipakai buat
+      // creatorId sudah di-populate jadi dokumen Creator penuh di atas, _id-nya yang dipakai buat
       // cocokin ke submission map, bukan `a.creatorId` mentah (itu sekarang objek, bukan ObjectId).
-      // Optional chaining: creator bisa saja sudah dihapus (referensi yatim) — populate() jadi null,
+      // Optional chaining: creator bisa saja sudah dihapus (referensi yatim), populate() jadi null,
       // bukan objek, dan akses `._id` langsung bikin 500 di seluruh endpoint (bukan cuma baris ini).
       const creatorId = (a.creatorId as unknown as { _id: unknown } | null)?._id
       return { ...a.toJSON(), latestSubmission: latestByCreator.get(String(creatorId)) || null }
@@ -66,7 +66,7 @@ router.get('/campaign/:campaignId', async (req: AuthRequest, res: Response) => {
 /**
  * AD-20: keputusan akhir admin (rekomendasi sistem cuma advisory). Saat status
  * jadi 'accepted', kalau creator belum punya password Talent Portal, generate
- * sekarang — ini momen "creator diterima" yang nanti jadi trigger WA (modul 4)
+ * sekarang, ini momen "creator diterima" yang nanti jadi trigger WA (modul 4)
  * berisi kredensial login. Password plaintext dikembalikan SEKALI di response.
  */
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
@@ -94,7 +94,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Magic link portal campaign ini — dibuat saat diterima, dikirim lewat WA & email
+    // Magic link portal campaign ini, dibuat saat diterima, dikirim lewat WA & email
     const portalLink = status === 'accepted' ? portalUrl(await ensurePortalToken(application)) : undefined
 
     // AD-30: trigger creator_accepted / creator_rejected
@@ -134,7 +134,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// AD-25: pelacakan pembayaran ke creator — toggle manual, tanpa otomasi
+// AD-25: pelacakan pembayaran ke creator, toggle manual, tanpa otomasi
 router.patch('/:id/payment', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -168,7 +168,7 @@ router.patch('/:id/payment', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Assign/lepas PIC yang "pegang" creator ini di campaign — picUserId harus salah satu PIC yang
+// Assign/lepas PIC yang "pegang" creator ini di campaign, picUserId harus salah satu PIC yang
 // sudah di-assign ke campaign (PicUser.campaignIds), supaya tidak bisa nunjuk PIC dari campaign lain.
 // Kirim picUserId: null buat lepas assignment.
 router.patch('/:id/pic', async (req: AuthRequest, res: Response) => {
@@ -188,7 +188,7 @@ router.patch('/:id/pic', async (req: AuthRequest, res: Response) => {
 
     application.picUserId = picUserId ? (picUserId as unknown as typeof application.picUserId) : undefined
     await application.save()
-    // Populate creatorId juga (bukan cuma picUserId) — respons ini dipakai frontend buat REPLACE
+    // Populate creatorId juga (bukan cuma picUserId), respons ini dipakai frontend buat REPLACE
     // baris application di state, kalau creatorId gak ikut di-populate baris itu kehilangan
     // nama/WA/domisili/skor creator-nya (jadi "Creator dihapus" walau creator-nya masih ada).
     await application.populate('creatorId')

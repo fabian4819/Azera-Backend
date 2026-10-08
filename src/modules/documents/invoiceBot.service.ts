@@ -8,7 +8,7 @@ import DocumentModel from './document.model'
 import { renderInvoice, rp } from './docTemplates'
 
 /**
- * Bot invoice WA — port prompt `/invoice` dari bot-cashflow (sudah dipakai tim), tapi hasilnya
+ * Bot invoice WA, port prompt `/invoice` dari bot-cashflow (sudah dipakai tim), tapi hasilnya
  * disimpan sebagai Document invoice di web (template sama dengan menu Document) dan link Drive
  * diganti link preview publik web. Hanya jalan di bot partnership, grup "Invoice Maker" (baileys.ts).
  */
@@ -35,11 +35,11 @@ export interface ParsedInvoice {
 }
 
 const upperDate = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ }).toUpperCase()
-/** "YYYY-MM-DD" menurut WIB — format field tanggal di template web */
+/** "YYYY-MM-DD" menurut WIB, format field tanggal di template web */
 const isoDate = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(d)
 const addDays = (d: Date, days: number) => new Date(d.getTime() + days * 86_400_000)
 
-/** Angka rupiah: 150000, 150.000, 1,500,000, 3076,92, 3.076,92, 3076.92 — koma/titik + 1-2 digit di akhir = desimal */
+/** Angka rupiah: 150000, 150.000, 1,500,000, 3076,92, 3.076,92, 3076.92, koma/titik + 1-2 digit di akhir = desimal */
 function parseAmount(s: string): number | null {
   if (/^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(s) || /^\d+(,\d{1,2})?$/.test(s)) return round2(Number(s.replace(/\./g, '').replace(',', '.')))
   if (/^\d{1,3}(,\d{3})+(\.\d{1,2})?$/.test(s) || /^\d+(\.\d{1,2})?$/.test(s)) return round2(Number(s.replace(/,/g, '')))
@@ -193,7 +193,7 @@ async function invoiceHelp(): Promise<string> {
   const tenant = await getDefaultTenant()
   const nextNo = await peekInvoiceNumber(tenant._id)
   return [
-    `🧾 *Buat Invoice — ${nextNo}*`,
+    `🧾 *Buat Invoice: ${nextNo}*`,
     ``,
     `Kirim dalam *1 pesan* dengan format section:`,
     ``,
@@ -283,7 +283,7 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     number,
     issueDate: isoDate(now),
     dueDate,
-    reference: parsed.reference || (parsed.brand ? `${parsed.campaign} — ${parsed.brand}` : parsed.campaign),
+    reference: parsed.reference || (parsed.brand ? `${parsed.campaign} | ${parsed.brand}` : parsed.campaign),
     billTo: { name: parsed.billTo, pic: parsed.pic, npwp: parsed.npwp, contact: parsed.contact },
     items: parsed.items.map((i) => ({ name: i.name, description: i.description, qty: i.qty ?? '', unitFee: i.rate })),
     charges,
@@ -313,7 +313,7 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     `📎 ${previewUrl}`,
   ].join('\n')
 
-  // PDF gagal (Chromium dsb) tidak membatalkan invoice — dokumen sudah tersimpan, link tetap jalan
+  // PDF gagal (Chromium dsb) tidak membatalkan invoice, dokumen sudah tersimpan, link tetap jalan
   try {
     const { html, pdf } = renderInvoice(data)
     const buffer = await renderHtmlToPdf(html, pdf)

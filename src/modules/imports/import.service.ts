@@ -3,7 +3,7 @@ import { Readable } from 'stream'
 import { parseSpreadsheetId } from '../../lib/googleSheets'
 
 /**
- * AD-28: format row-based diusulkan & di-ACC klien 17 Agu 2026 — satu baris =
+ * AD-28: format row-based diusulkan & di-ACC klien 17 Agu 2026, satu baris =
  * satu platform per creator per campaign (docs/plan/09-open-questions.md).
  */
 export interface ImportRow {
@@ -20,9 +20,9 @@ export interface ImportRow {
   comments?: number
   shares?: number
   saved?: number
-  /** ISO date — divalidasi di validateRow */
+  /** ISO date, divalidasi di validateRow */
   postedAt?: string
-  /** Fee per creator per campaign — boleh diisi di satu baris saja kalau creator punya >1 platform */
+  /** Fee per creator per campaign, boleh diisi di satu baris saja kalau creator punya >1 platform */
   feeCreator?: number
   feePic?: number
   feeMg?: number
@@ -89,7 +89,7 @@ function cellToDate(value: unknown): string | undefined {
 }
 
 /**
- * Dipakai preview DAN confirm — confirm tidak boleh percaya `errors` dari client
+ * Dipakai preview DAN confirm, confirm tidak boleh percaya `errors` dari client
  * (bisa dikirim `errors: []` untuk baris yang sebenarnya invalid).
  */
 export function validateRow(row: Omit<ImportRow, 'errors' | 'rowNumber'>): string[] {
@@ -107,7 +107,7 @@ export function validateRow(row: Omit<ImportRow, 'errors' | 'rowNumber'>): strin
   return errors
 }
 
-/** Nama dari spreadsheet dipakai sebagai regex case-insensitive — wajib di-escape ("Brand (ID)", "L'Oréal+") */
+/** Nama dari spreadsheet dipakai sebagai regex case-insensitive, wajib di-escape ("Brand (ID)", "L'Oréal+") */
 export function exactName(name: string): RegExp {
   return new RegExp(`^${name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')
 }
@@ -116,14 +116,14 @@ const norm = (s: string) => s.trim().toLowerCase()
 
 /**
  * Aturan klien (24 Sep 2026): 1 file/sheet = 1 campaign = 1 brand. Baris yang nama campaign/brand-nya
- * beda dari baris pertama hampir pasti typo — ditandai error, bukan diam-diam jadi campaign kedua.
+ * beda dari baris pertama hampir pasti typo, ditandai error, bukan diam-diam jadi campaign kedua.
  */
 export function checkSingleCampaign(rows: ImportRow[]): ImportRow[] {
   const first = rows.find((r) => r.campaignName?.trim() && r.brandName?.trim())
   if (!first) return rows
   for (const r of rows) {
-    if (r.campaignName?.trim() && norm(r.campaignName) !== norm(first.campaignName)) r.errors.push(`Campaign "${r.campaignName}" beda dari baris pertama ("${first.campaignName}") — 1 file = 1 campaign`)
-    if (r.brandName?.trim() && norm(r.brandName) !== norm(first.brandName)) r.errors.push(`Brand "${r.brandName}" beda dari baris pertama ("${first.brandName}") — 1 file = 1 brand`)
+    if (r.campaignName?.trim() && norm(r.campaignName) !== norm(first.campaignName)) r.errors.push(`Campaign "${r.campaignName}" beda dari baris pertama ("${first.campaignName}"), 1 file = 1 campaign`)
+    if (r.brandName?.trim() && norm(r.brandName) !== norm(first.brandName)) r.errors.push(`Brand "${r.brandName}" beda dari baris pertama ("${first.brandName}"), 1 file = 1 brand`)
   }
   return rows
 }
@@ -133,7 +133,7 @@ export class ImportInputError extends Error {}
 const MAX_SHEET_BYTES = 10 * 1024 * 1024 // sama dengan batas upload file
 
 /**
- * Ambil satu tab Google Sheets yang dibuka "Anyone with the link" sebagai CSV — tanpa kredensial.
+ * Ambil satu tab Google Sheets yang dibuka "Anyone with the link" sebagai CSV, tanpa kredensial.
  * Yang dikirim ke Google cuma ID + gid hasil parsing, bukan URL mentah dari user (tidak ada SSRF).
  */
 export async function fetchPublicSheetCsv(link: string): Promise<Buffer> {
@@ -143,7 +143,7 @@ export async function fetchPublicSheetCsv(link: string): Promise<Buffer> {
   const url = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv${gid ? `&gid=${gid}` : ''}`
 
   const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(20_000) })
-  if (res.status === 404) throw new ImportInputError('Spreadsheet tidak ditemukan — cek lagi link-nya')
+  if (res.status === 404) throw new ImportInputError('Spreadsheet tidak ditemukan, cek lagi link-nya')
   // Sheet privat: Google balas 401/403 atau redirect ke halaman login (HTML), bukan CSV
   if (!res.ok || !res.headers.get('content-type')?.includes('text/csv')) {
     throw new ImportInputError('Sheet belum dibuka untuk umum. Ubah akses ke "Anyone with the link" (Viewer), lalu coba lagi.')
@@ -157,12 +157,12 @@ async function loadWorkbook(buffer: Buffer, filename: string): Promise<{ workshe
   const workbook = new ExcelJS.Workbook()
   if (filename.toLowerCase().endsWith('.csv')) {
     const stream = Readable.from(buffer)
-    // map identitas: biarkan semua nilai CSV tetap string mentah. Default exceljs menebak tipe —
+    // map identitas: biarkan semua nilai CSV tetap string mentah. Default exceljs menebak tipe,
     // "12.500" jadi 12.5 dan "03-04-2026" dibaca format US (4 Maret) + geser zona waktu
     const worksheet = await workbook.csv.read(stream, { map: (value: unknown) => value } as never)
     return { worksheet, sheetCount: 1 }
   }
-  // exceljs's Buffer type defs lag behind Node's current Buffer generics — safe at runtime
+  // exceljs's Buffer type defs lag behind Node's current Buffer generics, safe at runtime
   await workbook.xlsx.load(buffer as never)
   const worksheet = workbook.worksheets[0]
   if (!worksheet) throw new Error('Spreadsheet tidak punya sheet')
@@ -192,7 +192,7 @@ export async function parseImportFile(buffer: Buffer, filename: string): Promise
     })
     if (Object.keys(raw).length === 0) return
 
-    // Reach & saved cuma berlaku untuk IG/TikTok (notes klien 17 Agu) — dibiarkan kosong untuk X/Threads, bukan divalidasi
+    // Reach & saved cuma berlaku untuk IG/TikTok (notes klien 17 Agu), dibiarkan kosong untuk X/Threads, bukan divalidasi
     const parsed = {
       campaignName: cellToString(raw.campaignName),
       brandName: cellToString(raw.brandName),

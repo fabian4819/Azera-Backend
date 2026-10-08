@@ -7,12 +7,12 @@ import { CurationResult } from './application.model'
 interface CurationOutcome {
   result: CurationResult
   reason: string
-  /** true kalau ini auto-reject (compliance gate) — Application.status langsung 'rejected', bukan cuma advisory */
+  /** true kalau ini auto-reject (compliance gate), Application.status langsung 'rejected', bukan cuma advisory */
   autoRejected: boolean
 }
 
 /**
- * Seleksi Creator Otomatis (AD-20). Rekomendasi/filtering awal saja — keputusan
+ * Seleksi Creator Otomatis (AD-20). Rekomendasi/filtering awal saja, keputusan
  * akhir tetap admin (Tab 4 no.5), KECUALI compliance gate (SP1/SP2) yang memang
  * auto-reject sesuai spesifikasi checklist.
  */
@@ -21,16 +21,16 @@ export async function runSmartCuration(
   creator: ICreator,
   tenantId: string | Types.ObjectId
 ): Promise<CurationOutcome> {
-  // 1. Compliance gate — auto-reject, bukan advisory
+  // 1. Compliance gate, auto-reject, bukan advisory
   if (creator.complianceStatus === 'sp2_blacklist') {
-    return { result: 'rejected', reason: 'Creator diblacklist (SP2) — 3× cancel job setelah accepted.', autoRejected: true }
+    return { result: 'rejected', reason: 'Creator diblacklist (SP2), 3× cancel job setelah accepted.', autoRejected: true }
   }
   if (creator.complianceStatus === 'sp1' && creator.sp1Until && creator.sp1Until > new Date()) {
     const until = creator.sp1Until.toLocaleDateString('id-ID')
     return { result: 'rejected', reason: `Creator dalam masa suspend SP1 sampai ${until} (cancel job setelah accepted).`, autoRejected: true }
   }
 
-  // 2. Cek kriteria campaign (soft — advisory, bukan auto-reject)
+  // 2. Cek kriteria campaign (soft, advisory, bukan auto-reject)
   const reasons: string[] = []
   let unmetCount = 0
 
@@ -67,7 +67,7 @@ export async function runSmartCuration(
     }
   }
 
-  // 3. Brand experience — sinyal positif kalau pernah kerja sama dengan brand ini
+  // 3. Brand experience, sinyal positif kalau pernah kerja sama dengan brand ini
   const brandExperienceCount = await CreatorHistory.countDocuments({
     tenantId,
     creatorId: creator._id,
@@ -95,7 +95,7 @@ export async function runSmartCuration(
   }
   return {
     result: 'need_review',
-    reason: `Semua kriteria terpenuhi tapi performance score masih rendah (${score}) atau belum ada histori — perlu ditinjau manual.`,
+    reason: `Semua kriteria terpenuhi tapi performance score masih rendah (${score}) atau belum ada histori, perlu ditinjau manual.`,
     autoRejected: false,
   }
 }

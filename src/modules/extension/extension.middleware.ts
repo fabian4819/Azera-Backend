@@ -11,7 +11,7 @@ export interface ExtRequest extends Request {
 }
 
 /**
- * Auth untuk route yang dipanggil ekstensi. Bukan JWT — pakai kode sambungan
+ * Auth untuk route yang dipanggil ekstensi. Bukan JWT, pakai kode sambungan
  * jangka panjang di header `X-Azera-Ext-Token`. Aman tanpa proteksi CSRF karena
  * bukan cookie-based (browser tidak auto-attach header ini).
  */

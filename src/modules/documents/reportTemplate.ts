@@ -83,7 +83,7 @@ export function buildReportHtml({ campaign, brandName, analytics, creators }: Re
 </style>
 </head>
 <body>
-  <h1>Laporan Campaign — ${escape(campaign.name)}</h1>
+  <h1>Laporan Campaign: ${escape(campaign.name)}</h1>
   <div class="sub">${escape(brandName)} · ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
 
   <div class="section-title">Ringkasan</div>
@@ -112,7 +112,7 @@ export function buildReportHtml({ campaign, brandName, analytics, creators }: Re
   <div class="insight-box">${campaign.aiInsight ? escape(campaign.aiInsight) : 'Insight belum di-generate.'}</div>
 
   <div class="footer">
-    <span>AzeraKOL — Scale Brands. Amplify Impact</span>
+    <span>AzeraKOL | Scale Brands. Amplify Impact</span>
     <span>@azerakol.id</span>
   </div>
 </body>

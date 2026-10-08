@@ -6,7 +6,7 @@ import Brand from '../../models/Brand'
 import DocumentModel from './document.model'
 
 /**
- * AD-27: Auto Case Study Generator — model "content website" saja (model
+ * AD-27: Auto Case Study Generator, model "content website" saja (model
  * autofill IG di-drop, keputusan klien 16 Agu). Hasilnya struktur data untuk
  * dirender sebagai halaman web (Portfolio, integrasi AD-10 minggu 5) yang
  * screenshot-friendly, bukan PDF.

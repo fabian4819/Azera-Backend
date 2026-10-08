@@ -3,9 +3,9 @@ import mongoose, { Schema, Document } from 'mongoose'
 export const PORTFOLIO_CATEGORIES = ['KOL Campaign', 'KOC Campaign', 'Affiliate Campaign', 'Event Creator Activation'] as const
 export const RESULT_PLATFORMS = ['instagram', 'tiktok', 'threads', 'x', 'youtube', 'other'] as const
 
-/** AD-49: satu creator di showcase "Top Creator" — diisi manual oleh admin
+/** AD-49: satu creator di showcase "Top Creator", diisi manual oleh admin
  * (belum ada relasi otomatis ke Campaign/Submission asli, lihat 09-open-questions.md).
- * postLink (opsional) dipakai untuk embed resmi Instagram/TikTok (oEmbed), bukan file video —
+ * postLink (opsional) dipakai untuk embed resmi Instagram/TikTok (oEmbed), bukan file video,
  * sistem ini tidak punya penyimpanan video sendiri. */
 export type CreatorPlatform = 'instagram' | 'tiktok'
 
@@ -19,7 +19,7 @@ export interface ITopCreator {
   shares?: string
 }
 
-/** Satu baris "Platform dan Hasil". Angka opsional disimpan null bila kosong —
+/** Satu baris "Platform dan Hasil". Angka opsional disimpan null bila kosong,
  * kosong ≠ nol (data tidak tersedia). reach..er = "Metrik Tambahan". */
 export interface IPlatformResult {
   platform: (typeof RESULT_PLATFORMS)[number]
@@ -34,7 +34,7 @@ export interface IPlatformResult {
   showExtraPublic: boolean
 }
 
-/** Legacy (sebelum revisi Sep 2026) — tidak diedit lagi dari admin, hanya fallback tampilan data lama. */
+/** Legacy (sebelum revisi Sep 2026), tidak diedit lagi dari admin, hanya fallback tampilan data lama. */
 export interface IPortfolioMetrics {
   totalImpression?: string
   accountsReached?: string
@@ -55,7 +55,7 @@ export interface IPortfolio extends Document {
   niches: string[]
   period?: string
   hashtag?: string
-  /** Total Kreator Aktif (unik di seluruh campaign) — nama field lama dipertahankan agar data lama tetap terbaca. */
+  /** Total Kreator Aktif (unik di seluruh campaign), nama field lama dipertahankan agar data lama tetap terbaca. */
   kolCount?: number
   deliverables?: string
   scope: string[]

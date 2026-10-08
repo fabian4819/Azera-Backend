@@ -8,7 +8,7 @@ export type SubmissionStatus = 'submitted' | 'approved' | 'revision_requested'
 /**
  * Metrik per platform (notes klien 17 Agu 2026):
  * - IG & TikTok: views, reach, likes, comments, shares, saves (semua ada)
- * - X & Threads: views, likes, comments, shares (= "Posting Ulang"/repost) — TIDAK ada reach/saves
+ * - X & Threads: views, likes, comments, shares (= "Posting Ulang"/repost), TIDAK ada reach/saves
  * Field yang tidak berlaku untuk platform tsb dibiarkan null, bukan 0.
  */
 interface IParsedInsight {
@@ -27,7 +27,7 @@ export interface ISubmission extends Document {
   campaignId: Types.ObjectId
   creatorId: Types.ObjectId
   type: SubmissionType
-  /** Platform post ini — menentukan field insight mana yang berlaku & label parsing AI */
+  /** Platform post ini, menentukan field insight mana yang berlaku & label parsing AI */
   platform: SocialPlatform
   link?: string
   insightScreenshotUrls: string[]
@@ -35,7 +35,7 @@ export interface ISubmission extends Document {
   status: SubmissionStatus
   revisionCount: number
   revisionNotes?: string
-  /** Tanggal konten tayang — saat ini cuma diisi dari import data historis (AD-28) */
+  /** Tanggal konten tayang, saat ini cuma diisi dari import data historis (AD-28) */
   postedAt?: Date
   createdAt: Date
   updatedAt: Date

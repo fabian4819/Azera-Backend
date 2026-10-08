@@ -11,7 +11,7 @@ import { getTemplate, renderTemplate } from '../modules/whatsapp/template.servic
 const TIMEZONE = 'Asia/Jakarta'
 
 // Daily progress report ditujukan ke tim internal (grup WhatsApp berisi bot + tim AzeraKOL),
-// bukan ke brand — isi ID grup di .env, format JID grup: "xxxxxxxxxxxxxxxxx@g.us"
+// bukan ke brand, isi ID grup di .env, format JID grup: "xxxxxxxxxxxxxxxxx@g.us"
 // Dikirim lewat bot Creator, jadi nomor bot itu harus jadi anggota grup. Cara dapat ID-nya: kirim pesan apa saja
 // di grup itu, lalu cari jid "…@g.us" dengan nama grupnya di collection wacontacts (bot: 'creator').
 const TEAM_GROUP_JID = process.env.WA_TEAM_GROUP_JID || ''
@@ -73,7 +73,7 @@ export async function runDailyProgressReport() {
 }
 
 async function runDailyProgressReportForTenant(tenantId: string) {
-  if (!TEAM_GROUP_JID) return // grup tim belum dikonfigurasi — skip diam-diam, bukan error tiap hari
+  if (!TEAM_GROUP_JID) return // grup tim belum dikonfigurasi, skip diam-diam, bukan error tiap hari
 
   const campaigns = await Campaign.find({ tenantId, status: 'active' })
   for (const campaign of campaigns) {

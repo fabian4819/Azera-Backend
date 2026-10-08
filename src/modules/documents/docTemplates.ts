@@ -4,11 +4,11 @@ import { PdfOptions } from '../../lib/pdf'
 import { SPK_INTRO, SPK_PASAL, QUOTATION_TERMS } from './templateText'
 
 /**
- * Template Quotation / Invoice / SPK — dibuat ulang dari Google Docs klien (24 Sep 2026).
+ * Template Quotation / Invoice / SPK, dibuat ulang dari Google Docs klien (24 Sep 2026).
  * Satu template, dua mode:
  * - 'pdf'  → HTML untuk Puppeteer (lib/pdf.ts)
  * - 'edit' → HTML yang sama, tiap bagian [ ] jadi kotak isian langsung di dokumen
- *            (dipakai editor admin di iframe; tanpa JS — lihat EDIT_CSP)
+ *            (dipakai editor admin di iframe; tanpa JS, lihat EDIT_CSP)
  * Semua isian user WAJIB lewat esc() / helper F.
  */
 
@@ -88,7 +88,7 @@ function fields(d: Data, mode: RenderMode) {
       if (!edit) return emptyPdf !== undefined && !n(v(p)) ? emptyPdf : rp(v(p))
       return `Rp<input class="fx num" type="number" min="0" step="any" data-k="${p}" data-kind="number" value="${inputVal(p)}" placeholder="0">`
     },
-    /** Nominal boleh minus (potongan) — PDF: "- Rp50.000" */
+    /** Nominal boleh minus (potongan), PDF: "- Rp50.000" */
     signedMoney(p: string) {
       if (!edit) return n(v(p)) < 0 ? `- ${rp(-n(v(p)))}` : rp(v(p))
       return `Rp<input class="fx num" type="number" step="any" data-k="${p}" data-kind="number" value="${inputVal(p)}" placeholder="0" title="Minus = potongan">`
@@ -108,15 +108,15 @@ function fields(d: Data, mode: RenderMode) {
     check(p: string) {
       return edit ? `<input type="checkbox" data-k="${p}" data-kind="bool" data-rerender${v(p) === true ? ' checked' : ''}>` : ''
     },
-    /** Salinan teks field lain (mis. nama klien di beberapa tempat) — ikut berubah saat mengetik */
+    /** Salinan teks field lain (mis. nama klien di beberapa tempat), ikut berubah saat mengetik */
     mirror(p: string, empty: string) {
       return edit ? `<span data-mirror="${p}" data-empty="${esc(empty)}">${t(v(p), esc(empty))}</span>` : t(v(p), esc(empty))
     },
-    /** Angka hasil hitung (amount/subtotal/total) — dihitung ulang editor saat angka diubah */
+    /** Angka hasil hitung (amount/subtotal/total), dihitung ulang editor saat angka diubah */
     calc(key: string, html: string) {
       return edit ? `<span data-calc="${key}">${html}</span>` : html
     },
-    /** Tombol tambah/hapus baris — cuma di mode edit */
+    /** Tombol tambah/hapus baris, cuma di mode edit */
     action(name: string, label: string, i?: number) {
       return edit ? `<button type="button" class="act" data-action="${name}"${i !== undefined ? ` data-i="${i}"` : ''}>${label}</button>` : ''
     },
