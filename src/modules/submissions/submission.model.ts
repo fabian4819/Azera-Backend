@@ -30,6 +30,8 @@ export interface ISubmission extends Document {
   /** Platform post ini, menentukan field insight mana yang berlaku & label parsing AI */
   platform: SocialPlatform
   link?: string
+  /** File draft (foto/video) yang diupload, dipakai kolom "Draft" Master Sheet */
+  mediaUrls: string[]
   insightScreenshotUrls: string[]
   parsedInsight?: IParsedInsight
   status: SubmissionStatus
@@ -48,6 +50,7 @@ const SubmissionSchema = new Schema<ISubmission>(
     type: { type: String, enum: ['draft', 'post'], required: true },
     platform: { type: String, enum: ['instagram', 'tiktok', 'threads', 'x'], required: true },
     link: String,
+    mediaUrls: [String],
     insightScreenshotUrls: [String],
     parsedInsight: {
       views: Number,

@@ -20,6 +20,16 @@ export const uploadMedia = multer({
   },
 })
 
+// Draft konten creator (foto/video), 80MB = client_max_body_size di client/nginx.conf
+export const uploadDraft = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 80 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^(image|video)\//.test(file.mimetype)) cb(null, true)
+    else cb(new Error('Only image or video files are allowed'))
+  },
+})
+
 // Bukti transfer pembayaran, gambar atau PDF
 export const uploadProof = multer({
   storage: multer.memoryStorage(),

@@ -1,11 +1,11 @@
 import { Router, Request, Response } from 'express'
 import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
-import { upload } from '../../middleware/upload'
+import { upload, uploadDraft } from '../../middleware/upload'
 import Campaign from './campaign.model'
 import Application from '../applications/application.model'
 import { buildPortalView } from './sheetView.service'
-import { writeProgressCell, appendScreenshots, CellError } from './progress.service'
+import { writeProgressCell, appendScreenshots, CellError, assertCreatorCanEditBase, setPostingLink, appendPostScreenshots, uploadDraftFiles } from './progress.service'
 
 /**
  * Portal creator via magic link (/portal/:token), tanpa login. Token = Application.portalToken,
@@ -44,7 +44,7 @@ router.get('/:token', async (req: Request, res: Response) => {
         timeline: campaign.timeline,
         waGroupLink: campaign.waGroupLink || '',
       },
-      ...(await buildPortalView(tenant._id, campaign, application)),
+      ...(await buildPortalView(tenant._id, campaign, { role: 'creator', mine: application })),
     })
   } catch (err) {
     sendError(res, err)
@@ -55,10 +55,12 @@ router.patch('/:token/cell', async (req: Request, res: Response) => {
   try {
     await connectDB()
     const { tenant, application, campaign } = await resolve(req.params.token)
-    await writeProgressCell(
-      { tenantId: tenant._id, campaign, application, columnId: String(req.body.columnId), actor: 'creator', userId: application.creatorId },
-      req.body.value
-    )
+    const columnId = String(req.body.columnId)
+    const ctx = { tenantId: tenant._id, campaign, application, columnId, actor: 'creator' as const, userId: application.creatorId }
+    if (columnId === 'base:post') {
+      assertCreatorCanEditBase(campaign, columnId)
+      await setPostingLink(ctx, req.body.value)
+    } else await writeProgressCell(ctx, req.body.value)
     res.json({ ok: true })
   } catch (err) {
     sendError(res, err)
@@ -69,8 +71,27 @@ router.post('/:token/cell/upload', upload.array('files', 6), async (req: Request
   try {
     await connectDB()
     const { tenant, application, campaign } = await resolve(req.params.token)
-    await appendScreenshots(
-      { tenantId: tenant._id, campaign, application, columnId: String(req.body.columnId), actor: 'creator', userId: application.creatorId },
+    const columnId = String(req.body.columnId)
+    const ctx = { tenantId: tenant._id, campaign, application, columnId, actor: 'creator' as const, userId: application.creatorId }
+    const files = (req.files as Express.Multer.File[]) || []
+    if (columnId === 'base:insight') {
+      assertCreatorCanEditBase(campaign, columnId)
+      await appendPostScreenshots(ctx, files)
+    } else await appendScreenshots(ctx, files)
+    res.json({ ok: true })
+  } catch (err) {
+    sendError(res, err)
+  }
+})
+
+// Draft foto/video: multer terpisah (80MB, image+video), beda dari upload screenshot (gambar 5MB)
+router.post('/:token/draft/upload', uploadDraft.array('files', 10), async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const { tenant, application, campaign } = await resolve(req.params.token)
+    assertCreatorCanEditBase(campaign, 'base:draft')
+    await uploadDraftFiles(
+      { tenantId: tenant._id, campaign, application, actor: 'creator', userId: application.creatorId },
       (req.files as Express.Multer.File[]) || []
     )
     res.json({ ok: true })

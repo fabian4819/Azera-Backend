@@ -5,7 +5,7 @@ import Submission, { ISubmission } from '../submissions/submission.model'
 import Creator, { ICreator } from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
 import '../../models/Brand' // daftarkan model untuk populate('brandId')
-import { campaignSheetColumns, campaignSheetRow, creatorAccess, progressKind, CellKind } from '../../lib/sheetSync.service'
+import { campaignSheetColumns, campaignSheetRow, creatorAccess, progressKind, CellKind, SheetColumn, BASE_SUBMISSION_COLUMNS } from '../../lib/sheetSync.service'
 import { portalUrl } from './progress.service'
 
 /**
@@ -29,6 +29,8 @@ export interface SheetTable {
   rowStatus?: string[]
   /** Pendaftar: magic link portal per baris (bukan kolom, dipakai tombol salin "Link") */
   rowLinks?: string[]
+  /** Master: catatan revisi terakhir draft & posting per baris (ditampilkan di sel Status) */
+  rowNotes?: { draft?: string; post?: string }[]
   /** Master: definisi kolom progress mentah, untuk panel Kelola Kolom */
   progressColumns?: IProgressColumn[]
 }
@@ -40,7 +42,11 @@ export interface ColumnMeta {
   kind?: CellKind
   /** Aturan akses creator (portal magic link), ditampilkan & diatur di admin */
   access: 'hidden' | 'view' | 'edit'
+  /** Kolom bawaan Draft / Link Posting / status-nya (bukan kolom progress), diisi & di-review admin */
+  submission?: { type: 'draft' | 'post'; review?: true }
 }
+
+const columnKind = (c: SheetColumn): CellKind | undefined => (c.progress ? progressKind(c.progress) : BASE_SUBMISSION_COLUMNS[c.key]?.kind)
 
 const fmtDate = (d?: Date) => (d ? d.toISOString().slice(0, 10) : '')
 const sum = (rows: Cell[][], col: number) => rows.reduce((acc, r) => acc + (typeof r[col] === 'number' ? (r[col] as number) : 0), 0)
@@ -74,18 +80,25 @@ function masterRow(campaign: ICampaign, d: CampaignData, a: CampaignData['applic
   )
 }
 
+/** Master: hanya creator yang sudah di-approve di tab Pendaftar (sama dengan yang disync ke Google Sheets). */
 function masterTable(campaign: ICampaign, d: CampaignData): SheetTable {
   const cols = campaignSheetColumns(campaign)
+  const accepted = d.applications.filter((a) => a.status === 'accepted')
   return {
     headers: cols.map((c) => c.label),
     columns: cols.map((c) => ({
       key: c.key,
       progressId: c.progress?.id,
-      kind: c.progress ? progressKind(c.progress) : undefined,
+      kind: columnKind(c),
       access: creatorAccess(campaign, c),
+      submission: c.progress ? undefined : BASE_SUBMISSION_COLUMNS[c.key] && { type: BASE_SUBMISSION_COLUMNS[c.key].type, review: BASE_SUBMISSION_COLUMNS[c.key].review },
     })),
-    rows: d.applications.map((a) => masterRow(campaign, d, a)),
-    rowIds: d.applications.map((a) => String(a._id)),
+    rows: accepted.map((a) => masterRow(campaign, d, a)),
+    rowIds: accepted.map((a) => String(a._id)),
+    rowNotes: accepted.map((a) => {
+      const subs = d.submissionsByCreator.get(String(a.creatorId)) ?? []
+      return { draft: subs.find((s) => s.type === 'draft')?.revisionNotes, post: subs.find((s) => s.type === 'post')?.revisionNotes }
+    }),
     progressColumns: campaign.progressColumns || [],
   }
 }
@@ -201,26 +214,53 @@ export async function buildSheetView(tenantId: Types.ObjectId | string, campaign
   return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null }, ...table }
 }
 
+/** Sel portal: draft creator lain disamarkan (belum tayang). Status review dikirim mentah, frontend
+ * yang menampilkan badge + catatan revisi (rows[].notes). */
+function portalCell(key: string, v: Cell, isMine: boolean): Cell {
+  return key === 'Draft' && v !== '' && !isMine ? 'Terkirim' : v
+}
+
+/** Siapa yang membuka dashboard campaign: creator (magic link, isi baris sendiri), PIC (lihat saja),
+ * client (lihat + approve/revisi draft & posting). */
+export type BoardViewer = { role: 'creator'; mine: IApplication } | { role: 'pic' } | { role: 'client' }
+
 /**
- * Tabel portal creator (magic link): creator yang diterima saja, kolom yang di-hide admin dibuang
- * di server (bukan cuma disembunyikan di UI), sel progress 'edit' hanya bisa diubah di baris sendiri.
+ * Tabel dashboard creator / PIC / client: creator yang diterima saja, kolom yang terlihat = aturan
+ * akses creator dari admin, kolom tersembunyi dibuang di server (bukan cuma disembunyikan di UI).
+ * Creator: sel 'edit' cuma di baris sendiri, draft & catatan revisi creator lain disamarkan. Status
+ * review dikirim mentah + catatan (rows[].notes), tombol approve/revisi cuma di dashboard client.
  */
-export async function buildPortalView(tenantId: Types.ObjectId | string, campaign: ICampaign, mine: IApplication) {
+export async function buildPortalView(tenantId: Types.ObjectId | string, campaign: ICampaign, viewer: BoardViewer) {
   const data = await loadCampaignData(tenantId, campaign)
   const cols = campaignSheetColumns(campaign)
   const visible = cols.map((c, i) => ({ c, i, access: creatorAccess(campaign, c) })).filter((x) => x.access !== 'hidden')
+  const mineId = viewer.role === 'creator' ? String(viewer.mine._id) : null
+  // Baris sendiri paling atas supaya creator langsung ketemu
   const accepted = data.applications.filter((a) => a.status === 'accepted')
+    .sort((a, b) => Number(String(b._id) === mineId) - Number(String(a._id) === mineId))
   return {
     headers: visible.map((x) => x.c.label),
     columns: visible.map((x) => ({
       key: x.c.key,
-      progressId: x.c.progress?.id,
-      kind: x.c.progress ? progressKind(x.c.progress) : undefined,
-      editable: x.access === 'edit',
+      progressId: x.c.progress?.id ?? BASE_SUBMISSION_COLUMNS[x.c.key]?.id,
+      kind: columnKind(x.c),
+      editable: viewer.role === 'creator' && x.access === 'edit',
+      // Kolom status review: badge + catatan revisi di semua dashboard, tombol approve/revisi cuma di client
+      review: !x.c.progress && BASE_SUBMISSION_COLUMNS[x.c.key]?.review ? BASE_SUBMISSION_COLUMNS[x.c.key].type : undefined,
     })),
     rows: accepted.map((a) => {
       const full = masterRow(campaign, data, a)
-      return { id: String(a._id), mine: String(a._id) === String(mine._id), cells: visible.map((x) => full[x.i] ?? '') }
+      const isMine = String(a._id) === mineId
+      const subs = data.submissionsByCreator.get(String(a.creatorId)) ?? []
+      return {
+        id: String(a._id),
+        mine: isMine,
+        cells: visible.map((x) => portalCell(x.c.key, full[x.i] ?? '', viewer.role !== 'creator' || isMine)),
+        // Catatan revisi creator lain tidak dibagikan ke sesama creator
+        notes: viewer.role !== 'creator' || isMine
+          ? { draft: subs.find((s) => s.type === 'draft')?.revisionNotes, post: subs.find((s) => s.type === 'post')?.revisionNotes }
+          : undefined,
+      }
     }),
   }
 }

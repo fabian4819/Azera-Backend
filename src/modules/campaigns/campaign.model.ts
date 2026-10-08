@@ -95,6 +95,8 @@ export interface ICampaign extends Document {
   picUserId?: Types.ObjectId
   handleByUserId?: Types.ObjectId
   accessCode: string
+  /** Kode link dashboard client (bisa approve/revisi), dibuat saat admin pertama buka campaign */
+  clientAccessCode?: string
   fee: {
     creatorFee?: number
     picFee?: number
@@ -190,6 +192,7 @@ const CampaignSchema = new Schema<ICampaign>(
     picUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     handleByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     accessCode: { type: String, required: true },
+    clientAccessCode: String,
     fee: {
       creatorFee: Number,
       picFee: Number,

@@ -1,35 +1,93 @@
 import { Router, Request, Response } from 'express'
 import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
-import Campaign from './campaign.model'
+import crypto from 'crypto'
+import { Types } from 'mongoose'
+import Campaign, { ICampaign } from './campaign.model'
 import Creator, { type SocialPlatform } from '../creators/creator.model'
 import Application from '../applications/application.model'
 import PicUser from '../pic/pic.model'
 import { runSmartCuration } from '../applications/curation.service'
-import { getCampaignDashboardData } from './dashboard.service'
-import { syncApplicationToSheet } from '../../lib/sheetSync.service'
+import { buildPortalView } from './sheetView.service'
+import { reviewSubmission, CellError } from './progress.service'
+import { syncApplicationToSheet, creatorAccess } from '../../lib/sheetSync.service'
 
 const router = Router()
 
+/** Kode akses dibanding constant-time; kode kosong/tidak ada = selalu ditolak. */
+function codeMatches(expected: string | undefined, given: unknown): boolean {
+  if (!expected || typeof given !== 'string') return false
+  const a = Buffer.from(expected)
+  const b = Buffer.from(given)
+  return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+/** Campaign untuk dashboard PIC (accessCode) / client (clientAccessCode), 404 kalau kode salah. */
+async function loadBoardCampaign(id: string, code: unknown, role: 'pic' | 'client') {
+  const tenant = await getDefaultTenant()
+  if (!Types.ObjectId.isValid(id)) return null
+  const campaign = await Campaign.findOne({ tenantId: tenant._id, _id: id }).populate('brandId', 'namaBrand')
+  if (!campaign || !codeMatches(role === 'pic' ? campaign.accessCode : campaign.clientAccessCode, code)) return null
+  return { tenant, campaign }
+}
+
+function boardCampaignInfo(campaign: ICampaign, withGroup: boolean) {
+  const brand = campaign.brandId as unknown as { namaBrand?: string } | null
+  return {
+    name: campaign.name,
+    brandName: brand?.namaBrand ?? null,
+    briefContent: campaign.briefContent || '',
+    deliverables: campaign.deliverables,
+    timeline: campaign.timeline,
+    waGroupLink: withGroup ? campaign.waGroupLink || '' : '',
+  }
+}
+
 /**
- * AD-48: dashboard PIC/Handle-by, bukan akun/login individual (jumlah Handle-by
- * terlalu banyak untuk dikelola sebagai User), cukup satu accessCode per campaign
- * (sudah ada di schema sejak AD-18, baru dipakai sekarang), pola sama seperti akses
- * invoice via code (publicInvoice.routes.ts). Read-only, seluruh data campaign
- * (bukan cuma subset per orang), lihat docs/plan/09-open-questions.md.
+ * AD-48: dashboard PIC/Handle-by via accessCode (tanpa login). Isinya tabel yang sama dengan
+ * dashboard creator (kolom sesuai aturan akses admin), read-only.
  */
 router.get('/:id/dashboard', async (req: Request, res: Response) => {
   try {
     await connectDB()
-    const { code } = req.query
-    const campaign = await Campaign.findById(req.params.id).populate('brandId', 'namaBrand')
-    if (!campaign || campaign.accessCode !== code) {
-      res.status(404).json({ message: 'Campaign tidak ditemukan' })
-      return
-    }
-
-    res.json(await getCampaignDashboardData(campaign))
+    const found = await loadBoardCampaign(req.params.id, req.query.code, 'pic')
+    if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    res.json({ campaign: boardCampaignInfo(found.campaign, true), ...(await buildPortalView(found.tenant._id, found.campaign, { role: 'pic' })) })
   } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+/** Dashboard client: kolom sama dengan dashboard creator, yang bisa diubah cuma status draft & posting (+ catatan revisi). */
+router.get('/:id/client', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const found = await loadBoardCampaign(req.params.id, req.query.code, 'client')
+    if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    res.json({ campaign: boardCampaignInfo(found.campaign, false), ...(await buildPortalView(found.tenant._id, found.campaign, { role: 'client' })) })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.patch('/:id/client/review', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const found = await loadBoardCampaign(req.params.id, req.body.code, 'client')
+    if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    const { tenant, campaign } = found
+    const application = Types.ObjectId.isValid(String(req.body.applicationId))
+      ? await Application.findOne({ tenantId: tenant._id, campaignId: campaign._id, _id: req.body.applicationId, status: 'accepted' })
+      : null
+    if (!application) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
+    // Kolom status disembunyikan admin dari dashboard = client juga tidak boleh mengubahnya
+    const key = req.body.type === 'draft' ? 'Status Draft' : 'Status Posting'
+    if (creatorAccess(campaign, { key, label: key }) === 'hidden') { res.status(403).json({ message: 'Kolom ini tidak bisa diubah' }); return }
+    await reviewSubmission({ tenantId: tenant._id, campaign, application, actor: 'admin', userId: application.creatorId }, req.body.type, req.body.status, req.body.notes)
+    res.json({ ok: true })
+  } catch (err) {
+    if (err instanceof CellError) { res.status(err.status).json({ message: err.message }); return }
+    console.error('Client review error:', err)
     res.status(500).json({ message: 'Server error' })
   }
 })

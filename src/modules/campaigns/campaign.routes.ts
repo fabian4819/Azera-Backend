@@ -5,8 +5,8 @@ import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
 import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS } from './campaign.model'
-import { upload } from '../../middleware/upload'
-import { writeProgressCell, appendScreenshots, CellError, ensurePortalToken, portalUrl } from './progress.service'
+import { upload, uploadDraft } from '../../middleware/upload'
+import { writeProgressCell, appendScreenshots, CellError, ensurePortalToken, portalUrl, setPostingLink, uploadDraftFiles, reviewSubmission, appendPostScreenshots } from './progress.service'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
 import { generateCampaignInsight } from './insight.service'
 import { buildReportHtml } from '../documents/reportTemplate'
@@ -20,10 +20,11 @@ import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
 import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
-import { transitionWorkflow, tryAutoTransition, getCreatorSubStages, WorkflowTransitionError, WORKFLOW_TRANSITIONS } from './workflow.service'
+import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
 import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
 import { getCampaignTabUrl } from '../../lib/googleSheets'
+import { isCreatorEditableBase } from '../../lib/sheetSync.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -127,13 +128,22 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     await connectDB()
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    // Campaign lama belum punya kode client; lebih panjang dari accessCode karena link client bisa approve/revisi
+    if (!campaign.clientAccessCode) {
+      campaign.clientAccessCode = crypto.randomBytes(18).toString('base64url')
+      await campaign.save()
+    }
     // 3 link sheet, cuma di sini (route admin), BUKAN di dashboard.service.ts, karena itu juga
     // dipakai jalur akses-kode publik (publicCampaign.routes.ts) yang tidak boleh bocorin link
     // ke spreadsheet internal. masterSheetUrl per-campaign (tab-nya beda tiap campaign); report
     // & recap payment statis (1 sheet dipakai bareng semua campaign).
-    const masterSheetUrl = await getCampaignTabUrl(campaign.name)
+    const [masterSheetUrl, brand] = await Promise.all([
+      getCampaignTabUrl(campaign.name),
+      Brand.findById(campaign.brandId).select('namaBrand'),
+    ])
     res.json({
       ...campaign.toJSON(),
+      brandName: brand?.namaBrand ?? null,
       masterSheetUrl,
       reportSheetUrl: env.googleSheetsReportUrl || null,
       recapPaymentSheetUrl: env.googleSheetsRecapPaymentUrl || null,
@@ -180,7 +190,9 @@ function sendCellError(res: Response, err: unknown) {
 router.patch('/:id/sheet/cell', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    await writeProgressCell(await loadCellTarget(req), req.body.value)
+    const target = await loadCellTarget(req)
+    if (target.columnId === 'base:post') await setPostingLink(target, req.body.value)
+    else await writeProgressCell(target, req.body.value)
     res.json({ ok: true })
   } catch (err) {
     sendCellError(res, err)
@@ -190,7 +202,31 @@ router.patch('/:id/sheet/cell', async (req: AuthRequest, res: Response) => {
 router.post('/:id/sheet/cell/upload', upload.array('files', 6), async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    await appendScreenshots(await loadCellTarget(req), (req.files as Express.Multer.File[]) || [])
+    const target = await loadCellTarget(req)
+    const files = (req.files as Express.Multer.File[]) || []
+    if (target.columnId === 'base:insight') await appendPostScreenshots(target, files)
+    else await appendScreenshots(target, files)
+    res.json({ ok: true })
+  } catch (err) {
+    sendCellError(res, err)
+  }
+})
+
+// Kolom bawaan Master Sheet: upload draft (foto/video) & approve/revisi draft atau posting
+router.post('/:id/sheet/draft/upload', uploadDraft.array('files', 10), async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    await uploadDraftFiles(await loadCellTarget(req), (req.files as Express.Multer.File[]) || [])
+    res.json({ ok: true })
+  } catch (err) {
+    sendCellError(res, err)
+  }
+})
+
+router.patch('/:id/sheet/review', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    await reviewSubmission(await loadCellTarget(req), req.body.type, req.body.status, req.body.notes)
     res.json({ ok: true })
   } catch (err) {
     sendCellError(res, err)
@@ -236,10 +272,12 @@ function sanitizeProgressColumns(input: unknown): IProgressColumn[] {
   })
 }
 
-function sanitizeColumnAccess(input: unknown): Record<string, 'hidden' | 'view'> {
-  const out: Record<string, 'hidden' | 'view'> = {}
+function sanitizeColumnAccess(input: unknown): Record<string, 'hidden' | 'view' | 'edit'> {
+  const out: Record<string, 'hidden' | 'view' | 'edit'> = {}
   if (input && typeof input === 'object') {
-    for (const [k, v] of Object.entries(input)) if (v === 'hidden' || v === 'view') out[k] = v
+    for (const [k, v] of Object.entries(input)) {
+      if (v === 'hidden' || v === 'view' || (v === 'edit' && isCreatorEditableBase(k))) out[k] = v
+    }
   }
   return out
 }
@@ -274,14 +312,6 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // AD-32: auto-transition tahap 2->3 / 3->4 saat toggle buka/tutup pendaftaran
-    if (typeof updates.applyOpen === 'boolean' && updates.applyOpen !== before.applyOpen) {
-      if (updates.applyOpen) {
-        await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'listing', toStage: 'open_registration', userId: req.auth!.userId })
-      } else {
-        await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'open_registration', toStage: 'internal_review', userId: req.auth!.userId })
-      }
-    }
 
     res.json(campaign)
   } catch {
@@ -309,12 +339,6 @@ router.post('/:id/send-brief', async (req: AuthRequest, res: Response) => {
       await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger: 'brief_campaign', to: creator.phone, payload, campaignId: String(campaign._id) })
       sent++
     }
-
-    // AD-32: brief terkirim -> auto maju ke brief_sent lalu waiting_draft
-    for (const from of ['creator_approved', 'client_approval'] as const) {
-      await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: from, toStage: 'brief_sent', userId: req.auth!.userId })
-    }
-    await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'brief_sent', toStage: 'waiting_draft', userId: req.auth!.userId })
 
     res.json({ sent })
   } catch (err) {
@@ -442,9 +466,6 @@ router.post('/:id/generate-report', async (req: AuthRequest, res: Response) => {
       data: { analytics, creators, aiInsight: campaign.aiInsight },
       pdfUrl,
     })
-
-    // AD-32: report ter-generate -> auto maju ke report_generated
-    await tryAutoTransition({ campaignId: campaign.id, tenantId: req.auth!.tenantId, fromStage: 'insight_collected', toStage: 'report_generated', userId: req.auth!.userId })
 
     res.status(201).json(document)
   } catch (err) {
@@ -574,18 +595,15 @@ router.get('/:id/documents', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// AD-32: state 17-tahap campaign + sub-tahap per creator (dihitung, bukan disimpan) + histori transisi
+// Tahap campaign saat ini + histori perpindahan
 router.get('/:id/workflow', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
-    const creatorStages = await getCreatorSubStages(req.params.id, req.auth!.tenantId)
     const history = await WorkflowAudit.find({ tenantId: req.auth!.tenantId, campaignId: req.params.id }).sort({ createdAt: -1 }).populate('byUserId', 'name')
     res.json({
       workflowStage: campaign.workflowStage,
-      validNextStages: WORKFLOW_TRANSITIONS[campaign.workflowStage],
-      creatorStages,
       history,
     })
   } catch {
@@ -593,10 +611,10 @@ router.get('/:id/workflow', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// AD-32: transisi tahap tervalidasi (guard transisi + role), owner/admin-dengan-alasan bisa override
+// Pindah tahap campaign (owner/admin), tahap mana pun
 router.post('/:id/workflow/transition', async (req: AuthRequest, res: Response) => {
   try {
-    const { toStage, reason, override } = req.body as { toStage?: WorkflowStage; reason?: string; override?: boolean }
+    const { toStage, reason } = req.body as { toStage?: WorkflowStage; reason?: string }
     if (!toStage || !WORKFLOW_STAGES.includes(toStage)) {
       res.status(400).json({ message: 'toStage wajib diisi dan valid' })
       return
@@ -609,7 +627,6 @@ router.post('/:id/workflow/transition', async (req: AuthRequest, res: Response) 
       userId: req.auth!.userId,
       role: req.auth!.role as 'owner' | 'admin' | 'ce' | 'finance',
       reason,
-      override,
     })
     res.json(campaign)
   } catch (err) {

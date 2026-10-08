@@ -3,9 +3,8 @@ import { Types } from 'mongoose'
 import { ICampaign, IProgressColumn } from './campaign.model'
 import { IApplication } from '../applications/application.model'
 import Submission, { ISubmission } from '../submissions/submission.model'
-import { tryAutoTransition } from './workflow.service'
 import { uploadToCloudinary } from '../../lib/cloudinary'
-import { progressKind, CellKind, syncApplicationToSheet, syncSubmissionToSheet } from '../../lib/sheetSync.service'
+import { progressKind, CellKind, syncApplicationToSheet, syncSubmissionToSheet, BASE_SUBMISSION_COLUMNS, creatorAccess } from '../../lib/sheetSync.service'
 import { env } from '../../config/env'
 
 /**
@@ -29,7 +28,7 @@ interface CellContext {
   application: IApplication
   columnId: string
   actor: Actor
-  /** User admin / creator yang melakukan edit, dicatat di WorkflowAudit lewat tryAutoTransition */
+  /** User admin / creator yang melakukan edit (admin = verifikator angka insight) */
   userId: Types.ObjectId | string
 }
 
@@ -41,6 +40,16 @@ function findColumn(ctx: CellContext): IProgressColumn {
     if (ctx.application.status !== 'accepted') throw new CellError('Kamu belum diterima di campaign ini', 403)
   }
   return col
+}
+
+/** Upload ke Cloudinary; gagal (kunci salah, jaringan, file ditolak) = pesan jelas ke user, detail ke log. */
+async function uploadFile(file: Express.Multer.File, folder: string): Promise<string> {
+  try {
+    return await uploadToCloudinary(file.buffer, folder)
+  } catch (err) {
+    console.error('Cloudinary upload error:', err)
+    throw new CellError('Upload file gagal. Coba lagi, atau hubungi tim AzeraKOL kalau masih gagal.', 502)
+  }
 }
 
 /** '' / null = kosongkan sel. Angka metrik boleh pakai pemisah ribuan ("12.500"). */
@@ -61,7 +70,7 @@ export function normalizeCell(kind: CellKind, raw: unknown, metric: boolean): st
     if (!/^https?:\/\/\S+$/i.test(v) || v.length > 500) throw new CellError('Isi dengan link lengkap (https://...)')
     return v
   }
-  if (kind === 'file') throw new CellError('Kolom ini diisi lewat upload file')
+  if (kind === 'file' || kind === 'media') throw new CellError('Kolom ini diisi lewat upload file')
   if (v.length > 1000) throw new CellError('Maksimal 1000 karakter')
   return v
 }
@@ -76,10 +85,6 @@ async function findOrCreateSubmission(ctx: CellContext, col: IProgressColumn, cr
     tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type: b.type, platform: b.platform, insightScreenshotUrls: [],
   })
 }
-
-type Stage = Parameters<typeof tryAutoTransition>[0]['fromStage']
-const transition = (ctx: CellContext, fromStage: Stage, toStage: Stage) =>
-  tryAutoTransition({ campaignId: String(ctx.campaign._id), tenantId: String(ctx.tenantId), fromStage, toStage, userId: String(ctx.userId) })
 
 export async function writeProgressCell(ctx: CellContext, raw: unknown): Promise<void> {
   const col = findColumn(ctx)
@@ -100,14 +105,11 @@ export async function writeProgressCell(ctx: CellContext, raw: unknown): Promise
   const sub = await findOrCreateSubmission(ctx, col, value !== undefined)
   if (!sub) return // mengosongkan sel yang memang belum ada submission-nya
 
-  const hadLink = Boolean(sub.link)
-  let resubmittedRevision = false
   if (field === 'link') {
     // Draft yang diminta revisi lalu linknya diganti = creator kirim ulang → balik ke review
     if (sub.type === 'draft' && sub.status === 'revision_requested' && value && value !== sub.link) {
       sub.status = 'submitted'
       sub.revisionCount = (sub.revisionCount || 0) + 1
-      resubmittedRevision = true
     }
     sub.link = value as string | undefined
   } else if (field === 'postedAt') {
@@ -123,18 +125,6 @@ export async function writeProgressCell(ctx: CellContext, raw: unknown): Promise
   await sub.save()
   syncSubmissionToSheet(sub).catch((err) => console.error('Sheet sync error (submission):', err))
 
-  // AD-32: sama dengan alur form upload lama, link pertama kali masuk = submission terkirim
-  if (field === 'link' && value && !hadLink) {
-    if (sub.type === 'draft') await transition(ctx, 'waiting_draft', 'content_review')
-    else {
-      await transition(ctx, 'waiting_post', 'posted')
-      await transition(ctx, 'posted', 'waiting_insight')
-    }
-  }
-  if (resubmittedRevision) await transition(ctx, 'revision', 'content_review')
-  if (field !== 'link' && field !== 'postedAt' && ctx.actor === 'admin' && value !== undefined) {
-    await transition(ctx, 'waiting_insight', 'insight_collected')
-  }
 }
 
 /** Kolom screenshot insight: file ditambahkan (bukan menimpa) ke Submission.insightScreenshotUrls. */
@@ -142,9 +132,102 @@ export async function appendScreenshots(ctx: CellContext, files: Express.Multer.
   const col = findColumn(ctx)
   if (col.submission?.field !== 'screenshots') throw new CellError('Kolom ini bukan kolom upload screenshot')
   if (files.length === 0) throw new CellError('Pilih minimal 1 gambar')
-  const urls = await Promise.all(files.map((f) => uploadToCloudinary(f.buffer, `submissions/${ctx.campaign._id}`)))
+  const urls = await Promise.all(files.map((f) => uploadFile(f, `submissions/${ctx.campaign._id}`)))
   const sub = (await findOrCreateSubmission(ctx, col, true))!
   sub.insightScreenshotUrls = [...(sub.insightScreenshotUrls || []), ...urls]
+  await sub.save()
+  syncSubmissionToSheet(sub).catch((err) => console.error('Sheet sync error (submission):', err))
+}
+
+/* ---- Kolom bawaan Master Sheet: Draft (upload foto/video), Link Posting, dan approve/revisi keduanya ---- */
+
+type SubmissionCtx = Omit<CellContext, 'columnId'>
+type Platform = ISubmission['platform']
+
+const PLATFORM_HOSTS: [RegExp, Platform][] = [
+  [/instagram\.com/i, 'instagram'], [/tiktok\.com/i, 'tiktok'], [/threads\.(net|com)/i, 'threads'], [/(^|\/\/|\.)(x|twitter)\.com/i, 'x'],
+]
+
+export function platformFromLink(link: string): Platform | undefined {
+  return PLATFORM_HOSTS.find(([re]) => re.test(link))?.[1]
+}
+
+function defaultPlatform(ctx: SubmissionCtx, link?: string): Platform {
+  return (link && platformFromLink(link)) || (ctx.campaign.criteria?.platforms?.[0] as Platform | undefined) || 'instagram'
+}
+
+/** Submission terbaru tipe ini (platform apa pun), sama dengan yang ditampilkan di kolom bawaan. */
+function latestOfType(ctx: SubmissionCtx, type: 'draft' | 'post') {
+  return Submission.findOne({ tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type }).sort({ createdAt: -1 })
+}
+
+/** Portal: kolom bawaan (base:draft/post/insight) hanya bisa diisi creator kalau aksesnya 'edit'. */
+export function assertCreatorCanEditBase(campaign: ICampaign, columnId: string): void {
+  const key = Object.keys(BASE_SUBMISSION_COLUMNS).find((k) => BASE_SUBMISSION_COLUMNS[k].id === columnId)
+  if (!key || creatorAccess(campaign, { key, label: key }) !== 'edit') throw new CellError('Kolom ini tidak bisa kamu edit', 403)
+}
+
+/** Kiriman ulang setelah diminta revisi = balik ke antrean review. Creator yang mengganti konten
+ * yang sudah di-approve juga balik ke review, supaya tidak bisa diam-diam menukar konten. */
+function resubmit(sub: ISubmission, actor: Actor) {
+  if (sub.status === 'revision_requested') {
+    sub.status = 'submitted'
+    sub.revisionCount = (sub.revisionCount || 0) + 1
+  } else if (sub.status === 'approved' && actor === 'creator') {
+    sub.status = 'submitted'
+  }
+}
+
+export async function setPostingLink(ctx: SubmissionCtx, raw: unknown): Promise<void> {
+  const link = normalizeCell('link', raw, false) as string | undefined
+  let sub = await latestOfType(ctx, 'post')
+  if (!sub) {
+    if (!link) return
+    sub = new Submission({
+      tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type: 'post', platform: defaultPlatform(ctx, link), insightScreenshotUrls: [],
+    })
+  }
+  if (link && link !== sub.link) resubmit(sub, ctx.actor)
+  sub.link = link
+  if (link) sub.platform = defaultPlatform(ctx, link)
+  await sub.save()
+  syncSubmissionToSheet(sub).catch((err) => console.error('Sheet sync error (submission):', err))
+}
+
+/** Upload draft baru menggantikan file draft sebelumnya (versi revisi), bukan ditumpuk. */
+export async function uploadDraftFiles(ctx: SubmissionCtx, files: Express.Multer.File[]): Promise<void> {
+  if (files.length === 0) throw new CellError('Pilih minimal 1 file foto/video')
+  const urls = await Promise.all(files.map((f) => uploadFile(f, `drafts/${ctx.campaign._id}`)))
+  const sub = (await latestOfType(ctx, 'draft')) ?? new Submission({
+    tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type: 'draft', platform: defaultPlatform(ctx), insightScreenshotUrls: [],
+  })
+  if (!sub.isNew) resubmit(sub, ctx.actor)
+  sub.mediaUrls = urls
+  await sub.save()
+  syncSubmissionToSheet(sub).catch((err) => console.error('Sheet sync error (submission):', err))
+}
+
+/** Kolom Insight: screenshot ditambahkan (bukan menimpa) ke posting terbaru, sama seperti kolom progress screenshot. */
+export async function appendPostScreenshots(ctx: SubmissionCtx, files: Express.Multer.File[]): Promise<void> {
+  if (files.length === 0) throw new CellError('Pilih minimal 1 gambar')
+  const sub = await latestOfType(ctx, 'post')
+  if (!sub) throw new CellError('Isi link posting dulu sebelum upload insight')
+  const urls = await Promise.all(files.map((f) => uploadFile(f, `submissions/${ctx.campaign._id}`)))
+  sub.insightScreenshotUrls = [...(sub.insightScreenshotUrls || []), ...urls]
+  await sub.save()
+  syncSubmissionToSheet(sub).catch((err) => console.error('Sheet sync error (submission):', err))
+}
+
+export async function reviewSubmission(ctx: SubmissionCtx, type: unknown, status: unknown, notes?: unknown): Promise<void> {
+  if (type !== 'draft' && type !== 'post') throw new CellError('Tipe tidak dikenal')
+  if (status !== 'approved' && status !== 'revision_requested') throw new CellError('Status tidak dikenal')
+  const revisionNotes = String(notes ?? '').trim()
+  if (status === 'revision_requested' && !revisionNotes) throw new CellError('Isi catatan revisinya dulu')
+  if (revisionNotes.length > 1000) throw new CellError('Catatan revisi maksimal 1000 karakter')
+  const sub = await latestOfType(ctx, type)
+  if (!sub) throw new CellError(type === 'draft' ? 'Belum ada draft' : 'Belum ada link posting', 404)
+  sub.status = status
+  if (status === 'revision_requested') sub.revisionNotes = revisionNotes
   await sub.save()
   syncSubmissionToSheet(sub).catch((err) => console.error('Sheet sync error (submission):', err))
 }

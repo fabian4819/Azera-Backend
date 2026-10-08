@@ -8,7 +8,7 @@ import Campaign, { ICampaign, IProgressColumn, CreatorAccess, SubmissionField } 
 import Creator from '../modules/creators/creator.model'
 import PicUser from '../modules/pic/pic.model'
 import SocialSnapshot, { ISocialSnapshot } from '../modules/extension/socialSnapshot.model'
-import { upsertCreatorRow, upsertCampaignRow, CAMPAIGN_HEADERS_BASE } from './googleSheets'
+import { upsertCreatorRow, upsertCampaignRow, deleteCampaignRow, CAMPAIGN_HEADERS_BASE } from './googleSheets'
 import { env } from '../config/env'
 
 const GENDER_LABELS: Record<string, string> = {
@@ -136,7 +136,8 @@ function formatCustomAnswer(v: string | string[] | undefined): string {
   return v || ''
 }
 
-export type CellKind = 'text' | 'number' | 'date' | 'link' | 'file'
+/** 'media' = upload foto/video (kolom Draft), 'file' = upload gambar (screenshot insight) */
+export type CellKind = 'text' | 'number' | 'date' | 'link' | 'file' | 'media'
 
 /** Satu kolom tab campaign. `key` stabil (dipakai untuk aturan akses creator), `label` = header. */
 export interface SheetColumn {
@@ -195,13 +196,33 @@ export function progressCell(col: IProgressColumn, application: IApplication, su
 
 // Kolom yang boleh dilihat creator lain secara default, sisanya (WA, email, kurasi, jawaban
 // form, dll) tersembunyi sampai admin membukanya, supaya data pribadi tidak bocor antar creator.
-const DEFAULT_VIEW_COLUMNS = new Set(['Creator', 'Status Aplikasi', 'PIC/Partner', 'Handle By'])
+const DEFAULT_VIEW_COLUMNS = new Set(['Creator', 'Status Aplikasi', 'PIC/Partner', 'Handle By', 'Views', 'Likes', 'Comments', 'Shares', 'Tanggal Posting'])
+
+/** Kolom sistem yang boleh diberi akses 'edit' (creator isi sendiri di barisnya): Draft, Link Posting, Insight. */
+export const isCreatorEditableBase = (key: string) => Boolean(BASE_SUBMISSION_COLUMNS[key]?.id)
 
 export function creatorAccess(campaign: ICampaign, col: SheetColumn): CreatorAccess {
   if (col.progress) return col.progress.creatorAccess
   const set = campaign.columnAccess?.get?.(col.key)
-  if (set) return set === 'edit' ? 'view' : set
-  return DEFAULT_VIEW_COLUMNS.has(col.key) ? 'view' : 'hidden'
+  if (set) return set === 'edit' && !isCreatorEditableBase(col.key) ? 'view' : set
+  if (isCreatorEditableBase(col.key)) return 'edit'
+  return DEFAULT_VIEW_COLUMNS.has(col.key) || BASE_SUBMISSION_COLUMNS[col.key] ? 'view' : 'hidden'
+}
+
+/** Draft lama (sebelum upload file) cuma punya link, tetap ditampilkan di kolom Draft. */
+function draftFiles(draft?: ISubmission): string[] {
+  if (!draft) return []
+  return draft.mediaUrls?.length ? draft.mediaUrls : draft.link ? [draft.link] : []
+}
+
+/** Kolom bawaan yang bisa diisi & di-review admin dari Master Sheet (progress.service.ts). */
+/** `id` = columnId untuk edit/upload sel (admin & portal); kolom ber-id default bisa diedit creator di barisnya sendiri. */
+export const BASE_SUBMISSION_COLUMNS: Record<string, { type: 'draft' | 'post'; id?: string; kind?: CellKind; review?: true }> = {
+  'Draft': { type: 'draft', id: 'base:draft', kind: 'media' },
+  'Status Draft': { type: 'draft', review: true },
+  'Link Posting': { type: 'post', id: 'base:post', kind: 'link' },
+  'Status Posting': { type: 'post', review: true },
+  'Insight': { type: 'post', id: 'base:insight', kind: 'file' },
 }
 
 export function campaignSheetRow(
@@ -212,7 +233,8 @@ export function campaignSheetRow(
   submissions: ISubmission[],
   picName: string | undefined
 ): (string | number)[] {
-  const latestSubmission = submissions[0]
+  const draft = submissions.find((s) => s.type === 'draft')
+  const post = submissions.find((s) => s.type === 'post')
   return [
     creator?.name || '',
     creator?.phone || '',
@@ -220,15 +242,16 @@ export function campaignSheetRow(
     application.curationResult,
     application.creatorPaymentStatus,
     fmtDateISO(application.createdAt),
-    latestSubmission?.type || '',
-    latestSubmission?.platform || '',
-    latestSubmission?.link || '',
-    latestSubmission?.status || '',
-    latestSubmission?.parsedInsight?.views ?? '',
-    latestSubmission?.parsedInsight?.likes ?? '',
-    latestSubmission?.parsedInsight?.comments ?? '',
-    latestSubmission?.parsedInsight?.shares ?? '',
-    latestSubmission ? fmtDateISO(latestSubmission.createdAt) : '',
+    draftFiles(draft).join(' '),
+    draft?.status || '',
+    post?.link || '',
+    post?.status || '',
+    (post?.insightScreenshotUrls || []).join(' '),
+    post?.parsedInsight?.views ?? '',
+    post?.parsedInsight?.likes ?? '',
+    post?.parsedInsight?.comments ?? '',
+    post?.parsedInsight?.shares ?? '',
+    post ? fmtDateISO(post.postedAt || post.createdAt) : '',
     picName || '',
     ...(campaign.customFields || []).map((f) => formatCustomAnswer(application.customAnswers?.[f.id])),
     application.handleBy || '',
@@ -247,6 +270,11 @@ async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.Objec
     application.picUserId ? PicUser.findById(application.picUserId).select('name') : null,
   ])
   if (!campaign) return
+  // Master sheet cuma berisi creator yang sudah di-approve di Pendaftar; batal approve = baris dibuang
+  if (application.status !== 'accepted') {
+    await deleteCampaignRow(campaign.name, String(application._id))
+    return
+  }
 
   await upsertCampaignRow(
     campaign.name,

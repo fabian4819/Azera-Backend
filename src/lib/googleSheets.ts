@@ -226,8 +226,8 @@ export function creatorColIndex(header: string): number {
 // upsertCampaignRow sekarang terima headers sebagai parameter, bukan konstanta tetap.
 export const CAMPAIGN_HEADERS_BASE = [
   'Creator', 'WhatsApp', 'Status Aplikasi', 'Hasil Kurasi', 'Status Pembayaran', 'Tanggal Daftar',
-  'Tipe Submission', 'Platform', 'Link Submission', 'Status Submission',
-  'Views', 'Likes', 'Comments', 'Shares', 'Tanggal Submission',
+  'Draft', 'Status Draft', 'Link Posting', 'Status Posting', 'Insight',
+  'Views', 'Likes', 'Comments', 'Shares', 'Tanggal Posting',
 ]
 
 function campaignSpreadsheetId(): string | undefined {
@@ -245,6 +245,29 @@ export function upsertCreatorRow(phone: string, row: (string | number)[]): Promi
 
 export function upsertCampaignRow(campaignName: string, id: string, row: (string | number)[], headers: string[]): Promise<void> {
   return upsertRow(campaignSpreadsheetId(), campaignTabPrefix(campaignName), headers, id, row, { valueInputOption: 'USER_ENTERED' })
+}
+
+/** Hapus baris campaign (kolom A = id application) kalau ada, mis. creator batal di-approve.
+ * Tab belum ada / id tidak ketemu = tidak ada yang dihapus. */
+export async function deleteCampaignRow(campaignName: string, id: string): Promise<void> {
+  const sheets = getSheetsClient()
+  const spreadsheetId = campaignSpreadsheetId()
+  if (!sheets || !spreadsheetId) return
+  const tab = campaignTabPrefix(campaignName)
+  try {
+    const meta = await sheets.spreadsheets.get({ spreadsheetId })
+    const sheetId = meta.data.sheets?.find((s) => s.properties?.title === tab)?.properties?.sheetId
+    if (sheetId === undefined || sheetId === null) return
+    const col = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${tab}!A2:A` })
+    const idx = (col.data.values || []).map((r) => r[0]).indexOf(id)
+    if (idx === -1) return
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ deleteDimension: { range: { sheetId, dimension: 'ROWS', startIndex: idx + 1, endIndex: idx + 2 } } }] },
+    })
+  } catch (err) {
+    console.error(`Sheets delete error [${tab}]:`, (err as Error).message)
+  }
 }
 
 /** Link ke tab "Creators" di spreadsheet Creators (buat tombol "Buka Sheet" di admin Creators). */
