@@ -12,6 +12,8 @@ export interface IFinanceRecord extends Document {
   ads: number
   opex: number
   discount: number
+  /** Fee yang diisi manual admin (atau dari import); fee lain dihitung otomatis = fee per creator x creator di-approve */
+  feeManual: ('feeCreator' | 'feePic' | 'feeMg')[]
   profit: number
   createdAt: Date
   updatedAt: Date
@@ -28,6 +30,7 @@ const FinanceRecordSchema = new Schema<IFinanceRecord>(
     ads: { type: Number, default: 0 },
     opex: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
+    feeManual: { type: [String], enum: ['feeCreator', 'feePic', 'feeMg'], default: [] },
     profit: { type: Number, default: 0 },
   },
   { timestamps: true }

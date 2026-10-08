@@ -156,6 +156,7 @@ router.post('/confirm', async (req: AuthRequest, res: Response) => {
       record.feeCreator = sum('feeCreator')
       record.feePic = sum('feePic')
       record.feeMg = sum('feeMg')
+      record.feeManual = ['feeCreator', 'feePic', 'feeMg'] // total persis dari sheet, jangan ditimpa hitungan otomatis
       record.profit = computeProfit(record)
       await record.save()
     }
