@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import Campaign from './campaign.model'
-import Creator from '../creators/creator.model'
+import Creator, { type SocialPlatform } from '../creators/creator.model'
 import Application from '../applications/application.model'
 import PicUser from '../pic/pic.model'
 import { runSmartCuration } from '../applications/curation.service'
@@ -41,8 +41,13 @@ router.get('/:slug', async (req: Request, res: Response) => {
     const tenant = await getDefaultTenant()
     const campaign = await Campaign.findOne({ tenantId: tenant._id, applySlug: req.params.slug })
       .populate('brandId', 'namaBrand')
-    if (!campaign || !campaign.applyOpen) {
-      res.status(404).json({ message: 'Campaign tidak ditemukan atau pendaftaran sudah ditutup' })
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign tidak ditemukan' })
+      return
+    }
+    // Ditutup admin (kebutuhan creator terpenuhi) → 410 + nama campaign, frontend tampilkan halaman "sudah ditutup"
+    if (!campaign.applyOpen) {
+      res.status(410).json({ closed: true, name: campaign.name, brand: campaign.brandId })
       return
     }
     // AD-50: PIC/partner dipilih CREATOR sendiri di apply form (bukan admin pasca-review),
@@ -73,8 +78,12 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     await connectDB()
     const tenant = await getDefaultTenant()
     const campaign = await Campaign.findOne({ tenantId: tenant._id, applySlug: req.params.slug })
-    if (!campaign || !campaign.applyOpen) {
-      res.status(404).json({ message: 'Campaign tidak ditemukan atau pendaftaran sudah ditutup' })
+    if (!campaign) {
+      res.status(404).json({ message: 'Campaign tidak ditemukan' })
+      return
+    }
+    if (!campaign.applyOpen) {
+      res.status(410).json({ closed: true, message: 'Pendaftaran campaign ini sudah ditutup' })
       return
     }
 
@@ -97,6 +106,34 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     }
     if (applyFields.handleBy && applyFields.handleByRequired && !handleBy) {
       res.status(400).json({ message: 'Handle by wajib diisi' })
+      return
+    }
+
+    // Field default wajib untuk Smart Curation: niche, provinsi, dan akun (username + followers) untuk
+    // TIAP platform yang dicentang admin di kriteria campaign. Disimpan ke profil Creator di bawah.
+    const niches = Array.isArray(req.body.niches) ? req.body.niches.map((n: unknown) => String(n).trim()).filter(Boolean).slice(0, 20) : []
+    const province = String(req.body.province ?? '').trim().slice(0, 80)
+    const city = String(req.body.city ?? '').trim().slice(0, 80)
+    const socialsIn: { platform?: string; username?: string; followers?: unknown }[] = Array.isArray(req.body.socials) ? req.body.socials : []
+    const campaignPlatforms = (campaign.criteria?.platforms || []) as SocialPlatform[]
+    const socials = campaignPlatforms.map((platform) => {
+      const s = socialsIn.find((x) => x.platform === platform)
+      const followers = Number(s?.followers)
+      return { platform, username: String(s?.username ?? '').trim().replace(/^@+/, '').slice(0, 100), followers: Number.isFinite(followers) && followers >= 0 ? Math.floor(followers) : NaN }
+    })
+    // Provinsi & kota cuma ditanya (dan wajib) kalau campaign punya kriteria provinsi/kota
+    const askDomicile = (campaign.criteria?.provinces?.length || 0) + (campaign.criteria?.cities?.length || 0) > 0
+    if (!niches.length) {
+      res.status(400).json({ message: 'Niche wajib diisi' })
+      return
+    }
+    if (askDomicile && (!province || !city)) {
+      res.status(400).json({ message: 'Provinsi dan kota wajib diisi' })
+      return
+    }
+    const badSocial = socials.find((s) => !s.username || Number.isNaN(s.followers))
+    if (badSocial) {
+      res.status(400).json({ message: `Username & jumlah followers ${badSocial.platform} wajib diisi` })
       return
     }
 
@@ -136,8 +173,15 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       creator = await Creator.create({ tenantId: tenant._id, name, phone, email, source: 'campaign' })
     } else if (!creator.email) {
       creator.email = email
-      await creator.save()
+    } else if (req.body.updateName === true && creator.email === email && name !== creator.name) {
+      // Creator memilih "pakai nama yang barusan diketik" di form, hanya kalau WA & email sama-sama cocok
+      creator.name = name.slice(0, 120)
     }
+    // Data terbaru dari form menimpa profil: niche & domisili, akun per platform diganti (platform lain dibiarkan)
+    creator.niches = niches
+    if (askDomicile) creator.domicile = { ...(creator.domicile || {}), province, city }
+    creator.socials = [...(creator.socials || []).filter((s) => !campaignPlatforms.includes(s.platform)), ...socials]
+    await creator.save()
 
     const existingApplication = await Application.findOne({
       tenantId: tenant._id,

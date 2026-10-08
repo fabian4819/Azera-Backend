@@ -43,6 +43,19 @@ export async function runSmartCuration(
     }
   }
 
+  // Min. followers per platform: dicek di akun creator pada platform itu (platform yang tidak dimiliki
+  // creator sudah tertangkap cek "platform target" di bawah)
+  const belowMin = Object.entries(criteria.minFollowersByPlatform || {})
+    .filter(([, min]) => min)
+    .flatMap(([platform, min]) => {
+      const s = creator.socials.find((x) => x.platform === platform)
+      return s && s.followers < min! ? [`${platform} ${s.followers.toLocaleString('id-ID')} < ${min!.toLocaleString('id-ID')}`] : []
+    })
+  if (belowMin.length) {
+    unmetCount++
+    reasons.push(`Followers di bawah minimum campaign (${belowMin.join('; ')}).`)
+  }
+
   if (criteria.niches.length > 0) {
     const hasNicheMatch = creator.niches.some((n) => criteria.niches.includes(n))
     if (!hasNicheMatch) {
@@ -53,9 +66,21 @@ export async function runSmartCuration(
 
   if (criteria.provinces.length > 0) {
     const province = creator.domicile?.province
-    if (!province || !criteria.provinces.includes(province)) {
+    // Case-insensitive: provinsi creator dari daftar wilayah (huruf besar), kriteria campaign diketik bebas
+    if (!province || !criteria.provinces.some((p) => p.trim().toLowerCase() === province.trim().toLowerCase())) {
       unmetCount++
       reasons.push(`Domisili creator (${province || 'belum diisi'}) di luar target campaign (${criteria.provinces.join(', ')}).`)
+    }
+  }
+
+  // Kota: "Semarang" (diketik admin) cocok dengan "KOTA SEMARANG" / "KABUPATEN SEMARANG" (format daftar wilayah)
+  const cities = criteria.cities || []
+  if (cities.length > 0) {
+    const normCity = (c: string) => c.trim().toLowerCase().replace(/^(kota|kabupaten|kab\.?)\s+/, '')
+    const city = creator.domicile?.city
+    if (!city || !cities.some((c) => normCity(c) === normCity(city))) {
+      unmetCount++
+      reasons.push(`Kota creator (${city || 'belum diisi'}) di luar target campaign (${cities.join(', ')}).`)
     }
   }
 

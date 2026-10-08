@@ -23,6 +23,26 @@ router.get('/exists', async (req: Request, res: Response) => {
   }
 })
 
+// Form apply campaign: kasih tahu creator kalau nomor WA / email-nya sudah pernah terdaftar.
+// Nama cuma dikembalikan kalau WA DAN email cocok ke creator yang sama, kalau cukup salah satu,
+// siapa pun bisa mengetik nomor orang lain dan tahu namanya.
+router.get('/lookup', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const tenant = await getDefaultTenant()
+    const phone = String(req.query.phone || '').trim()
+    const email = String(req.query.email || '').trim().toLowerCase()
+    const [byPhone, byEmail] = await Promise.all([
+      phone ? Creator.findOne({ tenantId: tenant._id, phone }).select('name email') : null,
+      email ? Creator.findOne({ tenantId: tenant._id, email }).select('_id') : null,
+    ])
+    const sameCreator = Boolean(byPhone && byEmail && String(byPhone._id) === String(byEmail._id))
+    res.json({ phoneExists: !!byPhone, emailExists: !!byEmail, sameCreator, name: sameCreator ? byPhone!.name : undefined })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 /**
  * AD-12: Form Creator (landing page) → tulis ke Creator (Creator Performance DB),
  * bukan collection KOL lama. Sama seperti publicCampaign.routes.ts `/apply`:
