@@ -106,6 +106,14 @@ export async function recordIncomingMessage(bot: BotId, jid: string, text: strin
   )
 }
 
+/** Teks pesan keluar yang tersimpan, untuk kirim ulang saat HP penerima minta retry dekripsi (baileys getMessage). */
+export async function findOutgoingText(bot: BotId, messageId: string): Promise<string | undefined> {
+  await connectDB()
+  const tenant = await getDefaultTenant()
+  const msg = await WaChatMessage.findOne({ tenantId: tenant._id, bot, messageId, direction: 'out' }).select('text')
+  return msg?.text
+}
+
 export async function recordOutgoingMessage(bot: BotId, jid: string, text: string, opts: { messageId?: string } = {}) {
   await connectDB()
   const tenant = await getDefaultTenant()

@@ -4,6 +4,7 @@ import makeWASocket, {
   WASocket,
   ConnectionState,
   proto,
+  CacheStore,
 } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import path from 'path'
@@ -15,9 +16,10 @@ import { WaTrigger, BotId, BOT_IDS, audienceToBot } from '../modules/whatsapp/wa
 import { DEFAULT_TEMPLATES } from '../modules/whatsapp/defaultTemplates'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
 import { handleInvoiceCommand } from '../modules/documents/invoiceBot.service'
-import { recordIncomingMessage, recordOutgoingMessage, backfillHistory, pauseBotForContact } from '../modules/whatsapp/waChat.service'
+import { recordIncomingMessage, recordOutgoingMessage, backfillHistory, pauseBotForContact, findOutgoingText } from '../modules/whatsapp/waChat.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
+const SENT_CACHE_MAX = 2000
 const SEND_DELAY_MS = 3000 // jarak antar pesan, mitigasi risiko banned (AD-29)
 const RECONNECT_DELAY_MS = 3000
 // Bot invoice (port bot-cashflow) hanya di bot partnership, hanya di grup ini. Nama grup bisa ditiru
@@ -87,6 +89,38 @@ class WaBot {
   // race seperti kalau pakai cek ke database. Entry dibuang begitu echo-nya terpakai (lihat delete() di listener).
   private readonly sentMessageIds = new Set<string>()
 
+  // Isi pesan yang kita kirim, untuk dijawab lewat getMessage saat HP penerima gagal dekripsi dan minta
+  // dikirim ulang (retry receipt). Tanpa ini pesan macet di "Waiting for this message" selamanya.
+  // ponytail: Map in-memory dibatasi SENT_CACHE_MAX, setelah restart fallback ke teks di WaChatMessage.
+  private readonly sentContent = new Map<string, proto.IMessage>()
+  // Penghitung retry per pesan, dipakai Baileys supaya tidak kirim ulang tanpa batas. Hidup lintas reconnect.
+  private readonly retryCounter = new Map<string, unknown>()
+  private readonly retryCache: CacheStore = {
+    get: <T>(key: string) => this.retryCounter.get(key) as T | undefined,
+    set: <T>(key: string, value: T) => { this.retryCounter.set(key, value) },
+    del: (key: string) => { this.retryCounter.delete(key) },
+    flushAll: () => this.retryCounter.clear(),
+  }
+
+  private trackSent(sent: proto.IWebMessageInfo | undefined) {
+    const id = sent?.key?.id
+    if (!id) return
+    this.sentMessageIds.add(id)
+    if (sent.message) {
+      this.sentContent.set(id, sent.message)
+      if (this.sentContent.size > SENT_CACHE_MAX) this.sentContent.delete(this.sentContent.keys().next().value!)
+    }
+  }
+
+  private async getMessage(key: proto.IMessageKey): Promise<proto.IMessage | undefined> {
+    if (!key.id) return undefined
+    const cached = this.sentContent.get(key.id)
+    if (cached) return cached
+    if (this.ephemeral) return undefined
+    const text = await findOutgoingText(this.id as BotId, key.id).catch(() => undefined)
+    return text ? { conversation: text } : undefined
+  }
+
   constructor(id: WaBotKey) {
     this.id = id
     this.ephemeral = id === DEV_BOT
@@ -134,7 +168,11 @@ class WaBot {
 
       // syncFullHistory: minta riwayat chat lengkap dari WhatsApp saat pairing (default Baileys cuma
       // kirim window singkat), supaya inbox dashboard bisa terisi histori lama, bukan cuma pesan baru.
-      const sock = makeWASocket({ auth: state, logger, syncFullHistory: !this.ephemeral })
+      const sock = makeWASocket({
+        auth: state, logger, syncFullHistory: !this.ephemeral,
+        getMessage: (key) => this.getMessage(key),
+        msgRetryCounterCache: this.retryCache,
+      })
       this.sock = sock
 
       // Tanpa guard generasi di sini, socket LAMA yang masih menutup diri (mis. abis logout()) bisa
@@ -317,7 +355,7 @@ class WaBot {
     const sent = reply.pdf
       ? await this.sock.sendMessage(jid, { document: reply.pdf, mimetype: 'application/pdf', fileName: reply.fileName, caption: reply.text }, { quoted })
       : await this.sock.sendMessage(jid, { text: reply.text }, { quoted })
-    if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
+    this.trackSent(sent)
     this.recordOut(jid, reply.text, sent?.key.id)
   }
 
@@ -326,7 +364,7 @@ class WaBot {
     if (!this.sock || this.status !== 'connected') return
     try {
       const sent = await this.sock.sendMessage(toJid(to), { text })
-      if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
+      this.trackSent(sent)
       this.recordOut(to, text, sent?.key.id)
     } catch (err) {
       console.error(`WA[${this.id}] sendDirect error:`, err)
@@ -337,7 +375,7 @@ class WaBot {
   async sendManual(jid: string, text: string): Promise<void> {
     if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
     const sent = await this.sock.sendMessage(toJid(jid), { text })
-    if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
+    this.trackSent(sent)
     if (!this.ephemeral) await recordOutgoingMessage(this.id as BotId, jid, text, { messageId: sent?.key.id || undefined })
   }
 
@@ -372,7 +410,7 @@ class WaBot {
       try {
         if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
         const sent = await this.sock.sendMessage(toJid(item.to), { text: item.payload })
-        if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
+        this.trackSent(sent)
         await this.updateLog(item.logId, { status: 'sent', sentAt: new Date() })
         this.recordOut(item.to, item.payload, sent?.key.id)
       } catch (err) {
