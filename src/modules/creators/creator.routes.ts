@@ -25,7 +25,12 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     // Menu Creators (general) vs Campaign Creators, dipisah dari asal masuknya. Tanpa scope = semua
     // (dipakai ExtensionConnect buat picker creator).
     if (scope === 'general') filter.source = { $in: ['form', 'extension'] }
-    if (scope === 'campaign') filter.source = { $in: ['campaign', 'import'] }
+    // Campaign = masuk lewat link apply/import, ATAU creator lama (mis. dari form KOL Register) yang
+    // pendaftarannya ke campaign ditautkan ke profil yang sudah ada (cocok nomor WA)
+    if (scope === 'campaign') {
+      const appliedIds = await Application.distinct('creatorId', { tenantId: req.auth!.tenantId })
+      filter.$or = [{ source: { $in: ['campaign', 'import'] } }, { _id: { $in: appliedIds } }]
+    }
     if (status) filter.status = status
     if (complianceStatus) filter.complianceStatus = complianceStatus
     if (niche) filter.niches = { $in: [niche] }
