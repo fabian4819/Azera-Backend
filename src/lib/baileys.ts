@@ -8,6 +8,7 @@ import makeWASocket, {
 import pino from 'pino'
 import path from 'path'
 import fs from 'fs/promises'
+import { randomUUID } from 'crypto'
 import WaMessageLog from '../modules/whatsapp/waMessageLog.model'
 import { isTriggerEnabled } from '../modules/whatsapp/template.service'
 import { WaTrigger, BotId, BOT_IDS, audienceToBot } from '../modules/whatsapp/waTemplate.model'
@@ -28,6 +29,19 @@ const logger = pino({ level: 'silent' })
 
 export type WaStatus = 'disconnected' | 'connecting' | 'qr' | 'connected'
 
+/**
+ * Bot `developer`: cuma aktif di luar production (backend lokal yang tetap pakai DB production).
+ * Nomor WA dummy developer, murni koneksi, tidak menyimpan apa pun ke DB (inbox, history, log),
+ * tidak menjalankan bot balasan. Di lokal SEMUA kiriman keluar dialihkan ke bot ini, supaya backend
+ * lokal tidak pernah mengirim lewat nomor production atau menulis log ke DB production.
+ */
+export const DEV_BOT = 'developer' as const
+export type WaBotKey = BotId | typeof DEV_BOT
+export const devBotEnabled = process.env.NODE_ENV !== 'production'
+
+/** Log in-memory bot developer (bentuknya sama dengan WaMessageLog supaya UI bisa pakai tabel yang sama) */
+interface MemLog { _id: string; bot: WaBotKey; trigger: WaTrigger; to: string; payload: string; status: 'queued' | 'sent' | 'failed'; error?: string; createdAt: Date; sentAt?: Date }
+
 interface QueueItem {
   logId: string
   to: string
@@ -41,7 +55,10 @@ interface QueueItem {
  * docs/superpowers/specs/2026-09-10-whatsapp-dual-bot-design.md
  */
 class WaBot {
-  readonly id: BotId
+  readonly id: WaBotKey
+  /** Bot developer, tanpa tulis DB sama sekali (lihat DEV_BOT) */
+  readonly ephemeral: boolean
+  readonly memLogs: MemLog[] = []
   private readonly authDir: string
 
   private sock: WASocket | null = null
@@ -70,8 +87,9 @@ class WaBot {
   // race seperti kalau pakai cek ke database. Entry dibuang begitu echo-nya terpakai (lihat delete() di listener).
   private readonly sentMessageIds = new Set<string>()
 
-  constructor(id: BotId) {
+  constructor(id: WaBotKey) {
     this.id = id
+    this.ephemeral = id === DEV_BOT
     this.authDir = path.join(AUTH_ROOT, id)
   }
 
@@ -116,7 +134,7 @@ class WaBot {
 
       // syncFullHistory: minta riwayat chat lengkap dari WhatsApp saat pairing (default Baileys cuma
       // kirim window singkat), supaya inbox dashboard bisa terisi histori lama, bukan cuma pesan baru.
-      const sock = makeWASocket({ auth: state, logger, syncFullHistory: true })
+      const sock = makeWASocket({ auth: state, logger, syncFullHistory: !this.ephemeral })
       this.sock = sock
 
       // Tanpa guard generasi di sini, socket LAMA yang masih menutup diri (mis. abis logout()) bisa
@@ -173,6 +191,7 @@ class WaBot {
       // itu tandanya dikirim langsung dari HP fisik, bukan echo dari kiriman dashboard/bot kita sendiri.
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (myGeneration !== this.generation) return
+        if (this.ephemeral) return // bot developer: pesan masuk tidak dicatat & tidak dibalas bot
         if (type !== 'notify') return
         for (const msg of messages) {
           const jid = msg.key.remoteJid
@@ -184,26 +203,26 @@ class WaBot {
           if (msg.key.fromMe) {
             const messageId = msg.key.id
             if (messageId && this.sentMessageIds.delete(messageId)) continue // echo dari kiriman kita sendiri (dashboard/bot), sudah dicatat saat dikirim
-            recordOutgoingMessage(this.id, jid, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save phone-outgoing error:`, err))
+            recordOutgoingMessage(this.id as BotId, jid, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save phone-outgoing error:`, err))
             // Admin balas manual dari HP = ambil alih chat, bot berhenti untuk kontak ini (tidak berlaku utk grup, tidak ada alur bot di grup)
-            if (!isGroup) pauseBotForContact(this.id, jid).catch((err) => console.error(`WA[${this.id}] auto-pause error:`, err))
+            if (!isGroup) pauseBotForContact(this.id as BotId, jid).catch((err) => console.error(`WA[${this.id}] auto-pause error:`, err))
             continue
           }
 
           if (isGroup) {
             this.resolveGroupName(jid)
               .then(async (name) => {
-                await recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined, senderPhone: participantPhoneFromKey(msg.key) })
+                await recordIncomingMessage(this.id as BotId, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined, senderPhone: participantPhoneFromKey(msg.key) })
                 if (this.isInvoiceGroup(jid, name)) await this.replyInvoice(jid, text, msg)
               })
               .catch((err) => console.error(`WA[${this.id}] group incoming error:`, err))
             continue // pesan grup tidak dilempar ke leadBot.service, brand/KOL adalah alur 1:1
           }
 
-          recordIncomingMessage(this.id, jid, text, { messageId: msg.key.id || undefined, name: msg.pushName || undefined, phone: phoneFromKey(jid, msg.key) }).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
+          recordIncomingMessage(this.id as BotId, jid, text, { messageId: msg.key.id || undefined, name: msg.pushName || undefined, phone: phoneFromKey(jid, msg.key) }).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
           // Pengecekan bot-paused sekarang di dalam handleIncomingMessage (leadBot.service.ts),
           // supaya pesan berformat template Brand tetap diproses meski nomor ini di-pause admin.
-          handleIncomingMessage(this.id, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
+          handleIncomingMessage(this.id as BotId, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
         }
       })
 
@@ -213,6 +232,7 @@ class WaBot {
       // orang, bukan grup).
       sock.ev.on('messaging-history.set', ({ messages, contacts, chats }) => {
         if (myGeneration !== this.generation) return
+        if (this.ephemeral) return
         const contactNames: Record<string, string> = {}
         const contactPhones: Record<string, string> = {}
         for (const c of contacts) {
@@ -256,7 +276,7 @@ class WaBot {
         }
 
         if (entries.length) {
-          backfillHistory(this.id, entries, contactNames, contactPhones).catch((err) => console.error(`WA[${this.id}] history sync error:`, err))
+          backfillHistory(this.id as BotId, entries, contactNames, contactPhones).catch((err) => console.error(`WA[${this.id}] history sync error:`, err))
         }
       })
     } finally {
@@ -298,7 +318,7 @@ class WaBot {
       ? await this.sock.sendMessage(jid, { document: reply.pdf, mimetype: 'application/pdf', fileName: reply.fileName, caption: reply.text }, { quoted })
       : await this.sock.sendMessage(jid, { text: reply.text }, { quoted })
     if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
-    recordOutgoingMessage(this.id, jid, reply.text, { messageId: sent?.key.id || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
+    this.recordOut(jid, reply.text, sent?.key.id)
   }
 
   /** Balasan langsung bot percakapan (leadBot.service), bypass queue karena ini interaktif, bukan notifikasi batch */
@@ -307,7 +327,7 @@ class WaBot {
     try {
       const sent = await this.sock.sendMessage(toJid(to), { text })
       if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
-      recordOutgoingMessage(this.id, to, text, { messageId: sent?.key.id || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
+      this.recordOut(to, text, sent?.key.id)
     } catch (err) {
       console.error(`WA[${this.id}] sendDirect error:`, err)
     }
@@ -318,7 +338,25 @@ class WaBot {
     if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
     const sent = await this.sock.sendMessage(toJid(jid), { text })
     if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
-    await recordOutgoingMessage(this.id, jid, text, { messageId: sent?.key.id || undefined })
+    if (!this.ephemeral) await recordOutgoingMessage(this.id as BotId, jid, text, { messageId: sent?.key.id || undefined })
+  }
+
+  private recordOut(to: string, text: string, messageId?: string | null) {
+    if (this.ephemeral) return
+    recordOutgoingMessage(this.id as BotId, to, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
+  }
+
+  private async updateLog(logId: string, patch: Partial<MemLog>) {
+    if (!this.ephemeral) { await WaMessageLog.findByIdAndUpdate(logId, patch); return }
+    const log = this.memLogs.find((l) => l._id === logId)
+    if (log) Object.assign(log, patch)
+  }
+
+  /** Grup yang diikuti nomor ini, langsung dari WhatsApp (termasuk grup yang belum pernah ada pesan masuk) */
+  async listGroups(): Promise<{ jid: string; name: string }[]> {
+    if (!this.sock || this.status !== 'connected') return []
+    const groups = await this.sock.groupFetchAllParticipating()
+    return Object.values(groups).map((g) => ({ jid: g.id, name: g.subject })).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   enqueue(logId: string, to: string, payload: string) {
@@ -335,10 +373,10 @@ class WaBot {
         if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
         const sent = await this.sock.sendMessage(toJid(item.to), { text: item.payload })
         if (sent?.key.id) this.sentMessageIds.add(sent.key.id)
-        await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'sent', sentAt: new Date() })
-        recordOutgoingMessage(this.id, item.to, item.payload, { messageId: sent?.key.id || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
+        await this.updateLog(item.logId, { status: 'sent', sentAt: new Date() })
+        this.recordOut(item.to, item.payload, sent?.key.id)
       } catch (err) {
-        await WaMessageLog.findByIdAndUpdate(item.logId, { status: 'failed', error: (err as Error).message })
+        await this.updateLog(item.logId, { status: 'failed', error: (err as Error).message })
       }
       if (this.queue.length) await new Promise((r) => setTimeout(r, SEND_DELAY_MS))
     }
@@ -346,30 +384,44 @@ class WaBot {
   }
 }
 
-const bots: Record<BotId, WaBot> = BOT_IDS.reduce(
+const bots: Record<WaBotKey, WaBot> = [...BOT_IDS, DEV_BOT].reduce(
   (acc, id) => ({ ...acc, [id]: new WaBot(id) }),
-  {} as Record<BotId, WaBot>
+  {} as Record<WaBotKey, WaBot>
 )
 
-export function getWaStatus(botId: BotId) {
+/** Bot yang boleh dipakai/tampil di proses ini, bot developer cuma ada di backend lokal */
+export function visibleBots(): WaBotKey[] {
+  return [...BOT_IDS, ...(devBotEnabled ? [DEV_BOT] : [])]
+}
+
+export function listGroups(botId: WaBotKey) {
+  return bots[botId].listGroups()
+}
+
+export function getDevLogs(): MemLog[] {
+  return bots[DEV_BOT].memLogs
+}
+
+export function getWaStatus(botId: WaBotKey) {
   return bots[botId].getStatus()
 }
 
-export function getWaQr(botId: BotId) {
+export function getWaQr(botId: WaBotKey) {
   return bots[botId].getQr()
 }
 
-export function connectWhatsApp(botId: BotId): Promise<void> {
+export function connectWhatsApp(botId: WaBotKey): Promise<void> {
   return bots[botId].connect()
 }
 
 export function connectAllBots(): void {
-  for (const id of BOT_IDS) {
+  // Lokal: cuma bot developer, bot production tidak pernah disambung dari backend lokal
+  for (const id of devBotEnabled ? [DEV_BOT] : BOT_IDS) {
     bots[id].connect().catch((err) => console.error(`WA[${id}] connect error:`, err))
   }
 }
 
-export function logoutWhatsApp(botId: BotId): Promise<void> {
+export function logoutWhatsApp(botId: WaBotKey): Promise<void> {
   return bots[botId].logout()
 }
 
@@ -429,8 +481,17 @@ export async function enqueueWaMessage(opts: {
   campaignId?: string
   creatorId?: string
   /** Override tujuan bot, hanya dipakai test-send; trigger lain diarahkan otomatis lewat audience template. */
-  bot?: BotId
+  bot?: WaBotKey
 }) {
+  if (devBotEnabled) {
+    // Lokal: tanpa WaMessageLog di DB production, apa pun trigger/bot-nya keluar lewat nomor developer
+    const dev = bots[DEV_BOT]
+    const log: MemLog = { _id: randomUUID(), bot: DEV_BOT, trigger: opts.trigger, to: opts.to, payload: opts.payload, status: 'queued', createdAt: new Date() }
+    dev.memLogs.unshift(log)
+    dev.memLogs.splice(100)
+    dev.enqueue(log._id, opts.to, opts.payload)
+    return log
+  }
   const botId = opts.bot ?? audienceToBot[DEFAULT_TEMPLATES[opts.trigger].audience]
   // Test-send (opts.bot) tidak ikut toggle, dipakai cek pairing walau semua automation dimatikan.
   const skipped = !opts.bot && !(await isTriggerEnabled(opts.tenantId, opts.trigger))

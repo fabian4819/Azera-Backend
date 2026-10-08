@@ -117,6 +117,8 @@ backfillBotDiscriminator()
   .finally(() => connectAllBots())
 
 // AD-31: reminder pembayaran client (H-7/H-3/H-1/jatuh tempo) + daily progress report 17:00
-startCronJobs()
+// Cron (reminder invoice, progress report) cuma di production, backend lokal pakai DB production juga,
+// kalau ikut jalan bakal kirim dobel & menandai reminder 'sudah terkirim' di data asli.
+if (env.isProd) startCronJobs()
 
 export default app

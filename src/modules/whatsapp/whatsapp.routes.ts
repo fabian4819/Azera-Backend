@@ -2,7 +2,7 @@ import { Router, Response, NextFunction } from 'express'
 import QRCode from 'qrcode'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
-import { connectWhatsApp, logoutWhatsApp, getWaStatus, getWaQr, enqueueWaMessage, sendManualReply } from '../../lib/baileys'
+import { connectWhatsApp, logoutWhatsApp, getWaStatus, getWaQr, enqueueWaMessage, sendManualReply, getDevLogs, devBotEnabled, DEV_BOT, WaBotKey, visibleBots } from '../../lib/baileys'
 import { BOT_IDS, BotId } from './waTemplate.model'
 import { resetBotEngagement } from './waChat.service'
 import { clearLeadBotSession } from './leadBot.service'
@@ -14,13 +14,18 @@ const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin'))
 
 // Semua route WA berada di bawah /:bot (partnership | creator), dua koneksi Baileys terpisah.
+// Daftar bot yang tampil di menu WhatsApp, bot developer cuma ada di backend lokal
+router.get('/bots', (_req: AuthRequest, res: Response) => {
+  res.json(visibleBots())
+})
+
 function resolveBot(req: AuthRequest, res: Response, next: NextFunction) {
-  const bot = req.params.bot as BotId
-  if (!BOT_IDS.includes(bot)) {
+  const bot = req.params.bot as WaBotKey
+  if (!visibleBots().includes(bot)) {
     res.status(400).json({ message: `Bot tidak dikenal: ${req.params.bot}` })
     return
   }
-  ;(req as AuthRequest & { bot: BotId }).bot = bot
+  ;(req as AuthRequest & { bot: BotId }).bot = bot as BotId // developer cuma sampai ke route status/qr/connect/logout/test-send (lihat interceptor di bawah)
   next()
 }
 const bots = Router({ mergeParams: true })
@@ -31,6 +36,14 @@ const botOf = (req: AuthRequest) => (req as AuthRequest & { bot: BotId }).bot
 
 // AD-29: status koneksi Baileys (disconnected/connecting/qr/connected)
 // Inbox (chat masuk & balasan) berisi percakapan pribadi, tidak dibuka untuk role developer
+// Bot developer murni koneksi: tidak ada inbox, log cuma di memori proses lokal
+bots.use((req: AuthRequest, res: Response, next) => {
+  if (req.params.bot !== DEV_BOT) { next(); return }
+  if (req.path === '/logs') { res.json(getDevLogs()); return }
+  if (req.path.startsWith('/contacts')) { res.json([]); return }
+  next()
+})
+
 bots.use('/contacts', (req: AuthRequest, res: Response, next) => {
   if (req.auth?.role === 'developer') { res.status(403).json({ message: 'Inbox WhatsApp tidak tersedia untuk role developer' }); return }
   next()
@@ -53,6 +66,10 @@ bots.get('/qr', async (req: AuthRequest, res: Response) => {
 })
 
 bots.post('/connect', async (req: AuthRequest, res: Response) => {
+  if (devBotEnabled && req.params.bot !== DEV_BOT) {
+    res.status(400).json({ message: 'Di backend lokal cuma Bot Developer yang bisa disambungkan (bot production hanya di server production).' })
+    return
+  }
   connectWhatsApp(botOf(req)).catch((err) => console.error('WA connect error:', err))
   res.json(getWaStatus(botOf(req)))
 })
