@@ -88,8 +88,13 @@ export interface ICampaign extends Document {
   timeline: { startDate?: Date; endDate?: Date }
   criteria: {
     niches: string[]
+    /** Lama (satu angka untuk semua platform), masih dibaca untuk campaign lama */
     minFollowers?: number
+    /** Min. followers per platform yang dicentang */
+    minFollowersByPlatform?: Partial<Record<'instagram' | 'tiktok' | 'threads' | 'x', number>>
     provinces: string[]
+    /** Opsional, kota/kabupaten target (dicocokkan tanpa awalan Kota/Kabupaten) */
+    cities?: string[]
     platforms: string[]
   }
   type: 'online' | 'offline'
@@ -178,7 +183,9 @@ const CampaignSchema = new Schema<ICampaign>(
     criteria: {
       niches: [String],
       minFollowers: Number,
+      minFollowersByPlatform: { instagram: Number, tiktok: Number, threads: Number, x: Number },
       provinces: [String],
+      cities: [String],
       platforms: [String],
     },
     type: { type: String, enum: ['online', 'offline'], default: 'online' },

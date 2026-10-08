@@ -18,8 +18,7 @@ import DocumentModel from '../documents/document.model'
 import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
-import WaContact from '../whatsapp/waContact.model'
-import { enqueueWaMessage } from '../../lib/baileys'
+import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, tryAutoTransition, getCreatorSubStages, WorkflowTransitionError, WORKFLOW_TRANSITIONS } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
@@ -108,14 +107,18 @@ router.get('/dashboard-links', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// Grup WA (WaContact @g.us) milik bot partnership, share broadcast listing dikirim lewat WA partnership.
+// Pengirim yang bisa dipilih di modal share (+ status koneksi) dan grup yang diikuti tiap nomor.
+router.get('/wa-senders', (_req: AuthRequest, res: Response) => {
+  res.json(visibleBots().map((id) => ({ id, ...getWaStatus(id) })))
+})
+
 router.get('/wa-groups', async (req: AuthRequest, res: Response) => {
+  const bot = (req.query.bot as WaBotKey) || 'partnership'
+  if (!visibleBots().includes(bot)) { res.status(400).json({ message: 'Bot tidak dikenal' }); return }
   try {
-    await connectDB()
-    const groups = await WaContact.find({ tenantId: req.auth!.tenantId, bot: 'partnership', jid: /@g\.us$/ }, 'jid name').sort({ lastMessageAt: -1 })
-    res.json(groups)
+    res.json(await listGroups(bot))
   } catch {
-    res.status(500).json({ message: 'Server error' })
+    res.status(500).json({ message: 'Gagal mengambil daftar grup' })
   }
 })
 
@@ -373,7 +376,7 @@ Nama Campaign: ${campaign.name}
 Brand: ${brandName}
 Tujuan / detail dari admin: ${campaign.objective}
 Deliverables/SOW: ${campaign.deliverables.join(', ') || '(belum ditentukan)'}
-Kriteria Creator: niche ${campaign.criteria.niches.join('/') || '-'}, min followers ${campaign.criteria.minFollowers ?? '-'}, domisili ${campaign.criteria.provinces.join('/') || '-'}, platform ${campaign.criteria.platforms.join('/') || '-'}
+Kriteria Creator: niche ${campaign.criteria.niches.join('/') || '-'}, min followers ${Object.entries(campaign.criteria.minFollowersByPlatform || {}).filter(([, n]) => n).map(([p, n]) => `${p} ${n}`).join(', ') || campaign.criteria.minFollowers || '-'}, domisili ${campaign.criteria.provinces.join('/') || '-'}, platform ${campaign.criteria.platforms.join('/') || '-'}
 Timeline: ${campaign.timeline.startDate ?? '-'} s/d ${campaign.timeline.endDate ?? '-'}
 Link daftar: ${applyUrl}
 
@@ -522,19 +525,24 @@ router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
 })
 
 // Share teks broadcast apa adanya (sudah diedit admin) ke grup WA & creator terpilih.
-// Selalu lewat WA partnership; `bot` eksplisit = kiriman manual admin, tidak ikut toggle automation broadcast_campaign.
+// Lewat WA yang dipilih admin (default partnership); `bot` eksplisit = kiriman manual, tidak ikut toggle
+// automation broadcast_campaign. Di backend lokal enqueueWaMessage tetap mengalihkan ke bot developer.
 router.post('/:id/share', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const tenantId = req.auth!.tenantId
-    const { message, groupJids = [], creatorIds = [] } = req.body as { message?: string; groupJids?: string[]; creatorIds?: string[] }
+    const { message, groupJids = [], creatorIds = [], bot = 'partnership' } = req.body as { message?: string; groupJids?: string[]; creatorIds?: string[]; bot?: WaBotKey }
+    if (!visibleBots().includes(bot)) { res.status(400).json({ message: 'Bot tidak dikenal' }); return }
+    if (getWaStatus(bot).status !== 'connected') { res.status(400).json({ message: 'WhatsApp pengirim belum terhubung' }); return }
     if (!message?.trim()) { res.status(400).json({ message: 'Teks broadcast kosong' }); return }
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
 
-    const groups = groupJids.length ? await WaContact.find({ tenantId, bot: 'partnership', jid: { $in: groupJids.filter((j) => j.endsWith('@g.us')) } }, 'jid') : []
+    // Cuma grup yang memang diikuti nomor pengirim
+    const memberOf = groupJids.length ? new Set((await listGroups(bot)).map((g) => g.jid)) : new Set<string>()
+    const groups = groupJids.filter((jid) => memberOf.has(jid)).map((jid) => ({ jid }))
     const creators = creatorIds.length ? await Creator.find({ tenantId, _id: { $in: creatorIds } }, 'phone') : []
-    const base = { tenantId, trigger: 'broadcast_campaign' as const, payload: message, campaignId: String(campaign._id), bot: 'partnership' as const }
+    const base = { tenantId, trigger: 'broadcast_campaign' as const, payload: message, campaignId: String(campaign._id), bot }
     let sent = 0
     const failed: string[] = []
     for (const g of groups) {
