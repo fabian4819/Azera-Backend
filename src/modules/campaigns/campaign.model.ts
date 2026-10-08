@@ -106,6 +106,11 @@ export interface ICampaign extends Document {
     opex?: number
     discount?: number
   }
+  /** Info listing untuk Broadcast Campaign (lihat client/src/lib/broadcast.ts) */
+  feeNote?: string
+  benefits: string[]
+  requirements: string[]
+  infoLink?: string
   briefContent?: string
   /** Link grup WA campaign — dikirim ke creator saat diterima (AD-30, trigger creator_accepted) */
   waGroupLink?: string
@@ -194,6 +199,10 @@ const CampaignSchema = new Schema<ICampaign>(
       opex: Number,
       discount: Number,
     },
+    feeNote: String,
+    benefits: [String],
+    requirements: [String],
+    infoLink: String,
     briefContent: String,
     waGroupLink: String,
     targetKpi: {

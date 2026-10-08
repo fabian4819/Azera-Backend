@@ -18,6 +18,7 @@ import DocumentModel from '../documents/document.model'
 import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
+import WaContact from '../whatsapp/waContact.model'
 import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, tryAutoTransition, getCreatorSubStages, WorkflowTransitionError, WORKFLOW_TRANSITIONS } from './workflow.service'
@@ -48,6 +49,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const {
       brandId, name, objective, deliverables, budget, timeline,
       criteria, type, eventDetails, picUserId, handleByUserId, fee, targetKpi,
+      feeNote, benefits, requirements, infoLink, customFields, applyFields,
     } = req.body
     if (!brandId || !name || !objective || budget === undefined) {
       res.status(400).json({ message: 'brandId, name, objective, budget wajib diisi' })
@@ -65,6 +67,9 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       handleByUserId,
       fee: fee || {},
       targetKpi: targetKpi || {},
+      feeNote, benefits: benefits || [], requirements: requirements || [], infoLink,
+      customFields: customFields || [],
+      ...(applyFields ? { applyFields: sanitizeApplyFields(applyFields) } : {}),
       applySlug: slugify(name),
       accessCode: generateAccessCode(),
     })
@@ -98,6 +103,17 @@ router.get('/dashboard-links', async (req: AuthRequest, res: Response) => {
       .populate('brandId', 'namaBrand')
       .sort({ createdAt: -1 })
     res.json(campaigns)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Grup WA (WaContact @g.us) milik bot partnership — share broadcast listing dikirim lewat WA partnership.
+router.get('/wa-groups', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const groups = await WaContact.find({ tenantId: req.auth!.tenantId, bot: 'partnership', jid: /@g\.us$/ }, 'jid name').sort({ lastMessageAt: -1 })
+    res.json(groups)
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -185,7 +201,12 @@ const EDITABLE_FIELDS = [
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
   'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
   'customFields', 'applyFields', 'progressColumns', 'columnAccess',
+  'feeNote', 'benefits', 'requirements', 'infoLink',
 ] as const
+
+function sanitizeApplyFields(a: Record<string, unknown> = {}) {
+  return { pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true }
+}
 
 const ACCESS = ['hidden', 'view', 'edit'] as const
 const PLATFORMS = ['instagram', 'tiktok', 'threads', 'x'] as const
@@ -229,10 +250,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     }
     if ('progressColumns' in updates) updates.progressColumns = sanitizeProgressColumns(updates.progressColumns)
     if ('columnAccess' in updates) updates.columnAccess = sanitizeColumnAccess(updates.columnAccess)
-    if ('applyFields' in updates) {
-      const a = (updates.applyFields || {}) as Record<string, unknown>
-      updates.applyFields = { pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true }
-    }
+    if ('applyFields' in updates) updates.applyFields = sanitizeApplyFields((updates.applyFields || {}) as Record<string, unknown>)
     const before = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!before) { res.status(404).json({ message: 'Not found' }); return }
     const campaign = await Campaign.findOneAndUpdate(
@@ -500,6 +518,40 @@ router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
     res.status(201).json({ sent })
   } catch (err) {
     res.status(500).json({ message: 'Gagal mengirim broadcast', error: (err as Error).message })
+  }
+})
+
+// Share teks broadcast apa adanya (sudah diedit admin) ke grup WA & creator terpilih.
+// Selalu lewat WA partnership; `bot` eksplisit = kiriman manual admin, tidak ikut toggle automation broadcast_campaign.
+router.post('/:id/share', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const tenantId = req.auth!.tenantId
+    const { message, groupJids = [], creatorIds = [] } = req.body as { message?: string; groupJids?: string[]; creatorIds?: string[] }
+    if (!message?.trim()) { res.status(400).json({ message: 'Teks broadcast kosong' }); return }
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+
+    const groups = groupJids.length ? await WaContact.find({ tenantId, bot: 'partnership', jid: { $in: groupJids.filter((j) => j.endsWith('@g.us')) } }, 'jid') : []
+    const creators = creatorIds.length ? await Creator.find({ tenantId, _id: { $in: creatorIds } }, 'phone') : []
+    const base = { tenantId, trigger: 'broadcast_campaign' as const, payload: message, campaignId: String(campaign._id), bot: 'partnership' as const }
+    let sent = 0
+    const failed: string[] = []
+    for (const g of groups) {
+      await enqueueWaMessage({ ...base, to: g.jid })
+      sent++
+    }
+    for (const c of creators) {
+      try {
+        await enqueueWaMessage({ ...base, to: c.phone, creatorId: String(c._id) })
+        sent++
+      } catch {
+        failed.push(String(c._id))
+      }
+    }
+    res.status(201).json({ sent, failed })
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal share broadcast', error: (err as Error).message })
   }
 })
 
