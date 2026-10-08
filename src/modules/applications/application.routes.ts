@@ -11,7 +11,6 @@ import Submission from '../submissions/submission.model'
 import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { WaTrigger } from '../whatsapp/waTemplate.model'
-import { tryAutoTransition } from '../campaigns/workflow.service'
 import { syncApplicationToSheet } from '../../lib/sheetSync.service'
 import { ensurePortalToken, portalUrl } from '../campaigns/progress.service'
 import { sendEmail } from '../../lib/email'
@@ -119,12 +118,6 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       sendEmail(creator.email, mail.subject, mail.html).catch((err) => console.error('Accepted email error:', err))
     }
 
-    // AD-32: creator pertama diterima -> auto maju ke creator_approved
-    if (status === 'accepted' && campaign) {
-      for (const from of ['internal_review', 'smart_recommendation'] as const) {
-        await tryAutoTransition({ campaignId: String(campaign._id), tenantId: req.auth!.tenantId, fromStage: from, toStage: 'creator_approved', userId: req.auth!.userId })
-      }
-    }
 
     syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
     const latestSubmission = await findLatestSubmission(req.auth!.tenantId, application.campaignId, creator?._id)

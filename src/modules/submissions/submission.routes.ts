@@ -4,7 +4,6 @@ import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { parseInsightScreenshot } from '../../lib/ai'
 import Submission from './submission.model'
 import Campaign from '../campaigns/campaign.model'
-import { tryAutoTransition } from '../campaigns/workflow.service'
 import { syncSubmissionToSheet } from '../../lib/sheetSync.service'
 
 const router = Router()
@@ -87,17 +86,6 @@ router.patch('/submissions/:id', async (req: AuthRequest, res: Response) => {
     }
 
     await submission.save()
-
-    // AD-32: keputusan review draft (approve/revisi) & verifikasi insight -> auto maju tahap
-    if (req.body.status === 'approved' && submission.type === 'draft') {
-      await tryAutoTransition({ campaignId: String(submission.campaignId), tenantId: req.auth!.tenantId, fromStage: 'content_review', toStage: 'waiting_post', userId: req.auth!.userId })
-    }
-    if (req.body.status === 'revision_requested') {
-      await tryAutoTransition({ campaignId: String(submission.campaignId), tenantId: req.auth!.tenantId, fromStage: 'content_review', toStage: 'revision', userId: req.auth!.userId })
-    }
-    if (req.body.parsedInsight) {
-      await tryAutoTransition({ campaignId: String(submission.campaignId), tenantId: req.auth!.tenantId, fromStage: 'waiting_insight', toStage: 'insight_collected', userId: req.auth!.userId })
-    }
 
     syncSubmissionToSheet(submission).catch((err) => console.error('Sheet sync error (submission):', err))
     res.json(submission)

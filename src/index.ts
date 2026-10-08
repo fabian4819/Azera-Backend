@@ -38,6 +38,7 @@ import extensionRouter from './modules/extension/extension.routes'
 import extensionAdminRouter from './modules/extension/extensionAdmin.routes'
 import { connectAllBots } from './lib/baileys'
 import { backfillBotDiscriminator } from './modules/whatsapp/waChat.service'
+import { migrateLegacyStages } from './modules/campaigns/workflow.service'
 import { startCronJobs } from './lib/cron'
 
 const app = express()
@@ -120,5 +121,9 @@ backfillBotDiscriminator()
 // Cron (reminder invoice, progress report) cuma di production, backend lokal pakai DB production juga,
 // kalau ikut jalan bakal kirim dobel & menandai reminder 'sudah terkirim' di data asli.
 if (env.isProd) startCronJobs()
+
+// Progress campaign 17 tahap → 5 tahap: petakan tahap lama di data production (idempoten). Tidak di lokal,
+// karena backend lokal juga tersambung ke DB production dan ini menulis data.
+if (env.isProd) migrateLegacyStages().catch((err) => console.error('Workflow stage migration error:', err))
 
 export default app

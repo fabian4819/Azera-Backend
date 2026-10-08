@@ -4,7 +4,6 @@ import Tenant from '../tenants/tenant.model'
 import User from '../users/user.model'
 import Campaign from '../campaigns/campaign.model'
 import Submission from '../submissions/submission.model'
-import { tryAutoTransition } from '../campaigns/workflow.service'
 import { requireExtensionToken, ExtRequest } from './extension.middleware'
 import CaptureIntent from './captureIntent.model'
 import SocialSnapshot from './socialSnapshot.model'
@@ -145,10 +144,6 @@ router.post('/post-insight', async (req: ExtRequest, res: Response) => {
     applyMetrics(sub, metrics, req.ext!.userId)
     if (!sub.link) sub.link = postUrl
     await sub.save()
-    await tryAutoTransition({
-      campaignId: String(sub.campaignId), tenantId: req.ext!.tenantId,
-      fromStage: 'waiting_insight', toStage: 'insight_collected', userId: req.ext!.userId,
-    })
 
     const campaignName = (sub.campaignId as unknown as { name?: string })?.name
     res.json({ ok: true, mode: 'post', baru: false, campaign: campaignName || '-' })
@@ -212,10 +207,6 @@ router.post('/capture-intents/:id/fulfill', async (req: ExtRequest, res: Respons
       }, req.ext!.userId)
       if (!sub.link && (post.url || post.postUrl)) sub.link = post.url || post.postUrl
       await sub.save()
-      await tryAutoTransition({
-        campaignId: String(sub.campaignId), tenantId: req.ext!.tenantId,
-        fromStage: 'waiting_insight', toStage: 'insight_collected', userId: req.ext!.userId,
-      })
     }
 
     intent.status = 'fulfilled'

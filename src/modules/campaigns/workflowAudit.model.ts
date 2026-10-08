@@ -1,13 +1,11 @@
 import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
-import { WorkflowStage } from './campaign.model'
-
-/** AD-32: histori transisi 17-tahap workflow, termasuk override manual dengan alasan */
+/** Histori perpindahan tahap campaign. String bebas: riwayat lama masih memakai nama 17 tahap. */
 export interface IWorkflowAudit extends Document {
   tenantId: Types.ObjectId
   campaignId: Types.ObjectId
-  fromStage: WorkflowStage
-  toStage: WorkflowStage
+  fromStage: string
+  toStage: string
   byUserId: Types.ObjectId
   byRole: string
   isOverride: boolean

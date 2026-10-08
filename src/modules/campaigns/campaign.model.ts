@@ -2,27 +2,20 @@ import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
 
 /**
- * 17-tahap workflow (ACC klien 16 Agu 2026), lihat docs/plan/modul-4-automation-workflow.md
+ * Progress campaign (Okt 2026, menggantikan 17 tahap): listing (campaign dibuat, form disebar ke creator & grup)
+ * → running (form ditutup, admin pilih Running) → insight → report → completed. `rejected` = ditolak setelah listing.
+ * Semua dipindahkan manual oleh admin (workflow.service.ts).
  */
-export const WORKFLOW_STAGES = [
-  'draft',
-  'listing',
-  'open_registration',
-  'internal_review',
-  'smart_recommendation',
-  'creator_approved',
-  'client_approval',
-  'brief_sent',
-  'waiting_draft',
-  'content_review',
-  'revision',
-  'waiting_post',
-  'posted',
-  'waiting_insight',
-  'insight_collected',
-  'report_generated',
-  'completed',
-] as const
+export const WORKFLOW_STAGES = ['listing', 'running', 'insight', 'report', 'completed', 'rejected'] as const
+
+/** Tahap lama (17 tahap) → tahap baru, dipakai migrasi sekali jalan saat server production start (index.ts). */
+export const LEGACY_STAGE_MAP: Record<string, WorkflowStage> = {
+  draft: 'listing', open_registration: 'listing',
+  internal_review: 'running', smart_recommendation: 'running', creator_approved: 'running', client_approval: 'running',
+  brief_sent: 'running', waiting_draft: 'running', content_review: 'running', revision: 'running', waiting_post: 'running', posted: 'running',
+  waiting_insight: 'insight', insight_collected: 'insight',
+  report_generated: 'report',
+}
 
 export type WorkflowStage = (typeof WORKFLOW_STAGES)[number]
 
@@ -217,7 +210,7 @@ const CampaignSchema = new Schema<ICampaign>(
       engagementRate: Number,
     },
     aiInsight: String,
-    workflowStage: { type: String, enum: WORKFLOW_STAGES, default: 'draft' },
+    workflowStage: { type: String, enum: WORKFLOW_STAGES, default: 'listing' },
     status: { type: String, enum: ['draft', 'active', 'completed', 'cancelled'], default: 'draft' },
     applyOpen: { type: Boolean, default: false },
     applySlug: { type: String, required: true },
