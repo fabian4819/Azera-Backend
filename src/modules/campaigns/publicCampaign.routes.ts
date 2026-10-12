@@ -8,9 +8,11 @@ import Creator, { type SocialPlatform } from '../creators/creator.model'
 import Application from '../applications/application.model'
 import PicUser from '../pic/pic.model'
 import { runSmartCuration } from '../applications/curation.service'
-import { buildPortalView } from './sheetView.service'
+import { buildPortalView, buildClientApplicantsView } from './sheetView.service'
 import { reviewSubmission, CellError } from './progress.service'
 import { syncApplicationToSheet, creatorAccess } from '../../lib/sheetSync.service'
+import { uploadAsset } from '../../middleware/upload'
+import { uploadToCloudinary } from '../../lib/cloudinary'
 
 const router = Router()
 
@@ -37,6 +39,7 @@ function boardCampaignInfo(campaign: ICampaign, withGroup: boolean) {
     name: campaign.name,
     brandName: brand?.namaBrand ?? null,
     briefContent: campaign.briefContent || '',
+    briefCampaign: campaign.briefCampaign || null,
     deliverables: campaign.deliverables,
     timeline: campaign.timeline,
     waGroupLink: withGroup ? campaign.waGroupLink || '' : '',
@@ -88,6 +91,76 @@ router.patch('/:id/client/review', async (req: Request, res: Response) => {
   } catch (err) {
     if (err instanceof CellError) { res.status(err.status).json({ message: err.message }); return }
     console.error('Client review error:', err)
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// AD-adjustment-4: tab "Pendaftar" di dashboard client, stage 2 — kolom sama dengan tab
+// Pendaftar admin, tapi cuma baris yang sudah lolos stage 1 (admin).
+router.get('/:id/client/applicants', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const found = await loadBoardCampaign(req.params.id, req.query.code, 'client')
+    if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    res.json({ campaign: boardCampaignInfo(found.campaign, false), ...(await buildClientApplicantsView(found.tenant._id, found.campaign)) })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.patch('/:id/client/applicants/:appId', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const found = await loadBoardCampaign(req.params.id, req.body.code, 'client')
+    if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    const { status } = req.body as { status: 'accepted' | 'rejected' }
+    if (!['accepted', 'rejected'].includes(status)) { res.status(400).json({ message: 'status harus accepted atau rejected' }); return }
+    const { tenant, campaign } = found
+    // Cuma yang sudah lolos stage 1 (admin) yang boleh diputuskan client
+    const application = await Application.findOneAndUpdate(
+      { _id: req.params.appId, tenantId: tenant._id, campaignId: campaign._id, status: 'accepted' },
+      { clientApprovalStatus: status },
+      { new: true }
+    )
+    if (!application) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
+    syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (client approval):', err))
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// AD-adjustment-5: "Brief Campaign" baru, diisi client sendiri (teks/link) lewat dashboard client.
+router.patch('/:id/client/brief', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const found = await loadBoardCampaign(req.params.id, req.body.code, 'client')
+    if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    const { kind, content } = req.body as { kind: string; content: string }
+    if (!['text', 'link'].includes(kind) || !content) { res.status(400).json({ message: 'kind/content tidak valid' }); return }
+    found.campaign.briefCampaign = { kind, content, filledBy: 'client', updatedAt: new Date() } as ICampaign['briefCampaign']
+    await found.campaign.save()
+    res.json({ ok: true, briefCampaign: found.campaign.briefCampaign })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Client isi Brief Campaign lewat file/gambar/video (AD-adjustment-5)
+router.post('/:id/client/brief/upload', uploadAsset.single('file'), async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const found = await loadBoardCampaign(req.params.id, req.body.code, 'client')
+    if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    const { kind } = req.body as { kind: string }
+    if (!['file', 'image', 'video'].includes(kind)) { res.status(400).json({ message: 'kind tidak valid' }); return }
+    const file = (req as Request & { file?: { buffer: Buffer } }).file
+    if (!file) { res.status(400).json({ message: 'File tidak ditemukan' }); return }
+    const url = await uploadToCloudinary(file.buffer, 'brief-campaign')
+    found.campaign.briefCampaign = { kind, content: url, filledBy: 'client', updatedAt: new Date() } as ICampaign['briefCampaign']
+    await found.campaign.save()
+    res.json({ ok: true, briefCampaign: found.campaign.briefCampaign })
+  } catch {
     res.status(500).json({ message: 'Server error' })
   }
 })

@@ -11,6 +11,12 @@ import SocialSnapshot, { ISocialSnapshot } from '../modules/extension/socialSnap
 import { upsertCreatorRow, upsertCampaignRow, deleteCampaignRow, CAMPAIGN_HEADERS_BASE } from './googleSheets'
 import { env } from '../config/env'
 
+/** AD-adjustment-4: baru lolos ke Campaign Tracker + master sheet kalau admin (status) DAN
+ * client (clientApprovalStatus) sama-sama 'accepted'. */
+export function isFullyApproved(a: Pick<IApplication, 'status' | 'clientApprovalStatus'>): boolean {
+  return a.status === 'accepted' && a.clientApprovalStatus === 'accepted'
+}
+
 const GENDER_LABELS: Record<string, string> = {
   male: 'Laki-laki',
   female_hijab: 'Perempuan (Hijab)',
@@ -270,8 +276,8 @@ async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.Objec
     application.picUserId ? PicUser.findById(application.picUserId).select('name') : null,
   ])
   if (!campaign) return
-  // Master sheet cuma berisi creator yang sudah di-approve di Pendaftar; batal approve = baris dibuang
-  if (application.status !== 'accepted') {
+  // Master sheet cuma berisi creator yang sudah di-approve DUA tahap (admin + client); batal salah satu = baris dibuang
+  if (!isFullyApproved(application)) {
     await deleteCampaignRow(campaign.name, String(application._id))
     return
   }

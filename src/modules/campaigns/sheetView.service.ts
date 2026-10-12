@@ -5,7 +5,7 @@ import Submission, { ISubmission } from '../submissions/submission.model'
 import Creator, { ICreator } from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
 import '../../models/Brand' // daftarkan model untuk populate('brandId')
-import { campaignSheetColumns, campaignSheetRow, creatorAccess, progressKind, CellKind, SheetColumn, BASE_SUBMISSION_COLUMNS } from '../../lib/sheetSync.service'
+import { campaignSheetColumns, campaignSheetRow, creatorAccess, progressKind, CellKind, SheetColumn, BASE_SUBMISSION_COLUMNS, isFullyApproved } from '../../lib/sheetSync.service'
 import { portalUrl } from './progress.service'
 
 /**
@@ -80,10 +80,10 @@ function masterRow(campaign: ICampaign, d: CampaignData, a: CampaignData['applic
   )
 }
 
-/** Master: hanya creator yang sudah di-approve di tab Pendaftar (sama dengan yang disync ke Google Sheets). */
+/** Master: hanya creator yang sudah di-approve DUA tahap (admin + client), sama dengan yang disync ke Google Sheets. */
 function masterTable(campaign: ICampaign, d: CampaignData): SheetTable {
   const cols = campaignSheetColumns(campaign)
-  const accepted = d.applications.filter((a) => a.status === 'accepted')
+  const accepted = d.applications.filter(isFullyApproved)
   return {
     headers: cols.map((c) => c.label),
     columns: cols.map((c) => ({
@@ -109,8 +109,11 @@ const CURATION_LABELS: Record<string, string> = {
 
 /** Tab Pendaftar: semua yang apply + kolom aksi "Status" di frontend (badge + approve/reject/salin link, dari
  * rowIds/rowStatus/rowLinks), makanya status tidak dijadikan kolom teks lagi.
- * Link portal sengaja bukan kolom, cuma lewat tombol "Link" di baris yang sudah diterima. */
-function applicantsTable(campaign: ICampaign, d: CampaignData): SheetTable {
+ * Link portal sengaja bukan kolom, cuma lewat tombol "Link" di baris yang sudah diterima.
+ * `opts` dipakai juga oleh dashboard client (AD-adjustment-4, stage 2): kolom identik, tapi
+ * cuma baris yang sudah lolos admin (stage 1), dan rowStatus-nya keputusan client sendiri. */
+function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStage1Accepted?: boolean; statusField?: 'status' | 'clientApprovalStatus' }): SheetTable {
+  const applications = opts?.onlyStage1Accepted ? d.applications.filter((a) => a.status === 'accepted') : d.applications
   const custom = campaign.customFields || []
   // Kolom ikut field form apply campaign ini: niche, domisili (kalau ada kriteria provinsi/kota), akun per platform
   const platforms = campaign.criteria?.platforms || []
@@ -121,7 +124,7 @@ function applicantsTable(campaign: ICampaign, d: CampaignData): SheetTable {
     ...platforms.flatMap((p) => [`${PLATFORM_LABEL[p] ?? p}`, `Followers ${PLATFORM_LABEL[p] ?? p}`]),
     'PIC/Partner', 'Handle By', ...custom.map((f) => f.label), 'Hasil Kurasi', 'Alasan Kurasi', 'Tanggal Daftar',
   ]
-  const rows: Cell[][] = d.applications.map((a) => {
+  const rows: Cell[][] = applications.map((a) => {
     const c = d.creatorById.get(String(a.creatorId))
     const ans = (id: string) => {
       const v = a.customAnswers?.[id]
@@ -143,11 +146,12 @@ function applicantsTable(campaign: ICampaign, d: CampaignData): SheetTable {
       fmtDate(a.createdAt),
     ]
   })
+  const statusField = opts?.statusField ?? 'status'
   return {
     headers, rows,
-    rowIds: d.applications.map((a) => String(a._id)),
-    rowStatus: d.applications.map((a) => a.status),
-    rowLinks: d.applications.map((a) => (a.status === 'accepted' && a.portalToken ? portalUrl(a.portalToken) : '')),
+    rowIds: applications.map((a) => String(a._id)),
+    rowStatus: applications.map((a) => a[statusField]),
+    rowLinks: applications.map((a) => (a.status === 'accepted' && a.portalToken ? portalUrl(a.portalToken) : '')),
   }
 }
 
@@ -214,6 +218,13 @@ export async function buildSheetView(tenantId: Types.ObjectId | string, campaign
   return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null }, ...table }
 }
 
+/** Tab "Pendaftar" di dashboard client (AD-adjustment-4, stage 2): kolom sama dengan tab Pendaftar
+ * admin, tapi cuma yang sudah lolos stage 1 (admin), dan badge/approve-reject-nya keputusan client. */
+export async function buildClientApplicantsView(tenantId: Types.ObjectId | string, campaign: ICampaign) {
+  const data = await loadCampaignData(tenantId, campaign)
+  return applicantsTable(campaign, data, { onlyStage1Accepted: true, statusField: 'clientApprovalStatus' })
+}
+
 /** Sel portal: draft creator lain disamarkan (belum tayang). Status review dikirim mentah, frontend
  * yang menampilkan badge + catatan revisi (rows[].notes). */
 function portalCell(key: string, v: Cell, isMine: boolean): Cell {
@@ -236,7 +247,7 @@ export async function buildPortalView(tenantId: Types.ObjectId | string, campaig
   const visible = cols.map((c, i) => ({ c, i, access: creatorAccess(campaign, c) })).filter((x) => x.access !== 'hidden')
   const mineId = viewer.role === 'creator' ? String(viewer.mine._id) : null
   // Baris sendiri paling atas supaya creator langsung ketemu
-  const accepted = data.applications.filter((a) => a.status === 'accepted')
+  const accepted = data.applications.filter(isFullyApproved)
     .sort((a, b) => Number(String(b._id) === mineId) - Number(String(a._id) === mineId))
   return {
     headers: visible.map((x) => x.c.label),

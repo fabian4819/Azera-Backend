@@ -40,6 +40,7 @@ router.get('/:token', async (req: Request, res: Response) => {
         name: campaign.name,
         brandName: brand?.namaBrand ?? null,
         briefContent: campaign.briefContent || '',
+        briefCampaign: campaign.briefCampaign || null,
         deliverables: campaign.deliverables,
         timeline: campaign.timeline,
         waGroupLink: campaign.waGroupLink || '',

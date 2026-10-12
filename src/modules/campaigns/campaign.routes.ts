@@ -325,6 +325,24 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
+// AD-adjustment-5: "Brief Campaign" baru (admin), beda dari briefContent/"Broadcast Campaign" di atas.
+router.patch('/:id/brief', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { kind, content } = req.body as { kind: string; content: string }
+    if (!['text', 'file', 'image', 'video', 'link'].includes(kind)) { res.status(400).json({ message: 'kind tidak valid' }); return }
+    const campaign = await Campaign.findOneAndUpdate(
+      { _id: req.params.id, tenantId: req.auth!.tenantId },
+      { briefCampaign: { kind, content: content || '', filledBy: 'admin', updatedAt: new Date() } },
+      { new: true }
+    )
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 // AD-30: kirim brief campaign ke semua creator yang sudah diterima (trigger #3, terpisah dari notifikasi diterima)
 router.post('/:id/send-brief', async (req: AuthRequest, res: Response) => {
   try {

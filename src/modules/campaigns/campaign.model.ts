@@ -112,6 +112,14 @@ export interface ICampaign extends Document {
   requirements: string[]
   infoLink?: string
   briefContent?: string
+  /** AD-adjustment-5: "Brief Campaign" baru, beda dari briefContent (dipakai "Broadcast Campaign",
+   * dikirim WA ke creator). Diisi client sendiri (pilih kind) atau admin lewat tab Brief. */
+  briefCampaign?: {
+    kind: 'text' | 'file' | 'image' | 'video' | 'link'
+    content: string
+    filledBy: 'admin' | 'client'
+    updatedAt: Date
+  }
   /** Link grup WA campaign, dikirim ke creator saat diterima (AD-30, trigger creator_accepted) */
   waGroupLink?: string
   /** Target KPI campaign (AD-23/24), opsional, dipakai buat hitung % pencapaian di analytics/insight */
@@ -207,6 +215,12 @@ const CampaignSchema = new Schema<ICampaign>(
     requirements: [String],
     infoLink: String,
     briefContent: String,
+    briefCampaign: {
+      kind: { type: String, enum: ['text', 'file', 'image', 'video', 'link'] },
+      content: String,
+      filledBy: { type: String, enum: ['admin', 'client'] },
+      updatedAt: Date,
+    },
     waGroupLink: String,
     targetKpi: {
       views: Number,

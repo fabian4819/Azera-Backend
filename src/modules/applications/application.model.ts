@@ -21,6 +21,9 @@ export interface IApplication extends Document {
   status: ApplicationStatus
   decidedByUserId?: Types.ObjectId
   decidedAt?: Date
+  /** AD-adjustment-4: stage 2 (client), terpisah dari `status` (stage 1, admin). Baru masuk
+   * Campaign Tracker + master sheet kalau status DAN clientApprovalStatus sama-sama 'accepted'. */
+  clientApprovalStatus: ApplicationStatus
   /** PIC/Handle-by yang "pegang" creator ini di campaign, harus salah satu PIC yang sudah
    * di-assign ke campaign (lihat POST /:id/pic di campaign.routes.ts), divalidasi di
    * application.routes.ts. Dipakai buat filter dashboard PIC portal per-creator, bukan cuma per-campaign. */
@@ -57,6 +60,7 @@ const ApplicationSchema = new Schema<IApplication>(
     status: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
     decidedByUserId: { type: Schema.Types.ObjectId, ref: 'User' },
     decidedAt: Date,
+    clientApprovalStatus: { type: String, enum: ['pending', 'accepted', 'rejected'], default: 'pending' },
     picUserId: { type: Schema.Types.ObjectId, ref: 'PicUser' },
     handleBy: String,
     progress: { type: Schema.Types.Mixed, default: {} },
