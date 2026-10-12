@@ -71,4 +71,8 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
     audience: 'creator',
     body: "{{urgent_label}}📢 *{{title}}*\n\nHalo Kak! Ada campaign seru nih, yuk ikutan! ✨\n\n{{location_schedule}}💰 Fee: {{fee}}\n💳 TOP Payment: {{top_payment}}\n\n📋 Syarat:\n{{syarat}}\n\n📝 SOW:\n{{sow}}\n\n{{note}}\n🔗 Daftar di sini: {{apply_link}}\n\nPIC: {{pic}}\nDitunggu pendaftarannya, Kak! 💜",
   },
+  pic_bank_info_request: {
+    audience: 'client',
+    body: "Halo {{nama}} 👋\n\nUntuk proses pembayaran fee campaign *{{campaign}}*, mohon info rekening bank atau e-wallet ya (nama bank/e-wallet, nomor rekening/nomor e-wallet, nama pemilik). Boleh dibalas langsung di chat ini 🙏\n\nTerima kasih!",
+  },
 }

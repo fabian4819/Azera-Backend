@@ -18,6 +18,7 @@ import DocumentModel from '../documents/document.model'
 import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
+import { requestBankInfoFromPics } from '../pic/picPayment.service'
 import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
@@ -202,6 +203,50 @@ router.patch('/:id/sheet/cell', async (req: AuthRequest, res: Response) => {
     res.json({ ok: true })
   } catch (err) {
     sendCellError(res, err)
+  }
+})
+
+// AD-adjustment-6: seluruh tab Recap Payment editable admin/owner. columnKey eksplisit (bukan progress
+// column generik) karena field-nya beda-beda sumber: Creator (bank/NPWP) vs Application (handleBy).
+const RECAP_CREATOR_FIELDS: Record<string, 'bankName' | 'accountNumber' | 'accountName' | 'npwp'> = {
+  bankName: 'bankName', accountNumber: 'accountNumber', accountName: 'accountName', npwp: 'npwp',
+}
+router.patch('/:id/sheet/recap-cell', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { applicationId, columnKey, value } = req.body as { applicationId: string; columnKey: string; value: string }
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    const application = campaign && await Application.findOne({ _id: applicationId, campaignId: campaign._id, tenantId: req.auth!.tenantId })
+    if (!campaign || !application) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
+    if (columnKey === 'handleBy') {
+      application.handleBy = value
+      await application.save()
+    } else if (RECAP_CREATOR_FIELDS[columnKey]) {
+      const creator = await Creator.findOne({ _id: application.creatorId, tenantId: req.auth!.tenantId })
+      if (!creator) { res.status(404).json({ message: 'Creator tidak ditemukan' }); return }
+      const field = RECAP_CREATOR_FIELDS[columnKey]
+      if (field === 'npwp') creator.npwp = value
+      else creator.bankAccount = { bankName: '', accountNumber: '', accountName: '', ...creator.bankAccount, [field]: value }
+      await creator.save()
+    } else {
+      res.status(400).json({ message: 'Kolom ini tidak bisa diedit' })
+      return
+    }
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Admin klik tombol: minta info bank/e-wallet via WA ke tiap PIC di campaign ini (AD-adjustment-6)
+router.post('/:id/recap/request-bank-info', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const count = await requestBankInfoFromPics(req.auth!.tenantId as string, req.params.id)
+    res.json({ ok: true, count })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Server error'
+    res.status(400).json({ message })
   }
 })
 

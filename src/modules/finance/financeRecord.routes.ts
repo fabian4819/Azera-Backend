@@ -27,7 +27,8 @@ const AUTO_FEES = [['feeCreator', 'creatorFee'], ['feePic', 'picFee'], ['feeMg',
 async function computeAutoFees(campaignId: string, tenantId: string) {
   const [campaign, acceptedCount] = await Promise.all([
     Campaign.findOne({ _id: campaignId, tenantId }).select('fee'),
-    Application.countDocuments({ tenantId, campaignId, status: 'accepted' }),
+    // AD-adjustment-4: samakan dengan gate dua-tahap Campaign Tracker/master sheet/Recap Payment
+    Application.countDocuments({ tenantId, campaignId, status: 'accepted', clientApprovalStatus: 'accepted' }),
   ])
   const perCreator = { feeCreator: campaign?.fee?.creatorFee || 0, feePic: campaign?.fee?.picFee || 0, feeMg: campaign?.fee?.mgFee || 0 }
   const totals = Object.fromEntries(AUTO_FEES.map(([k]) => [k, perCreator[k] * acceptedCount])) as typeof perCreator

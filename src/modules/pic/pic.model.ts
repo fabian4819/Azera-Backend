@@ -15,6 +15,19 @@ export interface IPicUser extends Document {
   phone: string
   password: string
   campaignIds: Types.ObjectId[]
+  /** AD-adjustment-6: info bank/e-wallet terkonfirmasi, dipakai di Recap Payment. */
+  paymentInfo?: {
+    bankName?: string
+    accountNumber?: string
+    accountName?: string
+    ewalletType?: string
+    ewalletNumber?: string
+    updatedAt?: Date
+  }
+  /** Balasan WA mentah menunggu konfirmasi admin, BELUM dianggap final sampai admin konfirmasi. */
+  pendingPaymentReply?: { raw: string; receivedAt: Date }
+  /** Kapan admin terakhir minta info bank/e-wallet lewat WA; dipakai cocokkan balasan masuk. */
+  paymentInfoRequestedAt?: Date
   createdAt: Date
   updatedAt: Date
 }
@@ -26,6 +39,19 @@ const PicUserSchema = new Schema<IPicUser>(
     phone: { type: String, required: true },
     password: { type: String, required: true },
     campaignIds: [{ type: Schema.Types.ObjectId, ref: 'Campaign' }],
+    paymentInfo: {
+      bankName: String,
+      accountNumber: String,
+      accountName: String,
+      ewalletType: String,
+      ewalletNumber: String,
+      updatedAt: Date,
+    },
+    pendingPaymentReply: {
+      raw: String,
+      receivedAt: Date,
+    },
+    paymentInfoRequestedAt: Date,
   },
   { timestamps: true }
 )

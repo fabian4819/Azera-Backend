@@ -33,6 +33,8 @@ export interface SheetTable {
   rowNotes?: { draft?: string; post?: string }[]
   /** Master: definisi kolom progress mentah, untuk panel Kelola Kolom */
   progressColumns?: IProgressColumn[]
+  /** Recap Payment: tabel kedua, agregat per PIC (AD-adjustment-6) */
+  byPic?: { headers: string[]; rows: Cell[][]; rowIds?: string[]; totals?: Cell[] }
 }
 
 export interface ColumnMeta {
@@ -56,17 +58,19 @@ async function loadCampaignData(tenantId: Types.ObjectId | string, campaign: ICa
   const [creators, submissions, pics] = await Promise.all([
     Creator.find({ tenantId, _id: { $in: applications.map((a) => a.creatorId) } }).select('name phone email bankAccount npwp niches domicile socials'),
     Submission.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: -1 }),
-    PicUser.find({ tenantId, _id: { $in: applications.map((a) => a.picUserId).filter(Boolean) } }).select('name'),
+    PicUser.find({ tenantId, _id: { $in: applications.map((a) => a.picUserId).filter(Boolean) } })
+      .select('name phone paymentInfo pendingPaymentReply paymentInfoRequestedAt'),
   ])
   const creatorById = new Map(creators.map((c) => [String(c._id), c]))
   const picById = new Map(pics.map((p) => [String(p._id), p.name]))
+  const picFullById = new Map(pics.map((p) => [String(p._id), p]))
   // submissions urut terbaru dulu → entry pertama per creator = terbaru (sama dgn sync ke Sheet)
   const submissionsByCreator = new Map<string, ISubmission[]>()
   for (const s of submissions) {
     const k = String(s.creatorId)
     submissionsByCreator.set(k, [...(submissionsByCreator.get(k) || []), s])
   }
-  return { applications, creatorById, picById, submissions, submissionsByCreator }
+  return { applications, creatorById, picById, picFullById, submissions, submissionsByCreator }
 }
 type CampaignData = Awaited<ReturnType<typeof loadCampaignData>>
 
@@ -183,15 +187,19 @@ function reportTable(d: CampaignData): SheetTable {
   }
 }
 
-/** 1 baris per creator yang diterima, data transfer fee + status bayar. */
+/** 1 baris per creator yang fully-approved (admin + client, AD-adjustment-4), data transfer fee + status
+ * bayar. PIC & Handle By ditambah (AD-adjustment-6); seluruh tab ini admin/owner-editable lewat
+ * PATCH /:id/sheet/recap-cell (lihat campaign.routes.ts), rowIds dipakai untuk itu. */
 function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
-  const headers = ['Creator', 'WhatsApp', 'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP', 'Fee Creator', 'Status Pembayaran']
+  const headers = ['Creator', 'WhatsApp', 'PIC', 'Handle By', 'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP', 'Fee Creator', 'Status Pembayaran']
   const fee = campaign.fee?.creatorFee ?? 0
-  const accepted = d.applications.filter((a) => a.status === 'accepted')
+  const accepted = d.applications.filter(isFullyApproved)
   const rows: Cell[][] = accepted.map((a) => {
     const c = d.creatorById.get(String(a.creatorId)) as ICreator | undefined
     return [
       c?.name || '', c?.phone || '',
+      a.picUserId ? d.picById.get(String(a.picUserId)) || '' : '',
+      a.handleBy || '',
       c?.bankAccount?.bankName || '', c?.bankAccount?.accountNumber || '', c?.bankAccount?.accountName || '',
       c?.npwp || '',
       fee || '',
@@ -199,10 +207,43 @@ function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
     ]
   })
   const paid = accepted.filter((a) => a.creatorPaymentStatus === 'paid').length
+  const RECAP_KEYS = ['creator', 'whatsapp', 'pic', 'handleBy', 'bankName', 'accountNumber', 'accountName', 'npwp', 'fee', 'paymentStatus']
+  const RECAP_EDITABLE = new Set(['handleBy', 'bankName', 'accountNumber', 'accountName', 'npwp'])
   return {
     headers,
     rows,
-    totals: rows.length ? [`Total (${rows.length} creator)`, '', '', '', '', '', fee * rows.length, `${paid} paid · ${rows.length - paid} unpaid`] : undefined,
+    rowIds: accepted.map((a) => String(a._id)),
+    columns: RECAP_KEYS.map((key) => ({ key, access: RECAP_EDITABLE.has(key) ? 'edit' : 'view' })),
+    totals: rows.length ? [`Total (${rows.length} creator)`, '', '', '', '', '', '', '', fee * rows.length, `${paid} paid · ${rows.length - paid} unpaid`] : undefined,
+  }
+}
+
+/** Tabel kedua Recap Payment (AD-adjustment-6): agregat per PIC, total fee PIC + status info bank/e-wallet. */
+function recapByPicTable(campaign: ICampaign, d: CampaignData): SheetTable {
+  const headers = ['PIC', 'WhatsApp', 'Jumlah Creator', 'Total Fee PIC', 'Bank/E-Wallet', 'Status Info']
+  const picFee = campaign.fee?.picFee ?? 0
+  const accepted = d.applications.filter(isFullyApproved)
+  const counts = new Map<string, number>()
+  for (const a of accepted) {
+    if (!a.picUserId) continue
+    const key = String(a.picUserId)
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+  const rows: Cell[][] = [...counts.entries()].map(([picId, count]) => {
+    const pic = d.picFullById.get(picId)
+    const info = pic?.paymentInfo
+    const bankInfo = info?.bankName ? `${info.bankName} · ${info.accountNumber || ''} a.n ${info.accountName || ''}`
+      : info?.ewalletType ? `${info.ewalletType} · ${info.ewalletNumber || ''}`
+        : ''
+    const status = bankInfo ? 'Terkonfirmasi' : pic?.pendingPaymentReply ? 'Perlu Konfirmasi' : pic?.paymentInfoRequestedAt ? 'Menunggu Balasan' : 'Belum Diminta'
+    return [pic?.name || '', pic?.phone || '', count, picFee * count, bankInfo, status]
+  })
+  const totalCreators = [...counts.values()].reduce((a, b) => a + b, 0)
+  return {
+    headers,
+    rows,
+    rowIds: [...counts.keys()],
+    totals: rows.length ? [`Total (${rows.length} PIC)`, '', totalCreators, picFee * totalCreators, '', ''] : undefined,
   }
 }
 
@@ -213,7 +254,7 @@ export async function buildSheetView(tenantId: Types.ObjectId | string, campaign
   const table = kind === 'master' ? masterTable(campaign, data)
     : kind === 'applicants' ? applicantsTable(campaign, data)
     : kind === 'report' ? reportTable(data)
-    : recapTable(campaign, data)
+    : { ...recapTable(campaign, data), byPic: recapByPicTable(campaign, data) }
   const brand = campaign.brandId as unknown as { namaBrand?: string } | null
   return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null }, ...table }
 }

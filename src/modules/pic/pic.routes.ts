@@ -126,3 +126,36 @@ picAdminRouter.get('/', async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: 'Server error' })
   }
 })
+
+// AD-adjustment-6: admin baca & bandingkan balasan WA mentah PIC sebelum konfirmasi final.
+picAdminRouter.get('/:id/payment-info', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const pic = await PicUser.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+      .select('name phone paymentInfo pendingPaymentReply paymentInfoRequestedAt')
+    if (!pic) { res.status(404).json({ message: 'Not found' }); return }
+    res.json(pic)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Admin konfirmasi manual (BUKAN auto-save dari balasan WA) info bank/e-wallet final PIC.
+picAdminRouter.patch('/:id/payment-info', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { bankName, accountNumber, accountName, ewalletType, ewalletNumber } = req.body as Record<string, string | undefined>
+    const pic = await PicUser.findOneAndUpdate(
+      { _id: req.params.id, tenantId: req.auth!.tenantId },
+      {
+        paymentInfo: { bankName, accountNumber, accountName, ewalletType, ewalletNumber, updatedAt: new Date() },
+        $unset: { pendingPaymentReply: 1, paymentInfoRequestedAt: 1 },
+      },
+      { new: true }
+    )
+    if (!pic) { res.status(404).json({ message: 'Not found' }); return }
+    res.json(pic)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})

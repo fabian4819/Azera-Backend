@@ -23,6 +23,8 @@ export const WA_TRIGGERS = [
   'campaign_completed',
   'daily_progress_report',
   'broadcast_campaign',
+  // PIC (AD-adjustment-6): reuse audience 'client' -> bot 'partnership', PIC = mitra eksternal juga.
+  'pic_bank_info_request',
 ] as const
 
 export type WaTrigger = (typeof WA_TRIGGERS)[number]

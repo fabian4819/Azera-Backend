@@ -17,6 +17,7 @@ import { DEFAULT_TEMPLATES } from '../modules/whatsapp/defaultTemplates'
 import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
 import { handleInvoiceCommand } from '../modules/documents/invoiceBot.service'
 import { recordIncomingMessage, recordOutgoingMessage, backfillHistory, pauseBotForContact, findOutgoingText } from '../modules/whatsapp/waChat.service'
+import { captureIncomingPicReply } from '../modules/pic/picPayment.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
 const SENT_CACHE_MAX = 2000
@@ -258,9 +259,16 @@ class WaBot {
           }
 
           recordIncomingMessage(this.id as BotId, jid, text, { messageId: msg.key.id || undefined, name: msg.pushName || undefined, phone: phoneFromKey(jid, msg.key) }).catch((err) => console.error(`WA[${this.id}] save incoming error:`, err))
-          // Pengecekan bot-paused sekarang di dalam handleIncomingMessage (leadBot.service.ts),
-          // supaya pesan berformat template Brand tetap diproses meski nomor ini di-pause admin.
-          handleIncomingMessage(this.id as BotId, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
+          // AD-adjustment-6: balasan PIC yang sedang ditunggu (info bank/e-wallet) diserap di sini,
+          // supaya tidak nyasar ke lead bot. Kalau tidak diserap, lanjut ke pipeline lead bot seperti biasa.
+          captureIncomingPicReply(phoneFromKey(jid, msg.key) || '', text)
+            .then((captured) => {
+              if (captured) return
+              // Pengecekan bot-paused sekarang di dalam handleIncomingMessage (leadBot.service.ts),
+              // supaya pesan berformat template Brand tetap diproses meski nomor ini di-pause admin.
+              handleIncomingMessage(this.id as BotId, jid, text).catch((err) => console.error(`WA[${this.id}] bot error:`, err))
+            })
+            .catch((err) => console.error(`WA[${this.id}] pic-reply capture error:`, err))
         }
       })
 
