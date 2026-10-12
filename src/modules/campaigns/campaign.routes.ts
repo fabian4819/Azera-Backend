@@ -43,6 +43,12 @@ function generateAccessCode(): string {
   return crypto.randomBytes(4).toString('hex').toUpperCase()
 }
 
+// Role admin (beda dari owner) tidak boleh melihat budget campaign.
+function hideBudgetIfAdmin<T extends { budget?: unknown }>(req: AuthRequest, obj: T): T {
+  if (req.auth?.role === 'admin') delete obj.budget
+  return obj
+}
+
 router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -73,7 +79,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       applySlug: slugify(name),
       accessCode: generateAccessCode(),
     })
-    res.status(201).json(campaign)
+    res.status(201).json(hideBudgetIfAdmin(req, campaign.toJSON()))
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: (err as Error).message })
   }
@@ -87,7 +93,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     if (status) filter.status = status
     if (brandId) filter.brandId = brandId
     const campaigns = await Campaign.find(filter).populate('brandId', 'namaBrand').sort({ createdAt: -1 })
-    res.json(campaigns)
+    res.json(campaigns.map((c) => hideBudgetIfAdmin(req, c.toJSON())))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -102,7 +108,7 @@ router.get('/dashboard-links', async (req: AuthRequest, res: Response) => {
     const campaigns = await Campaign.find({ tenantId: req.auth!.tenantId })
       .populate('brandId', 'namaBrand')
       .sort({ createdAt: -1 })
-    res.json(campaigns)
+    res.json(campaigns.map((c) => hideBudgetIfAdmin(req, c.toJSON())))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -141,13 +147,13 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
       getCampaignTabUrl(campaign.name),
       Brand.findById(campaign.brandId).select('namaBrand'),
     ])
-    res.json({
+    res.json(hideBudgetIfAdmin(req, {
       ...campaign.toJSON(),
       brandName: brand?.namaBrand ?? null,
       masterSheetUrl,
       reportSheetUrl: env.googleSheetsReportUrl || null,
       recapPaymentSheetUrl: env.googleSheetsRecapPaymentUrl || null,
-    })
+    }))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -313,7 +319,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     }
 
 
-    res.json(campaign)
+    res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

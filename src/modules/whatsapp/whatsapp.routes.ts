@@ -45,7 +45,7 @@ bots.use((req: AuthRequest, res: Response, next) => {
 })
 
 bots.use('/contacts', (req: AuthRequest, res: Response, next) => {
-  if (req.auth?.role === 'developer') { res.status(403).json({ message: 'Inbox WhatsApp tidak tersedia untuk role developer' }); return }
+  if (req.auth?.role === 'developer' || req.auth?.role === 'admin') { res.status(403).json({ message: 'Inbox WhatsApp tidak tersedia untuk role ini' }); return }
   next()
 })
 
