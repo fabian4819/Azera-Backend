@@ -113,10 +113,10 @@ export interface ICampaign extends Document {
   infoLink?: string
   briefContent?: string
   /** AD-adjustment-5: "Brief Campaign" baru, beda dari briefContent (dipakai "Broadcast Campaign",
-   * dikirim WA ke creator). Diisi client sendiri (pilih kind) atau admin lewat tab Brief. */
+   * dikirim WA ke creator). Diisi client sendiri atau admin lewat tab Brief, campur bebas
+   * (beberapa blok teks/link/file/gambar/video sekaligus, bukan exclusive satu kind). */
   briefCampaign?: {
-    kind: 'text' | 'file' | 'image' | 'video' | 'link'
-    content: string
+    blocks: { kind: 'text' | 'file' | 'image' | 'video' | 'link'; content: string }[]
     filledBy: 'admin' | 'client'
     updatedAt: Date
   }
@@ -216,8 +216,11 @@ const CampaignSchema = new Schema<ICampaign>(
     infoLink: String,
     briefContent: String,
     briefCampaign: {
-      kind: { type: String, enum: ['text', 'file', 'image', 'video', 'link'] },
-      content: String,
+      blocks: [{
+        kind: { type: String, enum: ['text', 'file', 'image', 'video', 'link'] },
+        content: String,
+        _id: false,
+      }],
       filledBy: { type: String, enum: ['admin', 'client'] },
       updatedAt: Date,
     },

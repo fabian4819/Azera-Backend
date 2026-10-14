@@ -34,7 +34,7 @@ export interface SheetTable {
   /** Master: definisi kolom progress mentah, untuk panel Kelola Kolom */
   progressColumns?: IProgressColumn[]
   /** Recap Payment: tabel kedua, agregat per PIC (AD-adjustment-6) */
-  byPic?: { headers: string[]; rows: Cell[][]; rowIds?: string[]; totals?: Cell[] }
+  byPic?: { headers: string[]; rows: Cell[][]; rowIds?: string[]; totals?: Cell[]; columns?: ColumnMeta[] }
 }
 
 export interface ColumnMeta {
@@ -59,7 +59,7 @@ async function loadCampaignData(tenantId: Types.ObjectId | string, campaign: ICa
     Creator.find({ tenantId, _id: { $in: applications.map((a) => a.creatorId) } }).select('name phone email bankAccount npwp niches domicile socials'),
     Submission.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: -1 }),
     PicUser.find({ tenantId, _id: { $in: applications.map((a) => a.picUserId).filter(Boolean) } })
-      .select('name phone paymentInfo pendingPaymentReply paymentInfoRequestedAt'),
+      .select('name phone paymentInfo pendingPaymentReply paymentInfoRequestedAt paidCampaignIds'),
   ])
   const creatorById = new Map(creators.map((c) => [String(c._id), c]))
   const picById = new Map(pics.map((p) => [String(p._id), p.name]))
@@ -218,9 +218,12 @@ function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
   }
 }
 
-/** Tabel kedua Recap Payment (AD-adjustment-6): agregat per PIC, total fee PIC + status info bank/e-wallet. */
+/** Tabel kedua Recap Payment (AD-adjustment-6): agregat per PIC, total fee PIC + rekening/e-wallet
+ * (kolom edit langsung, generik bank-atau-e-wallet) + status bayar per campaign ini (toggle admin). */
 function recapByPicTable(campaign: ICampaign, d: CampaignData): SheetTable {
-  const headers = ['PIC', 'WhatsApp', 'Jumlah Creator', 'Total Fee PIC', 'Bank/E-Wallet', 'Status Info']
+  const headers = ['PIC', 'WhatsApp', 'Jumlah Creator', 'Total Fee PIC', 'Nama Bank/E-Wallet', 'No. Rekening/E-Wallet', 'Nama Penerima', 'Balasan WA', 'Status Pembayaran']
+  const PIC_RECAP_KEYS = ['pic', 'whatsapp', 'count', 'fee', 'methodName', 'accountNumber', 'accountName', 'waReply', 'paymentStatus']
+  const PIC_RECAP_EDITABLE = new Set(['methodName', 'accountNumber', 'accountName'])
   const picFee = campaign.fee?.picFee ?? 0
   const accepted = d.applications.filter(isFullyApproved)
   const counts = new Map<string, number>()
@@ -232,18 +235,20 @@ function recapByPicTable(campaign: ICampaign, d: CampaignData): SheetTable {
   const rows: Cell[][] = [...counts.entries()].map(([picId, count]) => {
     const pic = d.picFullById.get(picId)
     const info = pic?.paymentInfo
-    const bankInfo = info?.bankName ? `${info.bankName} · ${info.accountNumber || ''} a.n ${info.accountName || ''}`
-      : info?.ewalletType ? `${info.ewalletType} · ${info.ewalletNumber || ''}`
-        : ''
-    const status = bankInfo ? 'Terkonfirmasi' : pic?.pendingPaymentReply ? 'Perlu Konfirmasi' : pic?.paymentInfoRequestedAt ? 'Menunggu Balasan' : 'Belum Diminta'
-    return [pic?.name || '', pic?.phone || '', count, picFee * count, bankInfo, status]
+    const paid = (pic?.paidCampaignIds || []).some((id) => String(id) === String(campaign._id))
+    return [
+      pic?.name || '', pic?.phone || '', count, picFee * count,
+      info?.methodName || '', info?.accountNumber || '', info?.accountName || '',
+      pic?.pendingPaymentReply?.raw || '', paid ? 'Lunas' : 'Belum Lunas',
+    ]
   })
   const totalCreators = [...counts.values()].reduce((a, b) => a + b, 0)
   return {
     headers,
     rows,
     rowIds: [...counts.keys()],
-    totals: rows.length ? [`Total (${rows.length} PIC)`, '', totalCreators, picFee * totalCreators, '', ''] : undefined,
+    columns: PIC_RECAP_KEYS.map((key) => ({ key, access: PIC_RECAP_EDITABLE.has(key) ? 'edit' : 'view' })),
+    totals: rows.length ? [`Total (${rows.length} PIC)`, '', totalCreators, picFee * totalCreators, '', '', '', '', ''] : undefined,
   }
 }
 

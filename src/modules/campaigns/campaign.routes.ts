@@ -5,7 +5,7 @@ import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
 import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS } from './campaign.model'
-import { upload, uploadDraft } from '../../middleware/upload'
+import { upload, uploadDraft, uploadAsset } from '../../middleware/upload'
 import { writeProgressCell, appendScreenshots, CellError, ensurePortalToken, portalUrl, setPostingLink, uploadDraftFiles, reviewSubmission, appendPostScreenshots } from './progress.service'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
 import { generateCampaignInsight } from './insight.service'
@@ -238,6 +238,44 @@ router.patch('/:id/sheet/recap-cell', async (req: AuthRequest, res: Response) =>
   }
 })
 
+// Rekap per PIC: kolom rekening/e-wallet (generik bank-atau-e-wallet) edit langsung di sel.
+const PIC_RECAP_FIELDS = new Set(['methodName', 'accountNumber', 'accountName'])
+router.patch('/:id/sheet/recap-pic-cell', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { picUserId, columnKey, value } = req.body as { picUserId: string; columnKey: string; value: string }
+    if (!PIC_RECAP_FIELDS.has(columnKey)) { res.status(400).json({ message: 'Kolom ini tidak bisa diedit' }); return }
+    const pic = await PicUser.findOneAndUpdate(
+      { _id: picUserId, tenantId: req.auth!.tenantId },
+      { $set: { [`paymentInfo.${columnKey}`]: value, 'paymentInfo.updatedAt': new Date() } },
+      { new: true }
+    )
+    if (!pic) { res.status(404).json({ message: 'PIC tidak ditemukan' }); return }
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Rekap per PIC: admin tandai fee campaign ini sudah/belum dibayar ke PIC (bukan edit info rekening).
+router.patch('/:id/sheet/recap-pic-paid', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { picUserId, paid } = req.body as { picUserId: string; paid: boolean }
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    const pic = await PicUser.findOneAndUpdate(
+      { _id: picUserId, tenantId: req.auth!.tenantId },
+      paid ? { $addToSet: { paidCampaignIds: campaign._id } } : { $pull: { paidCampaignIds: campaign._id } },
+      { new: true }
+    )
+    if (!pic) { res.status(404).json({ message: 'PIC tidak ditemukan' }); return }
+    res.json({ ok: true })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 // Admin klik tombol: minta info bank/e-wallet via WA ke tiap PIC di campaign ini (AD-adjustment-6)
 router.post('/:id/recap/request-bank-info', async (req: AuthRequest, res: Response) => {
   try {
@@ -371,17 +409,55 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
 })
 
 // AD-adjustment-5: "Brief Campaign" baru (admin), beda dari briefContent/"Broadcast Campaign" di atas.
-router.patch('/:id/brief', async (req: AuthRequest, res: Response) => {
+// Campur bebas: beberapa blok teks/link/file/gambar/video sekaligus, bukan exclusive satu kind.
+router.post('/:id/brief/blocks', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const { kind, content } = req.body as { kind: string; content: string }
-    if (!['text', 'file', 'image', 'video', 'link'].includes(kind)) { res.status(400).json({ message: 'kind tidak valid' }); return }
-    const campaign = await Campaign.findOneAndUpdate(
-      { _id: req.params.id, tenantId: req.auth!.tenantId },
-      { briefCampaign: { kind, content: content || '', filledBy: 'admin', updatedAt: new Date() } },
-      { new: true }
-    )
+    const { kind, content } = req.body as { kind: 'text' | 'link'; content: string }
+    if (!['text', 'link'].includes(kind) || !content) { res.status(400).json({ message: 'kind/content tidak valid' }); return }
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    if (!campaign.briefCampaign) campaign.briefCampaign = { blocks: [], filledBy: 'admin', updatedAt: new Date() }
+    campaign.briefCampaign.blocks.push({ kind, content })
+    campaign.briefCampaign.filledBy = 'admin'
+    campaign.briefCampaign.updatedAt = new Date()
+    await campaign.save()
+    res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.post('/:id/brief/blocks/upload', uploadAsset.single('file'), async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { kind } = req.body as { kind: 'file' | 'image' | 'video' }
+    if (!['file', 'image', 'video'].includes(kind)) { res.status(400).json({ message: 'kind tidak valid' }); return }
+    const file = (req as AuthRequest & { file?: { buffer: Buffer } }).file
+    if (!file) { res.status(400).json({ message: 'File tidak ditemukan' }); return }
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    const url = await uploadToCloudinary(file.buffer, 'brief-campaign')
+    if (!campaign.briefCampaign) campaign.briefCampaign = { blocks: [], filledBy: 'admin', updatedAt: new Date() }
+    campaign.briefCampaign.blocks.push({ kind, content: url })
+    campaign.briefCampaign.filledBy = 'admin'
+    campaign.briefCampaign.updatedAt = new Date()
+    await campaign.save()
+    res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.delete('/:id/brief/blocks/:index', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const index = Number(req.params.index)
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign?.briefCampaign?.blocks[index]) { res.status(404).json({ message: 'Blok tidak ditemukan' }); return }
+    campaign.briefCampaign.blocks.splice(index, 1)
+    campaign.briefCampaign.updatedAt = new Date()
+    await campaign.save()
     res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
   } catch {
     res.status(500).json({ message: 'Server error' })

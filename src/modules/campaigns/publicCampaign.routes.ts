@@ -130,15 +130,19 @@ router.patch('/:id/client/applicants/:appId', async (req: Request, res: Response
   }
 })
 
-// AD-adjustment-5: "Brief Campaign" baru, diisi client sendiri (teks/link) lewat dashboard client.
-router.patch('/:id/client/brief', async (req: Request, res: Response) => {
+// AD-adjustment-5: "Brief Campaign" baru, diisi client sendiri lewat dashboard client.
+// Campur bebas: beberapa blok teks/link/file/gambar/video sekaligus, bukan exclusive satu kind.
+router.post('/:id/client/brief/blocks', async (req: Request, res: Response) => {
   try {
     await connectDB()
     const found = await loadBoardCampaign(req.params.id, req.body.code, 'client')
     if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
-    const { kind, content } = req.body as { kind: string; content: string }
+    const { kind, content } = req.body as { kind: 'text' | 'link'; content: string }
     if (!['text', 'link'].includes(kind) || !content) { res.status(400).json({ message: 'kind/content tidak valid' }); return }
-    found.campaign.briefCampaign = { kind, content, filledBy: 'client', updatedAt: new Date() } as ICampaign['briefCampaign']
+    if (!found.campaign.briefCampaign) found.campaign.briefCampaign = { blocks: [], filledBy: 'client', updatedAt: new Date() } as ICampaign['briefCampaign']
+    found.campaign.briefCampaign!.blocks.push({ kind, content })
+    found.campaign.briefCampaign!.filledBy = 'client'
+    found.campaign.briefCampaign!.updatedAt = new Date()
     await found.campaign.save()
     res.json({ ok: true, briefCampaign: found.campaign.briefCampaign })
   } catch {
@@ -147,17 +151,35 @@ router.patch('/:id/client/brief', async (req: Request, res: Response) => {
 })
 
 // Client isi Brief Campaign lewat file/gambar/video (AD-adjustment-5)
-router.post('/:id/client/brief/upload', uploadAsset.single('file'), async (req: Request, res: Response) => {
+router.post('/:id/client/brief/blocks/upload', uploadAsset.single('file'), async (req: Request, res: Response) => {
   try {
     await connectDB()
     const found = await loadBoardCampaign(req.params.id, req.body.code, 'client')
     if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
-    const { kind } = req.body as { kind: string }
+    const { kind } = req.body as { kind: 'file' | 'image' | 'video' }
     if (!['file', 'image', 'video'].includes(kind)) { res.status(400).json({ message: 'kind tidak valid' }); return }
     const file = (req as Request & { file?: { buffer: Buffer } }).file
     if (!file) { res.status(400).json({ message: 'File tidak ditemukan' }); return }
     const url = await uploadToCloudinary(file.buffer, 'brief-campaign')
-    found.campaign.briefCampaign = { kind, content: url, filledBy: 'client', updatedAt: new Date() } as ICampaign['briefCampaign']
+    if (!found.campaign.briefCampaign) found.campaign.briefCampaign = { blocks: [], filledBy: 'client', updatedAt: new Date() } as ICampaign['briefCampaign']
+    found.campaign.briefCampaign!.blocks.push({ kind, content: url })
+    found.campaign.briefCampaign!.filledBy = 'client'
+    found.campaign.briefCampaign!.updatedAt = new Date()
+    await found.campaign.save()
+    res.json({ ok: true, briefCampaign: found.campaign.briefCampaign })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+router.delete('/:id/client/brief/blocks/:index', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const found = await loadBoardCampaign(req.params.id, req.body.code, 'client')
+    const index = Number(req.params.index)
+    if (!found?.campaign.briefCampaign?.blocks[index]) { res.status(404).json({ message: 'Blok tidak ditemukan' }); return }
+    found.campaign.briefCampaign.blocks.splice(index, 1)
+    found.campaign.briefCampaign.updatedAt = new Date()
     await found.campaign.save()
     res.json({ ok: true, briefCampaign: found.campaign.briefCampaign })
   } catch {

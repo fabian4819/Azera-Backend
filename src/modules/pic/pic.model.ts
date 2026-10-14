@@ -15,19 +15,20 @@ export interface IPicUser extends Document {
   phone: string
   password: string
   campaignIds: Types.ObjectId[]
-  /** AD-adjustment-6: info bank/e-wallet terkonfirmasi, dipakai di Recap Payment. */
+  /** AD-adjustment-6: info rekening/e-wallet diisi admin (lewat kolom edit di Rekap per PIC),
+   * nama bank atau jenis e-wallet sama-sama ditaruh di methodName, satu set field generik. */
   paymentInfo?: {
-    bankName?: string
+    methodName?: string
     accountNumber?: string
     accountName?: string
-    ewalletType?: string
-    ewalletNumber?: string
     updatedAt?: Date
   }
-  /** Balasan WA mentah menunggu konfirmasi admin, BELUM dianggap final sampai admin konfirmasi. */
+  /** Balasan WA mentah dari PIC, referensi admin pas isi kolom paymentInfo manual (bukan auto-parse). */
   pendingPaymentReply?: { raw: string; receivedAt: Date }
   /** Kapan admin terakhir minta info bank/e-wallet lewat WA; dipakai cocokkan balasan masuk. */
   paymentInfoRequestedAt?: Date
+  /** Campaign yang fee PIC-nya sudah dibayar admin (toggle "Konfirmasi" di Rekap per PIC). */
+  paidCampaignIds: Types.ObjectId[]
   createdAt: Date
   updatedAt: Date
 }
@@ -40,11 +41,9 @@ const PicUserSchema = new Schema<IPicUser>(
     password: { type: String, required: true },
     campaignIds: [{ type: Schema.Types.ObjectId, ref: 'Campaign' }],
     paymentInfo: {
-      bankName: String,
+      methodName: String,
       accountNumber: String,
       accountName: String,
-      ewalletType: String,
-      ewalletNumber: String,
       updatedAt: Date,
     },
     pendingPaymentReply: {
@@ -52,6 +51,7 @@ const PicUserSchema = new Schema<IPicUser>(
       receivedAt: Date,
     },
     paymentInfoRequestedAt: Date,
+    paidCampaignIds: [{ type: Schema.Types.ObjectId, ref: 'Campaign' }],
   },
   { timestamps: true }
 )

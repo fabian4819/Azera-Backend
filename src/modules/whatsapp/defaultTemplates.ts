@@ -73,6 +73,6 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
   },
   pic_bank_info_request: {
     audience: 'client',
-    body: "Halo {{nama}} 👋\n\nUntuk proses pembayaran fee campaign *{{campaign}}*, mohon info rekening bank atau e-wallet ya (nama bank/e-wallet, nomor rekening/nomor e-wallet, nama pemilik). Boleh dibalas langsung di chat ini 🙏\n\nTerima kasih!",
+    body: "Halo {{nama}} 👋\n\nUntuk proses pembayaran fee campaign *{{campaign}}*, mohon isi template di bawah ini lalu balas langsung di chat ini ya 🙏\n\nNama Bank/E-Wallet: \nNo. Rekening/E-Wallet: \nNama Penerima: \n\nTerima kasih!",
   },
 }
