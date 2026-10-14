@@ -15,10 +15,8 @@ interface ISocialAccount {
 }
 
 interface IPerformanceScore {
-  reliability: number
-  performance: number
-  communication: number | null
-  quality: number
+  engagement: number
+  reach: number
   overall: number
   updatedAt: Date
 }
@@ -113,10 +111,8 @@ const CreatorSchema = new Schema<ICreator>(
     postalCode: String,
     school: String,
     performanceScore: {
-      reliability: { type: Number, default: 0 },
-      performance: { type: Number, default: 0 },
-      communication: { type: Number, default: null },
-      quality: { type: Number, default: 0 },
+      engagement: { type: Number, default: 0 },
+      reach: { type: Number, default: 0 },
       overall: { type: Number, default: 0 },
       updatedAt: { type: Date, default: Date.now },
     },
