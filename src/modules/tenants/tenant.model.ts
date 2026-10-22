@@ -8,6 +8,8 @@ export interface ITenant extends Document {
     contactEmail?: string
     /** Toggle bot balasan otomatis (leadBot) per bot, undefined dianggap aktif */
     autoReply?: { partnership?: boolean; creator?: boolean }
+    /** Kolom tambahan Rekap Keuangan yang dibuat owner. income/expense ikut dihitung ke uang masuk/keluar. */
+    financeRecapColumns?: { key: string; label: string; type: 'text' | 'income' | 'expense' }[]
   }
   createdAt: Date
   updatedAt: Date
@@ -21,6 +23,7 @@ const TenantSchema = new Schema<ITenant>(
       waNumber: String,
       contactEmail: String,
       autoReply: { partnership: Boolean, creator: Boolean },
+      financeRecapColumns: [{ _id: false, key: String, label: String, type: { type: String, enum: ['text', 'income', 'expense'] } }],
     },
   },
   { timestamps: true }

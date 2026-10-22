@@ -19,6 +19,7 @@ import talentPortalRouter from './modules/creators/talentPortal.routes'
 import submissionRouter from './modules/submissions/submission.routes'
 import invoiceRouter from './modules/finance/invoice.routes'
 import financeRecordRouter from './modules/finance/financeRecord.routes'
+import financeRecapRouter from './modules/finance/financeRecap.routes'
 import publicInvoiceRouter from './modules/finance/publicInvoice.routes'
 import importRouter from './modules/imports/import.routes'
 import documentRouter from './modules/documents/document.routes'
@@ -82,6 +83,7 @@ app.use('/api/admin/pic', picAdminRouter)
 app.use('/api/admin', submissionRouter)
 app.use('/api/admin', invoiceRouter)
 app.use('/api/admin', financeRecordRouter)
+app.use('/api/admin/finance-recap', financeRecapRouter)
 app.use('/api/invoices', publicInvoiceRouter)
 app.use('/api/admin/import', importRouter)
 
