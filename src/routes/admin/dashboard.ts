@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import { Types } from 'mongoose'
 import { connectDB } from '../../db/connect'
-import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
+import { requireAuth, requireRole, effectiveRole, AuthRequest } from '../../middleware/auth'
 import Campaign, { WORKFLOW_STAGES } from '../../modules/campaigns/campaign.model'
 import Creator from '../../modules/creators/creator.model'
 import Brand from '../../models/Brand'
@@ -18,7 +18,7 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const tenantId = req.auth!.tenantId
-    const isOwner = req.auth!.role === 'owner'
+    const isOwner = effectiveRole(req.auth!.role) === 'owner'
 
     const [activeCampaigns, totalCampaigns, totalCreators, newBrandLeads, reviewedBrandLeads, contactedBrandLeads] = await Promise.all([
       Campaign.countDocuments({ tenantId, status: 'active' }),

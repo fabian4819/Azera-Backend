@@ -1,6 +1,6 @@
 import { Router, Response } from 'express'
 import { connectDB } from '../../db/connect'
-import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
+import { requireAuth, requireRole, effectiveRole, AuthRequest } from '../../middleware/auth'
 import { renderHtmlToPdf } from '../../lib/pdf'
 import { nextDocumentNumber } from '../finance/invoiceCounter.model'
 import DocumentModel from './document.model'
@@ -15,8 +15,8 @@ router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
 
 const KINDS = Object.keys(RENDERERS) as DocKind[]
 const isKind = (v: unknown): v is DocKind => KINDS.includes(v as DocKind)
-/** Invoice = data keuangan, khusus owner; admin/finance tetap bisa Quotation & SPK. */
-const allowedKinds = (req: AuthRequest) => (req.auth!.role === 'owner' ? KINDS : KINDS.filter((k) => k !== 'invoice'))
+/** Invoice = data keuangan, khusus owner (+ developer); admin/finance tetap bisa Quotation & SPK. */
+const allowedKinds = (req: AuthRequest) => (effectiveRole(req.auth!.role) === 'owner' ? KINDS : KINDS.filter((k) => k !== 'invoice'))
 const canUse = (req: AuthRequest, type: DocKind) => allowedKinds(req).includes(type)
 const MAX_DATA_BYTES = 100 * 1024
 

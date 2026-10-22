@@ -73,8 +73,9 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
   }
 }
 
-/** Developer diperlakukan sebagai admin di semua guard role (pengecualian ditaruh per route, mis. Inbox WA). */
-export const effectiveRole = <R extends string>(role: R): R | 'admin' => (role === 'developer' ? 'admin' : role)
+/** Developer diperlakukan sebagai owner di semua guard role, termasuk data keuangan
+ * (pengecualian ditaruh per route dengan cek role mentah, mis. Inbox WA). */
+export const effectiveRole = <R extends string>(role: R): R | 'owner' => (role === 'developer' ? 'owner' : role)
 
 export function requireRole(...roles: Array<UserRole | 'creator' | 'pic'>) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
