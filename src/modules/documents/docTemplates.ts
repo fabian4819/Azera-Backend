@@ -195,6 +195,13 @@ export function invoiceCharges(d: Data): Data[] {
   return n(d.discount) > 0 ? [{ label: 'Discount', amount: -n(d.discount) }, ...rows] : rows
 }
 
+/** Baris item terisi + TOTAL INVOICE (subtotal + charges), rumus sama dengan renderInvoice. Dipakai Rekap Keuangan. */
+export function invoiceTotals(d: Data) {
+  const rows = itemRows(d, 'pdf').map(({ it, qtyN, amount }) => ({ it, qty: qtyN, unitFee: n(it.unitFee), amount }))
+  const subtotal = rows.reduce((s, r) => s + r.amount, 0)
+  return { rows, subtotal, total: subtotal + invoiceCharges(d).reduce((s, c) => s + n(c.amount), 0) }
+}
+
 export function renderInvoice(input: Data, mode: RenderMode = 'pdf'): Rendered {
   const d = { ...input, charges: invoiceCharges(input), discount: 0 }
   const P = '#4b2fc4', L = '#f1eeff', LL = '#f8f7fc', M = '#666375', INK = '#111111'
