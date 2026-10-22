@@ -3,11 +3,15 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import FinanceRecord, { IFinanceRecord } from './financeRecord.model'
 import Invoice from './invoice.model'
+import DocumentModel from '../documents/document.model'
+import { invoiceTotals } from '../documents/docTemplates'
 import Campaign from '../campaigns/campaign.model'
 import Application from '../applications/application.model'
 
 const router = Router()
-router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
+// Guard per route, bukan router.use: router ini di-mount di /api/admin, router.use akan ikut
+// menolak request admin ke router lain yang di-mount setelahnya (mis. assets).
+const ownerOnly = [requireAuth, requireRole('owner')]
 
 export function computeProfit(r: {
   revenue: number; feeCreator: number; feePic: number; feeMg: number
@@ -16,9 +20,13 @@ export function computeProfit(r: {
   return r.revenue - r.feeCreator - r.feePic - r.feeMg - r.reimburse - r.ads - r.opex
 }
 
+/** Revenue = invoice yang sudah lunas: invoice menu Document (Data Rekap → campaign ini) + invoice model lama. */
 async function computeRevenue(campaignId: string, tenantId: string): Promise<number> {
-  const invoices = await Invoice.find({ tenantId, campaignId })
-  return invoices.reduce((sum, inv) => sum + inv.total, 0)
+  const [docs, legacy] = await Promise.all([
+    DocumentModel.find({ tenantId, type: 'invoice', 'data.recap.campaignId': String(campaignId), 'data.recap.status': 'paid' }),
+    Invoice.find({ tenantId, campaignId, status: 'paid' }),
+  ])
+  return docs.reduce((sum, d) => sum + invoiceTotals(d.data).total, 0) + legacy.reduce((sum, inv) => sum + inv.total, 0)
 }
 
 const AUTO_FEES = [['feeCreator', 'creatorFee'], ['feePic', 'picFee'], ['feeMg', 'mgFee']] as const
@@ -42,16 +50,19 @@ async function syncRecord(record: IFinanceRecord, campaignId: string, tenantId: 
   for (const [k] of AUTO_FEES) if (!record.feeManual?.includes(k)) record[k] = auto.totals[k]
   record.profit = computeProfit(record)
   if (record.isModified()) await record.save()
-  return { ...record.toJSON(), auto }
+  return { ...(record.toJSON() as unknown as Pick<IFinanceRecord, 'revenue' | 'profit' | 'feeManual' | typeof EDITABLE_FEE_FIELDS[number]>), auto }
 }
 
-router.get('/campaigns/:campaignId/finance', async (req: AuthRequest, res: Response) => {
+/** FinanceRecord campaign yang sudah disinkron (dibuat kalau belum ada). Dipakai juga Rekap Keuangan. */
+export async function getCampaignFinance(campaignId: string, tenantId: string) {
+  const record = (await FinanceRecord.findOne({ tenantId, campaignId })) ?? new FinanceRecord({ tenantId, campaignId })
+  return syncRecord(record, campaignId, tenantId)
+}
+
+router.get('/campaigns/:campaignId/finance', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const tenantId = req.auth!.tenantId as string
-    const record = (await FinanceRecord.findOne({ tenantId, campaignId: req.params.campaignId }))
-      ?? new FinanceRecord({ tenantId, campaignId: req.params.campaignId })
-    res.json(await syncRecord(record, req.params.campaignId, tenantId))
+    res.json(await getCampaignFinance(req.params.campaignId, req.auth!.tenantId as string))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -59,7 +70,7 @@ router.get('/campaigns/:campaignId/finance', async (req: AuthRequest, res: Respo
 
 const EDITABLE_FEE_FIELDS = ['feeCreator', 'feePic', 'feeMg', 'reimburse', 'ads', 'opex', 'discount'] as const
 
-router.patch('/campaigns/:campaignId/finance', async (req: AuthRequest, res: Response) => {
+router.patch('/campaigns/:campaignId/finance', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const tenantId = req.auth!.tenantId as string

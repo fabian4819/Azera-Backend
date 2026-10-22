@@ -14,7 +14,8 @@ import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 
 const router = Router()
-router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
+// Guard per route (lihat financeRecord.routes.ts): router di-mount di /api/admin. Invoice khusus owner.
+const ownerOnly = [requireAuth, requireRole('owner')]
 
 /** Date → "YYYY-MM-DD" menurut WIB, format yang dipakai template dokumen */
 const ymdJakarta = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(d)
@@ -24,7 +25,7 @@ const ymdJakarta = (d: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'As
  * 24 Sep 2026, menggantikan template bot-cashflow), simpan PDF ke Cloudinary, catat pesan WA ringkasan
  * (status 'queued', pengiriman sungguhan baru aktif setelah Baileys, modul 4).
  */
-router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Response) => {
+router.post('/campaigns/:campaignId/invoices', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const campaign = await Campaign.findOne({ _id: req.params.campaignId, tenantId: req.auth!.tenantId })
@@ -98,7 +99,7 @@ router.post('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Res
   }
 })
 
-router.get('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Response) => {
+router.get('/campaigns/:campaignId/invoices', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const invoices = await Invoice.find({ tenantId: req.auth!.tenantId, campaignId: req.params.campaignId }).sort({ createdAt: -1 })
@@ -108,7 +109,7 @@ router.get('/campaigns/:campaignId/invoices', async (req: AuthRequest, res: Resp
   }
 })
 
-router.get('/invoices/:id', async (req: AuthRequest, res: Response) => {
+router.get('/invoices/:id', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const invoice = await Invoice.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
@@ -120,7 +121,7 @@ router.get('/invoices/:id', async (req: AuthRequest, res: Response) => {
 })
 
 // Admin verifikasi bukti transfer -> status Paid
-router.patch('/invoices/:id/verify', async (req: AuthRequest, res: Response) => {
+router.patch('/invoices/:id/verify', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const invoice = await Invoice.findOneAndUpdate(
