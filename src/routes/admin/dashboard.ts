@@ -5,7 +5,8 @@ import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import Campaign, { WORKFLOW_STAGES } from '../../modules/campaigns/campaign.model'
 import Creator from '../../modules/creators/creator.model'
 import Brand from '../../models/Brand'
-import Invoice from '../../modules/finance/invoice.model'
+import DocumentModel from '../../modules/documents/document.model'
+import { invoiceTotals } from '../../modules/documents/docTemplates'
 import FinanceRecord from '../../modules/finance/financeRecord.model'
 import PicUser from '../../modules/pic/pic.model'
 import { getTopCreatorsByEngagement } from '../../modules/creators/performanceScore.service'
@@ -17,6 +18,7 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const tenantId = req.auth!.tenantId
+    const isOwner = req.auth!.role === 'owner'
 
     const [activeCampaigns, totalCampaigns, totalCreators, newBrandLeads, reviewedBrandLeads, contactedBrandLeads] = await Promise.all([
       Campaign.countDocuments({ tenantId, status: 'active' }),
@@ -75,8 +77,12 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
         { $match: { tenantId: new Types.ObjectId(tenantId), status: { $ne: 'cancelled' } } },
         { $group: { _id: '$workflowStage', count: { $sum: 1 } } },
       ]),
-      Invoice.find({ tenantId, status: { $ne: 'paid' } }, { total: 1 }),
-      Invoice.countDocuments({ tenantId, status: { $in: ['sent', 'waiting_verification'] }, dueDate: { $lt: new Date() } }),
+      // Invoice menu Document yang belum ditandai Lunas (Data Rekap)
+      DocumentModel.find({ tenantId, type: 'invoice', 'data.recap.status': { $ne: 'paid' } }, { data: 1 }),
+      DocumentModel.countDocuments({
+        tenantId, type: 'invoice', 'data.recap.status': { $ne: 'paid' },
+        'data.dueDate': { $lt: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }), $gt: '' },
+      }),
       PicUser.countDocuments({ tenantId, 'paymentInfo.methodName': { $exists: false } }),
       getTopCreatorsByEngagement(tenantId),
       FinanceRecord.find({ tenantId, updatedAt: { $gte: sixMonthsAgo } }, { feeCreator: 1, feePic: 1, feeMg: 1, updatedAt: 1 }),
@@ -91,13 +97,13 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
     }))
 
     const pendingPayments = {
-      client: { count: unpaidInvoices.length, total: unpaidInvoices.reduce((sum, inv) => sum + inv.total, 0) },
+      client: { count: unpaidInvoices.length, total: unpaidInvoices.reduce((sum, d) => sum + invoiceTotals(d.data).total, 0) },
       creator: { count: pendingCreatorPaymentCount },
     }
 
     const actionItems = [
       ...(newBrandLeads > 0 ? [{ label: 'Lead brand baru belum ditindaklanjuti', count: newBrandLeads, to: '/admin/brands' }] : []),
-      ...(overdueInvoiceCount > 0 ? [{ label: 'Invoice jatuh tempo belum dibayar', count: overdueInvoiceCount, to: '/admin/documents/invoice' }] : []),
+      ...(isOwner && overdueInvoiceCount > 0 ? [{ label: 'Invoice jatuh tempo belum dibayar', count: overdueInvoiceCount, to: '/admin/documents/invoice' }] : []),
       ...(pendingCreatorPaymentCount > 0 ? [{ label: 'PIC belum konfirmasi info pembayaran', count: pendingCreatorPaymentCount, to: '/admin/campaigns' }] : []),
     ]
 
@@ -113,19 +119,19 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
     }
     const monthlyDistributedFees = Object.entries(monthBuckets).map(([month, total]) => ({ month, total }))
 
+    // Angka uang khusus owner, role lain tidak menerima field-nya sama sekali
     res.json({
       activeCampaigns,
       totalCampaigns,
-      totalDistributedFees,
+      ...(isOwner && { totalDistributedFees, monthlyDistributedFees }),
       totalCreators,
       newBrandLeads,
       brandPipeline: { new: newBrandLeads, reviewed: reviewedBrandLeads, contacted: contactedBrandLeads },
       dailyCampaigns,
       recentActivity,
       workflowFunnel,
-      pendingPayments,
+      pendingPayments: isOwner ? pendingPayments : { creator: pendingPayments.creator },
       actionItems,
-      monthlyDistributedFees,
       topCreators,
     })
   } catch (err) {
