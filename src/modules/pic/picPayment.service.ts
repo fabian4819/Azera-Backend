@@ -9,17 +9,24 @@ import { isFullyApproved } from '../../lib/sheetSync.service'
 const normPhone = (p: string) => p.replace(/\D/g, '').replace(/^0/, '62')
 
 /** AD-adjustment-6: admin klik tombol di Recap Payment, minta info bank/e-wallet ke tiap PIC
- * yang pegang creator fully-approved di campaign ini. */
-export async function requestBankInfoFromPics(tenantId: string, campaignId: string): Promise<number> {
+ * yang pegang creator fully-approved di campaign ini, atau ke satu PIC saja (picUserId). */
+export async function requestBankInfoFromPics(tenantId: string, campaignId: string, picUserId?: string): Promise<number> {
   const campaign = await Campaign.findOne({ _id: campaignId, tenantId })
   if (!campaign) throw new Error('Campaign tidak ditemukan')
-  const applications = await Application.find({ tenantId, campaignId })
-  const picIds = [...new Set(applications.filter(isFullyApproved).map((a) => a.picUserId).filter(Boolean).map(String))]
+  const applications = (await Application.find({ tenantId, campaignId })).filter(isFullyApproved)
+  const counts = new Map<string, number>()
+  for (const a of applications) if (a.picUserId) counts.set(String(a.picUserId), (counts.get(String(a.picUserId)) || 0) + 1)
+  if (picUserId && !counts.has(picUserId)) throw new Error('PIC ini tidak pegang creator di campaign ini')
+  const picIds = picUserId ? [picUserId] : [...counts.keys()]
   if (!picIds.length) return 0
   const pics = await PicUser.find({ tenantId, _id: { $in: picIds } })
   const template = await getTemplate(tenantId, 'pic_bank_info_request')
+  const picFee = campaign.fee?.picFee ?? 0
   for (const pic of pics) {
-    const payload = renderTemplate(template, { nama: pic.name, campaign: campaign.name })
+    const count = counts.get(String(pic._id)) || 0
+    const payload = renderTemplate(template, {
+      nama: pic.name, campaign: campaign.name, jumlah_creator: count, fee: `Rp${(picFee * count).toLocaleString('id-ID')}`,
+    })
     await enqueueWaMessage({ tenantId, trigger: 'pic_bank_info_request', to: pic.phone, payload, campaignId })
     pic.paymentInfoRequestedAt = new Date()
     pic.pendingPaymentReply = undefined

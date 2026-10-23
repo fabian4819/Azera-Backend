@@ -1,7 +1,7 @@
 import { Types } from 'mongoose'
 import WaTemplate from './waTemplate.model'
 import { WaTrigger, WA_TRIGGERS } from './waTemplate.model'
-import { DEFAULT_TEMPLATES } from './defaultTemplates'
+import { DEFAULT_TEMPLATES, LEGACY_DEFAULT_BODIES } from './defaultTemplates'
 
 /** Ganti placeholder {{key}} dengan value dari vars, key tidak ditemukan dibiarkan kosong */
 export function renderTemplate(body: string, vars: Record<string, string | number | undefined>): string {
@@ -17,6 +17,9 @@ export async function getTemplate(tenantId: string | Types.ObjectId, trigger: Wa
   if (!tpl) {
     const def = DEFAULT_TEMPLATES[trigger]
     tpl = await WaTemplate.create({ tenantId, trigger, audience: def.audience, body: def.body })
+  } else if (LEGACY_DEFAULT_BODIES[trigger]?.includes(tpl.body)) {
+    tpl.body = DEFAULT_TEMPLATES[trigger].body
+    await tpl.save()
   }
   return tpl.body
 }
@@ -41,6 +44,13 @@ export async function ensureAllTemplates(tenantId: string | Types.ObjectId) {
         body: DEFAULT_TEMPLATES[trigger].body,
       }))
     )
+  }
+  // Default lama yang belum pernah diedit → default terbaru (lihat LEGACY_DEFAULT_BODIES)
+  for (const t of existing) {
+    if (LEGACY_DEFAULT_BODIES[t.trigger]?.includes(t.body)) {
+      t.body = DEFAULT_TEMPLATES[t.trigger].body
+      await t.save()
+    }
   }
   return WaTemplate.find({ tenantId }).sort({ audience: 1, trigger: 1 })
 }

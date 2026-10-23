@@ -280,7 +280,9 @@ router.patch('/:id/sheet/recap-pic-paid', async (req: AuthRequest, res: Response
 router.post('/:id/recap/request-bank-info', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const count = await requestBankInfoFromPics(req.auth!.tenantId as string, req.params.id)
+    // Body { picUserId } = kirim ke satu PIC saja; kosong = semua PIC campaign ini
+    const picUserId = typeof req.body?.picUserId === 'string' && req.body.picUserId ? req.body.picUserId : undefined
+    const count = await requestBankInfoFromPics(req.auth!.tenantId as string, req.params.id, picUserId)
     res.json({ ok: true, count })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Server error'

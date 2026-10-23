@@ -73,6 +73,17 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
   },
   pic_bank_info_request: {
     audience: 'client',
-    body: "Halo {{nama}} 👋\n\nUntuk proses pembayaran fee campaign *{{campaign}}*, mohon isi template di bawah ini lalu balas langsung di chat ini ya 🙏\n\nNama Bank/E-Wallet: \nNo. Rekening/E-Wallet: \nNama Penerima: \n\nTerima kasih!",
+    body: "Halo {{nama}} 👋\n\nUntuk pembayaran fee PIC campaign *{{campaign}}* ({{jumlah_creator}} creator, total {{fee}}), mohon salin pesan di bawah, isi, lalu kirim balik di chat ini ya 🙏\n\nNama Bank/E-Wallet: \nNo. Rekening/E-Wallet: \nNama Penerima: \n\nTerima kasih!",
   },
+}
+
+/**
+ * Default lama yang sudah tersimpan di DB tenant. Template yang isinya PERSIS sama (belum pernah diedit admin)
+ * di-upgrade otomatis ke default terbaru; yang sudah diedit tidak disentuh.
+ */
+export const LEGACY_DEFAULT_BODIES: Partial<Record<WaTrigger, string[]>> = {
+  pic_bank_info_request: [
+    "Halo {{nama}} 👋\n\nUntuk proses pembayaran fee campaign *{{campaign}}*, mohon info rekening bank atau e-wallet ya (nama bank/e-wallet, nomor rekening/nomor e-wallet, nama pemilik). Boleh dibalas langsung di chat ini 🙏\n\nTerima kasih!",
+    "Halo {{nama}} 👋\n\nUntuk proses pembayaran fee campaign *{{campaign}}*, mohon isi template di bawah ini lalu balas langsung di chat ini ya 🙏\n\nNama Bank/E-Wallet: \nNo. Rekening/E-Wallet: \nNama Penerima: \n\nTerima kasih!",
+  ],
 }
