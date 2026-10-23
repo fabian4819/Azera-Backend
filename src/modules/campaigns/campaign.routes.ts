@@ -19,6 +19,7 @@ import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
 import { requestBankInfoFromPics } from '../pic/picPayment.service'
+import { parseBriefBlocks, setBrief, uploadKind } from './briefBlocks'
 import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
@@ -410,59 +411,33 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
   }
 })
 
-// AD-adjustment-5: "Brief Campaign" baru (admin), beda dari briefContent/"Broadcast Campaign" di atas.
-// Campur bebas: beberapa blok teks/link/file/gambar/video sekaligus, bukan exclusive satu kind.
-router.post('/:id/brief/blocks', async (req: AuthRequest, res: Response) => {
+// AD-adjustment-5: "Brief Campaign" (admin), beda dari briefContent/"Broadcast Campaign" di atas.
+// Satu dokumen ala Notion (lihat briefBlocks.ts): editor autosave seluruh isi, upload cuma balikin URL.
+router.put('/:id/brief', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const { kind, content } = req.body as { kind: 'text' | 'link'; content: string }
-    if (!['text', 'link'].includes(kind) || !content) { res.status(400).json({ message: 'kind/content tidak valid' }); return }
+    const blocks = parseBriefBlocks(req.body?.blocks)
+    if (!blocks) { res.status(400).json({ message: 'Isi brief tidak valid' }); return }
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
-    if (!campaign.briefCampaign) campaign.briefCampaign = { blocks: [], filledBy: 'admin', updatedAt: new Date() }
-    campaign.briefCampaign.blocks.push({ kind, content })
-    campaign.briefCampaign.filledBy = 'admin'
-    campaign.briefCampaign.updatedAt = new Date()
+    setBrief(campaign, blocks, 'admin')
     await campaign.save()
-    res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
+    res.json({ briefCampaign: campaign.briefCampaign })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
 })
 
-router.post('/:id/brief/blocks/upload', uploadAsset.single('file'), async (req: AuthRequest, res: Response) => {
+router.post('/:id/brief/upload', uploadAsset.single('file'), async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const { kind } = req.body as { kind: 'file' | 'image' | 'video' }
-    if (!['file', 'image', 'video'].includes(kind)) { res.status(400).json({ message: 'kind tidak valid' }); return }
-    const file = (req as AuthRequest & { file?: { buffer: Buffer } }).file
+    const file = (req as AuthRequest & { file?: { buffer: Buffer; mimetype: string } }).file
     if (!file) { res.status(400).json({ message: 'File tidak ditemukan' }); return }
-    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
-    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    if (!(await Campaign.exists({ _id: req.params.id, tenantId: req.auth!.tenantId }))) { res.status(404).json({ message: 'Not found' }); return }
     const url = await uploadToCloudinary(file.buffer, 'brief-campaign')
-    if (!campaign.briefCampaign) campaign.briefCampaign = { blocks: [], filledBy: 'admin', updatedAt: new Date() }
-    campaign.briefCampaign.blocks.push({ kind, content: url })
-    campaign.briefCampaign.filledBy = 'admin'
-    campaign.briefCampaign.updatedAt = new Date()
-    await campaign.save()
-    res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
+    res.json({ url, kind: uploadKind(file.mimetype) })
   } catch {
-    res.status(500).json({ message: 'Server error' })
-  }
-})
-
-router.delete('/:id/brief/blocks/:index', async (req: AuthRequest, res: Response) => {
-  try {
-    await connectDB()
-    const index = Number(req.params.index)
-    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
-    if (!campaign?.briefCampaign?.blocks[index]) { res.status(404).json({ message: 'Blok tidak ditemukan' }); return }
-    campaign.briefCampaign.blocks.splice(index, 1)
-    campaign.briefCampaign.updatedAt = new Date()
-    await campaign.save()
-    res.json(hideBudgetIfAdmin(req, campaign.toJSON()))
-  } catch {
-    res.status(500).json({ message: 'Server error' })
+    res.status(500).json({ message: 'Gagal upload' })
   }
 })
 
