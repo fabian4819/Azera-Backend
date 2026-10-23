@@ -5,7 +5,7 @@ import Submission, { ISubmission } from '../submissions/submission.model'
 import Creator, { ICreator } from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
 import '../../models/Brand' // daftarkan model untuk populate('brandId')
-import { campaignSheetColumns, campaignSheetRow, creatorAccess, progressKind, CellKind, SheetColumn, BASE_SUBMISSION_COLUMNS, isFullyApproved } from '../../lib/sheetSync.service'
+import { campaignSheetColumns, campaignSheetRow, creatorAccess, progressKind, CellKind, SheetColumn, BASE_SUBMISSION_COLUMNS, isFullyApproved, paymentStatusLabel } from '../../lib/sheetSync.service'
 import { portalUrl } from './progress.service'
 
 /**
@@ -190,6 +190,9 @@ function reportTable(d: CampaignData): SheetTable {
 /** 1 baris per creator yang fully-approved (admin + client, AD-adjustment-4), data transfer fee + status
  * bayar. PIC & Handle By ditambah (AD-adjustment-6); seluruh tab ini admin/owner-editable lewat
  * PATCH /:id/sheet/recap-cell (lihat campaign.routes.ts), rowIds dipakai untuk itu. */
+/** Ringkasan baris total kolom Status Pembayaran, sama untuk tab Creator & Rekap per PIC */
+const paidSummary = (paid: number, total: number) => `${paid} ${paymentStatusLabel(true)} · ${total - paid} ${paymentStatusLabel(false)}`
+
 function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
   const headers = ['Creator', 'WhatsApp', 'PIC', 'Handle By', 'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP', 'Fee Creator', 'Balasan WA', 'Status Pembayaran']
   const fee = campaign.fee?.creatorFee ?? 0
@@ -204,7 +207,7 @@ function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
       c?.npwp || '',
       fee || '',
       c?.pendingPaymentReply?.raw || '',
-      a.creatorPaymentStatus === 'paid' ? 'Lunas' : 'Belum Lunas',
+      paymentStatusLabel(a.creatorPaymentStatus === 'paid'),
     ]
   })
   const paid = accepted.filter((a) => a.creatorPaymentStatus === 'paid').length
@@ -215,7 +218,7 @@ function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
     rows,
     rowIds: accepted.map((a) => String(a._id)),
     columns: RECAP_KEYS.map((key) => ({ key, access: RECAP_EDITABLE.has(key) ? 'edit' : 'view' })),
-    totals: rows.length ? [`Total (${rows.length} creator)`, '', '', '', '', '', '', '', fee * rows.length, '', `${paid} Lunas · ${rows.length - paid} Belum Lunas`] : undefined,
+    totals: rows.length ? [`Total (${rows.length} creator)`, '', '', '', '', '', '', '', fee * rows.length, '', paidSummary(paid, rows.length)] : undefined,
   }
 }
 
@@ -240,16 +243,17 @@ function recapByPicTable(campaign: ICampaign, d: CampaignData): SheetTable {
     return [
       pic?.name || '', pic?.phone || '', count, picFee * count,
       info?.methodName || '', info?.accountNumber || '', info?.accountName || '',
-      pic?.pendingPaymentReply?.raw || '', paid ? 'Lunas' : 'Belum Lunas',
+      pic?.pendingPaymentReply?.raw || '', paymentStatusLabel(paid),
     ]
   })
   const totalCreators = [...counts.values()].reduce((a, b) => a + b, 0)
+  const paidPics = rows.filter((r) => r[r.length - 1] === paymentStatusLabel(true)).length
   return {
     headers,
     rows,
     rowIds: [...counts.keys()],
     columns: PIC_RECAP_KEYS.map((key) => ({ key, access: PIC_RECAP_EDITABLE.has(key) ? 'edit' : 'view' })),
-    totals: rows.length ? [`Total (${rows.length} PIC)`, '', totalCreators, picFee * totalCreators, '', '', '', '', ''] : undefined,
+    totals: rows.length ? [`Total (${rows.length} PIC)`, '', totalCreators, picFee * totalCreators, '', '', '', '', paidSummary(paidPics, rows.length)] : undefined,
   }
 }
 

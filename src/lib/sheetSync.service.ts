@@ -13,6 +13,9 @@ import { env } from '../config/env'
 
 /** AD-adjustment-4: baru lolos ke Campaign Tracker + master sheet kalau admin (status) DAN
  * client (clientApprovalStatus) sama-sama 'accepted'. */
+/** Label status bayar yang sama di Recap Payment (tab Creator & Rekap per PIC) dan Google Sheets */
+export const paymentStatusLabel = (paid: boolean) => (paid ? 'Lunas' : 'Belum Lunas')
+
 export function isFullyApproved(a: Pick<IApplication, 'status' | 'clientApprovalStatus'>): boolean {
   return a.status === 'accepted' && a.clientApprovalStatus === 'accepted'
 }
@@ -246,7 +249,7 @@ export function campaignSheetRow(
     creator?.phone || '',
     application.status,
     application.curationResult,
-    application.creatorPaymentStatus,
+    paymentStatusLabel(application.creatorPaymentStatus === 'paid'),
     fmtDateISO(application.createdAt),
     draftFiles(draft).join(' '),
     draft?.status || '',
