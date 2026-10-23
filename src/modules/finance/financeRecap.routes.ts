@@ -182,7 +182,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     const ws = wb.addWorksheet('Rekap Keuangan')
     const RP = '"Rp"#,##0;-"Rp"#,##0'
     const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'SOW', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
-      'Total Payment', 'Invoice', 'Status', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Reimburse', 'Ads', 'Opex',
+      'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Reimburse', 'Ads', 'Opex',
       'Uang Keluar', 'Profit', 'Margin (%)', 'Catatan Talent']
     ws.addRow([`Rekap Keuangan ${range.from || 'awal'} s/d ${range.to || 'sekarang'}`]).font = { bold: true, size: 13 }
     ws.addRow([`Uang Masuk ${totals.income} · Uang Keluar ${totals.expense} · Profit ${totals.profit} · Piutang ${totals.receivable}`])
@@ -193,7 +193,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     // Kolom per grup (di-merge vertikal) vs per item SOW
     const ITEM_COLS = new Set([6, 7, 8, 9, 10])
     // Fee/Talent, Total, Total Payment, kolom tambahan uang, Fee Creator s/d Profit (8 kolom)
-    const moneyCols = [9, 10, 11, ...columns.flatMap((c, i) => (c.type === 'text' ? [] : [14 + i])), ...Array.from({ length: 8 }, (_, i) => 14 + columns.length + i)]
+    const moneyCols = [9, 10, 11, ...columns.flatMap((c, i) => (c.type === 'text' ? [] : [15 + i])), ...Array.from({ length: 8 }, (_, i) => 15 + columns.length + i)]
     for (const g of groups) {
       const items = g.items.length ? g.items : [null]
       const e = g.expense
@@ -201,7 +201,8 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
         g.campaign, g.company, g.contact, g.runningMonth, g.mastersheetUrl,
         null, null, null, null, null,
         g.totalInvoice, g.invoices.map((i) => i.number).join('\n'),
-        g.invoices.map((i) => (i.paid ? `Lunas ${i.paidAt}` : i.overdue ? `Jatuh tempo ${i.dueDate}` : 'Belum Lunas')).join('\n'),
+        g.invoices.map((i) => (i.paid ? `Lunas ${i.paidAt}` : 'Belum Lunas')).join('\n'),
+        g.invoices.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '-')).join('\n'),
         ...columns.map((c) => g.custom[c.key] ?? ''),
         e.feeCreator, e.feePic, e.feeMg, e.reimburse, e.ads, e.opex, e.total, g.profit, g.margin ?? '', g.talentWarning,
       ]
@@ -230,7 +231,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
   }
 })
 
-/** Ubah Data Rekap satu invoice (status lunas, campaign, bulan running, kolom tambahan). Field yang tidak dikirim tetap. */
+/** Ubah Data Rekap satu invoice (status lunas, jatuh tempo, campaign, bulan running, kolom tambahan). Field yang tidak dikirim tetap. */
 router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -239,6 +240,7 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
     if (!doc) { res.status(404).json({ message: 'Invoice tidak ditemukan' }); return }
     const body = req.body as Record<string, unknown>
     const recap: InvoiceRecap = { ...((doc.data.recap || {}) as InvoiceRecap) }
+    const extra: Record<string, unknown> = {}
 
     if ('status' in body) {
       if (body.status !== 'paid' && body.status !== 'unpaid') { res.status(400).json({ message: 'status tidak valid' }); return }
@@ -250,6 +252,12 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
       const v = str(body.paidAt)
       if (v && !YMD.test(v)) { res.status(400).json({ message: 'paidAt harus YYYY-MM-DD' }); return }
       if (v) recap.paidAt = v
+    }
+    // Jatuh tempo = field invoice itu sendiri (ikut tercetak di PDF), bukan bagian data.recap
+    if ('dueDate' in body) {
+      const v = str(body.dueDate)
+      if (v && !YMD.test(v)) { res.status(400).json({ message: 'dueDate harus YYYY-MM-DD' }); return }
+      extra.dueDate = v
     }
     if ('runningMonth' in body) {
       const v = str(body.runningMonth)
@@ -273,10 +281,10 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
       recap.custom = custom
     }
 
-    doc.data = { ...doc.data, recap }
+    doc.data = { ...doc.data, ...extra, recap }
     doc.markModified('data')
     await doc.save()
-    res.json({ _id: doc._id, recap })
+    res.json({ _id: doc._id, recap, dueDate: doc.data.dueDate ?? '' })
   } catch {
     res.status(500).json({ message: 'Gagal menyimpan data rekap' })
   }
