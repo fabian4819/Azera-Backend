@@ -25,6 +25,8 @@ export const WA_TRIGGERS = [
   'broadcast_campaign',
   // PIC (AD-adjustment-6): reuse audience 'client' -> bot 'partnership', PIC = mitra eksternal juga.
   'pic_bank_info_request',
+  // Recap Payment tab Creator: minta info rekening ke creator (bot creator)
+  'creator_bank_info_request',
 ] as const
 
 export type WaTrigger = (typeof WA_TRIGGERS)[number]

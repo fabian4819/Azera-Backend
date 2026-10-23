@@ -56,7 +56,7 @@ const sum = (rows: Cell[][], col: number) => rows.reduce((acc, r) => acc + (type
 async function loadCampaignData(tenantId: Types.ObjectId | string, campaign: ICampaign) {
   const applications = await Application.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: 1 })
   const [creators, submissions, pics] = await Promise.all([
-    Creator.find({ tenantId, _id: { $in: applications.map((a) => a.creatorId) } }).select('name phone email bankAccount npwp niches domicile socials'),
+    Creator.find({ tenantId, _id: { $in: applications.map((a) => a.creatorId) } }).select('name phone email bankAccount npwp niches domicile socials pendingPaymentReply'),
     Submission.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: -1 }),
     PicUser.find({ tenantId, _id: { $in: applications.map((a) => a.picUserId).filter(Boolean) } })
       .select('name phone paymentInfo pendingPaymentReply paymentInfoRequestedAt paidCampaignIds'),
@@ -191,7 +191,7 @@ function reportTable(d: CampaignData): SheetTable {
  * bayar. PIC & Handle By ditambah (AD-adjustment-6); seluruh tab ini admin/owner-editable lewat
  * PATCH /:id/sheet/recap-cell (lihat campaign.routes.ts), rowIds dipakai untuk itu. */
 function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
-  const headers = ['Creator', 'WhatsApp', 'PIC', 'Handle By', 'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP', 'Fee Creator', 'Status Pembayaran']
+  const headers = ['Creator', 'WhatsApp', 'PIC', 'Handle By', 'Nama Bank', 'No. Rekening', 'Nama Pemilik Rekening', 'NPWP', 'Fee Creator', 'Balasan WA', 'Status Pembayaran']
   const fee = campaign.fee?.creatorFee ?? 0
   const accepted = d.applications.filter(isFullyApproved)
   const rows: Cell[][] = accepted.map((a) => {
@@ -203,18 +203,19 @@ function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
       c?.bankAccount?.bankName || '', c?.bankAccount?.accountNumber || '', c?.bankAccount?.accountName || '',
       c?.npwp || '',
       fee || '',
-      a.creatorPaymentStatus,
+      c?.pendingPaymentReply?.raw || '',
+      a.creatorPaymentStatus === 'paid' ? 'Lunas' : 'Belum Lunas',
     ]
   })
   const paid = accepted.filter((a) => a.creatorPaymentStatus === 'paid').length
-  const RECAP_KEYS = ['creator', 'whatsapp', 'pic', 'handleBy', 'bankName', 'accountNumber', 'accountName', 'npwp', 'fee', 'paymentStatus']
+  const RECAP_KEYS = ['creator', 'whatsapp', 'pic', 'handleBy', 'bankName', 'accountNumber', 'accountName', 'npwp', 'fee', 'waReply', 'paymentStatus']
   const RECAP_EDITABLE = new Set(['handleBy', 'bankName', 'accountNumber', 'accountName', 'npwp'])
   return {
     headers,
     rows,
     rowIds: accepted.map((a) => String(a._id)),
     columns: RECAP_KEYS.map((key) => ({ key, access: RECAP_EDITABLE.has(key) ? 'edit' : 'view' })),
-    totals: rows.length ? [`Total (${rows.length} creator)`, '', '', '', '', '', '', '', fee * rows.length, `${paid} paid · ${rows.length - paid} unpaid`] : undefined,
+    totals: rows.length ? [`Total (${rows.length} creator)`, '', '', '', '', '', '', '', fee * rows.length, '', `${paid} Lunas · ${rows.length - paid} Belum Lunas`] : undefined,
   }
 }
 

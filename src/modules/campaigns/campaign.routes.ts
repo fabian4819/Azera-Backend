@@ -19,6 +19,7 @@ import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
 import { requestBankInfoFromPics } from '../pic/picPayment.service'
+import { markPicCreatorsPaid, requestBankInfoFromCreators } from '../applications/creatorPayment.service'
 import { parseBriefBlocks, setBrief, uploadKind } from './briefBlocks'
 import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
@@ -271,13 +272,28 @@ router.patch('/:id/sheet/recap-pic-paid', async (req: AuthRequest, res: Response
       { new: true }
     )
     if (!pic) { res.status(404).json({ message: 'PIC tidak ditemukan' }); return }
-    res.json({ ok: true })
+    // PIC Lunas → creator di bawahnya ikut Lunas. Batal Lunas tidak menarik balik status creator
+    // (creator bisa saja sudah dibayar terpisah), ubah per creator kalau perlu.
+    const creatorsMarkedPaid = paid ? await markPicCreatorsPaid(req.auth!.tenantId!, campaign._id, pic._id) : 0
+    res.json({ ok: true, creatorsMarkedPaid })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
 })
 
 // Admin klik tombol: minta info bank/e-wallet via WA ke tiap PIC di campaign ini (AD-adjustment-6)
+// Minta info rekening via WA (bot creator) ke semua creator Recap Payment, atau satu creator (applicationId)
+router.post('/:id/recap/request-creator-bank-info', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const applicationId = typeof req.body?.applicationId === 'string' && req.body.applicationId ? req.body.applicationId : undefined
+    const count = await requestBankInfoFromCreators(req.auth!.tenantId as string, req.params.id, applicationId)
+    res.json({ ok: true, count })
+  } catch (err) {
+    res.status(400).json({ message: err instanceof Error ? err.message : 'Server error' })
+  }
+})
+
 router.post('/:id/recap/request-bank-info', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()

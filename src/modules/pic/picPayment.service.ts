@@ -1,4 +1,5 @@
 import PicUser from './pic.model'
+import Creator from '../creators/creator.model'
 import Application from '../applications/application.model'
 import Campaign from '../campaigns/campaign.model'
 import { getDefaultTenant } from '../tenants/defaultTenant'
@@ -40,6 +41,23 @@ export async function requestBankInfoFromPics(tenantId: string, campaignId: stri
  * sampai admin konfirmasi manual (lihat confirmPaymentInfo di pic.routes.ts). Return true kalau
  * pesan ini "diserap" di sini (caller harus skip pipeline lain untuk pesan ini). */
 export async function captureIncomingPicReply(phone: string, text: string): Promise<boolean> {
+  return (await capturePic(phone, text)) || (await captureCreator(phone, text))
+}
+
+/** Balasan creator atas permintaan info rekening (Recap Payment tab Creator), disimpan mentah. Hanya 7 hari
+ * setelah permintaan, supaya chat creator berikutnya tetap masuk ke bot creator seperti biasa. */
+const CREATOR_REPLY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
+async function captureCreator(phone: string, text: string): Promise<boolean> {
+  const tenant = await getDefaultTenant()
+  const pending = await Creator.find({ tenantId: tenant._id, paymentInfoRequestedAt: { $gte: new Date(Date.now() - CREATOR_REPLY_WINDOW_MS) } }).select('phone pendingPaymentReply')
+  const target = normPhone(phone)
+  const creator = pending.find((c) => c.phone && normPhone(c.phone) === target)
+  if (!creator) return false
+  await Creator.updateOne({ _id: creator._id }, { $set: { pendingPaymentReply: { raw: text, receivedAt: new Date() } } })
+  return true
+}
+
+async function capturePic(phone: string, text: string): Promise<boolean> {
   const tenant = await getDefaultTenant()
   const pending = await PicUser.find({ tenantId: tenant._id, paymentInfoRequestedAt: { $exists: true, $ne: null } })
   const target = normPhone(phone)

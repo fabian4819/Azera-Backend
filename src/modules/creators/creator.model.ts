@@ -42,6 +42,10 @@ export interface ICreator extends Document {
   contentStyles: string[]
   contentStyleOther?: string
   bankAccount?: { bankName: string; accountNumber: string; accountName: string }
+  /** Balasan WA mentah atas permintaan info rekening (Recap Payment), referensi admin isi kolom rekening manual */
+  pendingPaymentReply?: { raw: string; receivedAt: Date }
+  /** Kapan admin terakhir minta info rekening lewat WA; dipakai cocokkan balasan masuk */
+  paymentInfoRequestedAt?: Date
   npwp?: string
   /** AD-49: estimasi rate 1x video posting, sebagai referensi awal, bukan kesepakatan final */
   rateEstimateType?: 'nominal' | 'unknown'
@@ -100,6 +104,8 @@ const CreatorSchema = new Schema<ICreator>(
       accountNumber: String,
       accountName: String,
     },
+    pendingPaymentReply: { raw: String, receivedAt: Date },
+    paymentInfoRequestedAt: Date,
     npwp: String,
     rateEstimateType: { type: String, enum: ['nominal', 'unknown'] },
     rateEstimateAmount: Number,
