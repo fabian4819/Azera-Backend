@@ -9,6 +9,7 @@ import DocumentModel from '../../modules/documents/document.model'
 import { invoiceTotals } from '../../modules/documents/docTemplates'
 import FinanceRecord from '../../modules/finance/financeRecord.model'
 import PicUser from '../../modules/pic/pic.model'
+import Application from '../../modules/applications/application.model'
 import { getTopCreatorsByEngagement } from '../../modules/creators/performanceScore.service'
 
 const router = Router()
@@ -96,9 +97,34 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
       count: (workflowCounts.find((w) => w._id === stage) as { count: number } | undefined)?.count || 0,
     }))
 
+    // Fee belum dibayar ke creator & PIC (creator fully-approved, sama dengan Recap Payment)
+    const [approvedApps, picsForPayout] = await Promise.all([
+      Application.find({ tenantId, status: 'accepted', clientApprovalStatus: 'accepted' }, { campaignId: 1, picUserId: 1, creatorPaymentStatus: 1 }),
+      PicUser.find({ tenantId }, { paidCampaignIds: 1 }),
+    ])
+    const feeCampaigns = await Campaign.find({ tenantId, _id: { $in: [...new Set(approvedApps.map((a) => String(a.campaignId)))] }, status: { $ne: 'cancelled' } }, { fee: 1 })
+    const feeOf = new Map(feeCampaigns.map((c) => [String(c._id), c.fee]))
+    const paidPic = new Set(picsForPayout.flatMap((p) => (p.paidCampaignIds || []).map((cid) => `${p._id}:${cid}`)))
+    const creatorPayout = { count: 0, total: 0 }
+    const picPayoutPairs = new Map<string, number>() // "picId:campaignId" → jumlah creator
+    for (const a of approvedApps) {
+      const fee = feeOf.get(String(a.campaignId))
+      if (!fee) continue // campaign dibatalkan / terhapus
+      if (a.creatorPaymentStatus !== 'paid') { creatorPayout.count++; creatorPayout.total += fee.creatorFee || 0 }
+      const pair = `${a.picUserId}:${a.campaignId}`
+      if (a.picUserId && !paidPic.has(pair)) picPayoutPairs.set(pair, (picPayoutPairs.get(pair) || 0) + 1)
+    }
+    const picPayout = {
+      count: new Set([...picPayoutPairs.keys()].map((k) => k.split(':')[0])).size,
+      total: [...picPayoutPairs.entries()].reduce((s, [k, n]) => s + (feeOf.get(k.split(':')[1])?.picFee || 0) * n, 0),
+    }
+
     const pendingPayments = {
       client: { count: unpaidInvoices.length, total: unpaidInvoices.reduce((sum, d) => sum + invoiceTotals(d.data).total, 0) },
       creator: { count: pendingCreatorPaymentCount },
+      /** Creator / PIC yang fee-nya belum ditandai Lunas di Recap Payment */
+      creatorPayout,
+      picPayout,
     }
 
     const actionItems = [
@@ -130,7 +156,10 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
       dailyCampaigns,
       recentActivity,
       workflowFunnel,
-      pendingPayments: isOwner ? pendingPayments : { creator: pendingPayments.creator },
+      pendingPayments: isOwner ? pendingPayments : {
+        creator: pendingPayments.creator,
+        creatorPayout: { count: creatorPayout.count }, picPayout: { count: picPayout.count },
+      },
       actionItems,
       topCreators,
     })
