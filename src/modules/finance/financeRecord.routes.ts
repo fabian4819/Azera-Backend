@@ -20,10 +20,10 @@ export function computeProfit(r: {
   return r.revenue - r.feeCreator - r.feePic - r.feeMg - r.reimburse - r.ads - r.opex
 }
 
-/** Revenue = invoice yang sudah lunas: invoice menu Document (Data Rekap → campaign ini) + invoice model lama. */
+/** Revenue = invoice yang sudah lunas (yang disembunyikan dari Rekap Keuangan tidak dihitung): invoice menu Document (Data Rekap → campaign ini) + invoice model lama. */
 async function computeRevenue(campaignId: string, tenantId: string): Promise<number> {
   const [docs, legacy] = await Promise.all([
-    DocumentModel.find({ tenantId, type: 'invoice', 'data.recap.campaignId': String(campaignId), 'data.recap.status': 'paid' }),
+    DocumentModel.find({ tenantId, type: 'invoice', 'data.recap.campaignId': String(campaignId), 'data.recap.status': 'paid', 'data.recap.hidden': { $ne: true } }),
     Invoice.find({ tenantId, campaignId, status: 'paid' }),
   ])
   return docs.reduce((sum, d) => sum + invoiceTotals(d.data).total, 0) + legacy.reduce((sum, inv) => sum + inv.total, 0)

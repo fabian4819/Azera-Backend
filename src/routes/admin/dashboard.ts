@@ -78,9 +78,9 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
         { $group: { _id: '$workflowStage', count: { $sum: 1 } } },
       ]),
       // Invoice menu Document yang belum ditandai Lunas (Data Rekap)
-      DocumentModel.find({ tenantId, type: 'invoice', 'data.recap.status': { $ne: 'paid' } }, { data: 1 }),
+      DocumentModel.find({ tenantId, type: 'invoice', 'data.recap.status': { $ne: 'paid' }, 'data.recap.hidden': { $ne: true } }, { data: 1 }),
       DocumentModel.countDocuments({
-        tenantId, type: 'invoice', 'data.recap.status': { $ne: 'paid' },
+        tenantId, type: 'invoice', 'data.recap.status': { $ne: 'paid' }, 'data.recap.hidden': { $ne: true },
         'data.dueDate': { $lt: new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' }), $gt: '' },
       }),
       PicUser.countDocuments({ tenantId, 'paymentInfo.methodName': { $exists: false } }),

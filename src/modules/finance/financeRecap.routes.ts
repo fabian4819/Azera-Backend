@@ -26,6 +26,8 @@ export interface InvoiceRecap {
   campaignId?: string
   runningMonth?: string
   custom?: Record<string, string | number>
+  /** Disembunyikan dari rekap (tidak ikut total/export), bisa dipulihkan. Invoice-nya tetap ada. */
+  hidden?: boolean
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -50,10 +52,11 @@ export interface RecapGroup {
   profit: number; margin: number | null
   /** Creator fully-approved di campaign vs talent di invoice; talentWarning terisi kalau tidak cocok */
   approvedCreators: number | null; talentWarning: string
+  hidden: boolean
 }
 
 /** Rekap per campaign untuk periode tanggal invoice [from, to] (YYYY-MM-DD, opsional). Dipakai GET / dan export. */
-async function buildRecap(tenantId: string, from: string, to: string) {
+async function buildRecap(tenantId: string, from: string, to: string, showHidden = false) {
   // Periode = tanggal invoice (data.issueDate, string YYYY-MM-DD → perbandingan string aman)
   const filter: Record<string, unknown> = { tenantId, type: 'invoice' }
   if (from || to) filter['data.issueDate'] = { ...(from && { $gte: from }), ...(to && { $lte: to }) }
@@ -67,11 +70,14 @@ async function buildRecap(tenantId: string, from: string, to: string) {
   const today = todayJakarta()
   const groups = new Map<string, RecapGroup>()
 
+  const hiddenCount = docs.filter((d) => (d.data.recap as InvoiceRecap | undefined)?.hidden).length
   for (const doc of docs) {
     const d = doc.data
     const recap = (d.recap || {}) as InvoiceRecap
+    if (recap.hidden && !showHidden) continue
     const cid = campaignName.has(str(recap.campaignId)) ? str(recap.campaignId) : null
-    const key = cid || String(doc._id)
+    // Invoice tersembunyi dikelompokkan terpisah supaya tidak tercampur dengan grup yang dihitung
+    const key = `${recap.hidden ? 'hidden:' : ''}${cid || String(doc._id)}`
     const billTo = (d.billTo || {}) as Record<string, unknown>
     let g = groups.get(key)
     if (!g) {
@@ -88,6 +94,7 @@ async function buildRecap(tenantId: string, from: string, to: string) {
         },
         profit: 0, margin: null,
         approvedCreators: fin ? fin.auto.acceptedCount : null, talentWarning: '',
+        hidden: !!recap.hidden,
       }
       groups.set(key, g)
     }
@@ -122,7 +129,8 @@ async function buildRecap(tenantId: string, from: string, to: string) {
     g.talentWarning = talentWarning(g)
     return g
   })
-  const sum = (f: (g: RecapGroup) => number) => list.reduce((s, g) => s + f(g), 0)
+  const counted = list.filter((g) => !g.hidden)
+  const sum = (f: (g: RecapGroup) => number) => counted.reduce((s, g) => s + f(g), 0)
   const income = sum((g) => g.income), expense = sum((g) => g.expense.total)
   return {
     columns,
@@ -132,8 +140,9 @@ async function buildRecap(tenantId: string, from: string, to: string) {
       margin: income > 0 ? Math.round(((income - expense) / income) * 1000) / 10 : null,
       receivable: sum((g) => g.receivable),
       overdue: sum((g) => g.invoices.filter((i) => i.overdue).reduce((s, i) => s + i.total, 0)),
-      invoiceCount: docs.length,
-      paidCount: list.reduce((s, g) => s + g.invoices.filter((i) => i.paid).length, 0),
+      invoiceCount: docs.length - hiddenCount,
+      paidCount: counted.reduce((s, g) => s + g.invoices.filter((i) => i.paid).length, 0),
+      hiddenCount,
     },
   }
 }
@@ -164,7 +173,7 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     await connectDB()
     const range = parseRange(req)
     if (!range) { res.status(400).json({ message: 'from/to harus YYYY-MM-DD' }); return }
-    res.json(await buildRecap(req.auth!.tenantId as string, range.from, range.to))
+    res.json(await buildRecap(req.auth!.tenantId as string, range.from, range.to, req.query.showHidden === '1'))
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: (err as Error).message })
   }
@@ -231,7 +240,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
   }
 })
 
-/** Ubah Data Rekap satu invoice (status lunas, jatuh tempo, campaign, bulan running, kolom tambahan). Field yang tidak dikirim tetap. */
+/** Ubah Data Rekap satu invoice (status lunas, jatuh tempo, campaign, bulan running, kolom tambahan, sembunyikan). Field yang tidak dikirim tetap. */
 router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -258,6 +267,10 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
       const v = str(body.dueDate)
       if (v && !YMD.test(v)) { res.status(400).json({ message: 'dueDate harus YYYY-MM-DD' }); return }
       extra.dueDate = v
+    }
+    if ('hidden' in body) {
+      if (body.hidden) recap.hidden = true
+      else delete recap.hidden
     }
     if ('runningMonth' in body) {
       const v = str(body.runningMonth)
