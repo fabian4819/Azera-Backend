@@ -231,6 +231,19 @@ export function renderInvoice(input: Data, mode: RenderMode = 'pdf'): Rendered {
     .pay td { border: 1px solid #d9d3f7; padding: 6px 9px; font-size: 9pt; }
     .pay td.k { background: ${LL}; color: ${M}; font-size: 7.5pt; font-weight: bold; width: 45%; }`
 
+  // Baris CAMPAIGN INFORMATION (template klien 24 Okt 2026): "NAMA BRAND (deskripsi campaign)".
+  // PDF: baris disembunyikan kalau brand & campaign sama-sama kosong (invoice lama dari editor).
+  const brand = String(input.brand ?? '').trim(), campaign = String(input.campaign ?? '').trim()
+  const campaignInfo = !F.edit && !brand && !campaign ? '' : `
+    <table class="box" style="margin-top:14px;"><tr>
+      <td style="background:${L};border-right:1px solid #d9d3f7;vertical-align:middle;"><div class="h">CAMPAIGN INFORMATION</div></td>
+      <td style="vertical-align:middle;font-size:9pt;font-weight:bold;color:${P};">
+        ${F.edit
+          ? `${F.text('brand', 'Nama brand')} (${F.text('campaign', 'Deskripsi campaign', '')})`
+          : esc([brand.toUpperCase(), campaign && (brand ? `(${campaign})` : campaign)].filter(Boolean).join(' '))}
+      </td>
+    </tr></table>`
+
   const body = `
     ${letterhead(P, M, 'INVOICE', `background:${P};color:#fff;font-size:17pt;font-weight:bold;width:210px;height:74px;display:flex;align-items:center;justify-content:center;`)}
 
@@ -252,6 +265,8 @@ export function renderInvoice(input: Data, mode: RenderMode = 'pdf'): Rendered {
         <b>PIC:</b> ${F.text('billTo.pic', 'Nama PIC', '')}<br><b>NPWP:</b> ${F.text('billTo.npwp', 'NPWP', '')}<br><b>Contact:</b> ${F.text('billTo.contact', 'Telepon / email', '')}
       </td>
     </tr></table>
+
+    ${campaignInfo}
 
     <h3>INVOICE DETAILS</h3>
     <table class="it">

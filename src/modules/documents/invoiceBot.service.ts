@@ -241,7 +241,7 @@ async function invoiceHelp(): Promise<string> {
     'Discount bisa persentase atau nominal: `10%`, `150rb`, `1.5jt`.',
     'Biaya = baris di bawah Subtotal Net (pajak, biaya admin, dll). Nominal atau % dari subtotal; minus (`-2%`, `-50rb`) = potongan.',
     'Tanpa `Discount:` / `Biaya:` → tidak ada baris di bawah Subtotal Net.',
-    'Tanpa `Reference:` → diisi nama campaign (+ brand).',
+    '`Campaign:` & `Brand:` tampil di baris Campaign Information invoice.',
     `Due date default ${DUE_DAYS} hari: *${upperDate(addDays(new Date(), DUE_DAYS))}*. Ubah dengan \`Due: 14\` atau \`Due: 15/10/2026\`.`,
   ].join('\n')
 }
@@ -278,12 +278,12 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
 
   const tenant = await getDefaultTenant()
   const number = await nextDocumentNumber(tenant._id, 'invoice', now)
-  // Template web tidak punya slot Campaign/Brand → dipakai sebagai REFERENCE kalau `Reference:` tidak diisi
+  // Campaign & Brand tampil di baris CAMPAIGN INFORMATION invoice; REFERENCE hanya dari `Reference:`
   const data = {
     number,
     issueDate: isoDate(now),
     dueDate,
-    reference: parsed.reference || (parsed.brand ? `${parsed.campaign} | ${parsed.brand}` : parsed.campaign),
+    reference: parsed.reference,
     billTo: { name: parsed.billTo, pic: parsed.pic, npwp: parsed.npwp, contact: parsed.contact },
     items: parsed.items.map((i) => ({ name: i.name, description: i.description, qty: i.qty ?? '', unitFee: i.rate })),
     charges,
