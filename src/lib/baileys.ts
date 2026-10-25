@@ -26,6 +26,8 @@ const RECONNECT_DELAY_MS = 3000
 // Bot invoice (port bot-cashflow) hanya di bot partnership, hanya di grup ini. Nama grup bisa ditiru
 // siapa pun yang memasukkan nomor bot ke grup baru, isi WA_INVOICE_GROUP_JID untuk mengunci ke 1 JID.
 const INVOICE_GROUP_NAME = 'invoice maker'
+// Bot developer (backend lokal) juga boleh di grup "Testing" untuk uji /invoice tanpa ganggu grup asli
+const DEV_INVOICE_GROUP_NAMES = [INVOICE_GROUP_NAME, 'testing']
 const INVOICE_GROUP_JID = process.env.WA_INVOICE_GROUP_JID || ''
 
 const logger = pino({ level: 'silent' })
@@ -230,7 +232,10 @@ class WaBot {
       // itu tandanya dikirim langsung dari HP fisik, bukan echo dari kiriman dashboard/bot kita sendiri.
       sock.ev.on('messages.upsert', ({ messages, type }) => {
         if (myGeneration !== this.generation) return
-        if (this.ephemeral) return // bot developer: pesan masuk tidak dicatat & tidak dibalas bot
+        // Bot developer: pesan masuk tidak dicatat & tidak dibalas bot, KECUALI /invoice di grup invoice
+        // (Testing / invoice maker) untuk uji bot invoice dari lokal. type 'append' ikut diterima karena
+        // pesan yang diketik dari HP nomor ini sendiri bisa datang sebagai append di perangkat tertaut.
+        if (this.ephemeral) { this.handleDevInvoiceMessages(messages); return }
         if (type !== 'notify') return
         for (const msg of messages) {
           const jid = msg.key.remoteJid
@@ -242,7 +247,13 @@ class WaBot {
           if (msg.key.fromMe) {
             const messageId = msg.key.id
             if (messageId && this.sentMessageIds.delete(messageId)) continue // echo dari kiriman kita sendiri (dashboard/bot), sudah dicatat saat dikirim
-            recordOutgoingMessage(this.id as BotId, jid, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save phone-outgoing error:`, err))
+            if (!this.ephemeral) recordOutgoingMessage(this.id as BotId, jid, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save phone-outgoing error:`, err))
+            // /invoice diketik dari HP nomor bot itu sendiri (mis. tes lokal: nomor developer = HP admin) tetap diproses
+            if (isGroup) {
+              this.resolveGroupName(jid)
+                .then((name) => (this.isInvoiceGroup(jid, name) ? this.replyInvoice(jid, text, msg) : undefined))
+                .catch((err) => console.error(`WA[${this.id}] group own-message error:`, err))
+            }
             // Admin balas manual dari HP = ambil alih chat, bot berhenti untuk kontak ini (tidak berlaku utk grup, tidak ada alur bot di grup)
             if (!isGroup) pauseBotForContact(this.id as BotId, jid).catch((err) => console.error(`WA[${this.id}] auto-pause error:`, err))
             continue
@@ -251,7 +262,11 @@ class WaBot {
           if (isGroup) {
             this.resolveGroupName(jid)
               .then(async (name) => {
-                await recordIncomingMessage(this.id as BotId, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined, senderPhone: participantPhoneFromKey(msg.key) })
+                // Bot developer tidak menulis ke DB; gagal simpan pesan tidak boleh membatalkan bot invoice
+                if (!this.ephemeral) {
+                  await recordIncomingMessage(this.id as BotId, jid, text, { messageId: msg.key.id || undefined, name, senderName: msg.pushName || undefined, senderPhone: participantPhoneFromKey(msg.key) })
+                    .catch((err) => console.error(`WA[${this.id}] save group incoming error:`, err))
+                }
                 if (this.isInvoiceGroup(jid, name)) await this.replyInvoice(jid, text, msg)
               })
               .catch((err) => console.error(`WA[${this.id}] group incoming error:`, err))
@@ -344,7 +359,26 @@ class WaBot {
     this.connectedNumber = null
   }
 
+  private handleDevInvoiceMessages(messages: proto.IWebMessageInfo[]) {
+    for (const msg of messages) {
+      const jid = msg.key.remoteJid
+      if (!jid?.endsWith('@g.us') || (msg.key.id && this.sentMessageIds.delete(msg.key.id))) continue
+      const text = extractMessageText(msg)
+      if (!text || !/^\/inv(oice)?\b/i.test(text.trim())) continue
+      // Pesan lama yang dikirim ulang saat reconnect (append) jangan sampai bikin invoice dobel
+      if (Date.now() / 1000 - Number(msg.messageTimestamp || 0) > 120) continue
+      this.resolveGroupName(jid)
+        .then(async (name) => {
+          const ok = this.isInvoiceGroup(jid, name)
+          console.log(`WA[${this.id}] /invoice di grup "${name ?? jid}" → ${ok ? 'diproses' : 'diabaikan (bukan grup invoice)'}`)
+          if (ok) await this.replyInvoice(jid, text, msg)
+        })
+        .catch((err) => console.error(`WA[${this.id}] dev invoice error:`, err))
+    }
+  }
+
   private isInvoiceGroup(jid: string, name?: string): boolean {
+    if (this.id === DEV_BOT) return DEV_INVOICE_GROUP_NAMES.includes(name?.trim().toLowerCase() ?? '')
     if (this.id !== 'partnership') return false
     if (INVOICE_GROUP_JID) return jid === INVOICE_GROUP_JID
     return name?.trim().toLowerCase() === INVOICE_GROUP_NAME
