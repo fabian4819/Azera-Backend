@@ -36,6 +36,7 @@ export interface ParsedInvoice {
   internalCost?: InternalCost
 }
 
+/** Biaya internal hanya disimpan (Rekap Keuangan), tidak ditampilkan di balasan grup WA */
 export interface InternalCost { feeKol?: number; feePic?: number; feeHandle?: number; adminInternal?: number; adminNote?: string }
 
 /** Baris biaya internal template invoice (Okt 2026). Label "Gaji Admin" boleh diikuti "(Keterangan)" sebelum titik dua. */
@@ -286,14 +287,6 @@ async function invoiceHelp(): Promise<string> {
   ].join('\n')
 }
 
-function internalCostLines(c?: InternalCost): string[] {
-  if (!c) return []
-  const rows: [string, number | undefined][] = [['Fee KOL', c.feeKol], ['Fee PIC', c.feePic], ['Fee Handle by', c.feeHandle], ['Gaji Admin Internal', c.adminInternal]]
-  const shown = rows.filter(([, v]) => v !== undefined).map(([k, v]) => `   • ${k}: ${rp(v!)}`)
-  const total = rows.reduce((s, [, v]) => s + (v ?? 0), 0)
-  return ['', `🔒 *Biaya internal tercatat* (tidak tampil di invoice): ${rp(total)}`, ...shown, ...(c.adminNote ? [`   ${c.adminNote}`] : [])]
-}
-
 export interface InvoiceBotReply { text: string; pdf?: Buffer; fileName?: string }
 
 /** Pesan grup Invoice Maker → balasan. null = bukan perintah /invoice (diam saja, seperti bot-cashflow). */
@@ -359,7 +352,6 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     ...(shownCharges.length ? [`Subtotal: ${rp(subtotal)}`] : []),
     ...shownCharges.map((c) => (c.amount < 0 ? `➖ ${c.label}: -${rp(-c.amount)}` : `➕ ${c.label}: ${rp(c.amount)}`)),
     `💰 Total: *${rp(total)}*`,
-    ...internalCostLines(parsed.internalCost),
     ``,
     `📎 ${previewUrl}`,
   ].join('\n')
