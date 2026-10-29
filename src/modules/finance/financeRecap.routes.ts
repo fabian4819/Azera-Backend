@@ -65,7 +65,7 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
   // Periode = tanggal invoice (data.issueDate, string YYYY-MM-DD → perbandingan string aman)
   const filter: Record<string, unknown> = { tenantId, type: 'invoice' }
   if (from || to) filter['data.issueDate'] = { ...(from && { $gte: from }), ...(to && { $lte: to }) }
-  const [docs, columns] = await Promise.all([DocumentModel.find(filter).sort({ 'data.issueDate': 1 }), getColumns(tenantId)])
+  const [docs, columns] = await Promise.all([DocumentModel.find(filter).sort({ 'data.issueDate': -1, _id: -1 }), getColumns(tenantId)])
 
   const campaignIds = [...new Set(docs.map((d) => str((d.data.recap as InvoiceRecap | undefined)?.campaignId)).filter((id) => Types.ObjectId.isValid(id)))]
   const campaigns = await Campaign.find({ tenantId, _id: { $in: campaignIds } }).select('name')
