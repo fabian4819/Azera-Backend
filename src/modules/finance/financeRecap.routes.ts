@@ -9,6 +9,7 @@ import { invoiceTotals } from '../documents/docTemplates'
 import Campaign from '../campaigns/campaign.model'
 import Tenant from '../tenants/tenant.model'
 import { getCampaignFinance } from './financeRecord.routes'
+import type { InternalCost } from '../documents/invoiceBot.service'
 
 /**
  * Rekap Keuangan (khusus owner): uang masuk dari invoice menu Document yang sudah lunas, uang keluar
@@ -28,6 +29,8 @@ export interface InvoiceRecap {
   custom?: Record<string, string | number>
   /** Disembunyikan dari rekap (tidak ikut total/export), bisa dipulihkan. Invoice-nya tetap ada. */
   hidden?: boolean
+  /** Biaya internal dari template WA `/invoice` (Total Fee KOL/PIC/Handle by/Gaji Admin) */
+  internalCost?: InternalCost
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -48,7 +51,9 @@ export interface RecapGroup {
   runningMonth: string; items: { sow: string; tier: string; qty: number; unitFee: number; amount: number }[]
   invoices: { _id: string; number: string; issueDate: string; dueDate: string; total: number; paid: boolean; paidAt: string; overdue: boolean }[]
   custom: Record<string, string | number>; totalInvoice: number; income: number; receivable: number
-  expense: { feeCreator: number; feePic: number; feeMg: number; reimburse: number; ads: number; opex: number; custom: number; total: number }
+  expense: { feeCreator: number; feePic: number; feeMg: number; feeHandle: number; adminInternal: number; reimburse: number; ads: number; opex: number; custom: number; total: number }
+  /** Keterangan Gaji Admin dari invoice WA */
+  adminNote: string
   profit: number; margin: number | null
   /** Creator fully-approved di campaign vs talent di invoice; talentWarning terisi kalau tidak cocok */
   approvedCreators: number | null; talentWarning: string
@@ -56,7 +61,7 @@ export interface RecapGroup {
 }
 
 /** Rekap per campaign untuk periode tanggal invoice [from, to] (YYYY-MM-DD, opsional). Dipakai GET / dan export. */
-async function buildRecap(tenantId: string, from: string, to: string, showHidden = false) {
+export async function buildRecap(tenantId: string, from: string, to: string, showHidden = false) {
   // Periode = tanggal invoice (data.issueDate, string YYYY-MM-DD → perbandingan string aman)
   const filter: Record<string, unknown> = { tenantId, type: 'invoice' }
   if (from || to) filter['data.issueDate'] = { ...(from && { $gte: from }), ...(to && { $lte: to }) }
@@ -89,16 +94,27 @@ async function buildRecap(tenantId: string, from: string, to: string, showHidden
         mastersheetUrl: str(d.mastersheetUrl), runningMonth: str(recap.runningMonth) || str(d.issueDate).slice(0, 7),
         items: [], invoices: [], custom: {}, totalInvoice: 0, income: 0, receivable: 0,
         expense: {
-          feeCreator: fin?.feeCreator || 0, feePic: fin?.feePic || 0, feeMg: fin?.feeMg || 0,
+          feeCreator: fin?.feeCreator || 0, feePic: fin?.feePic || 0, feeMg: fin?.feeMg || 0, feeHandle: 0, adminInternal: 0,
           reimburse: fin?.reimburse || 0, ads: fin?.ads || 0, opex: fin?.opex || 0, custom: 0, total: 0,
         },
-        profit: 0, margin: null,
+        adminNote: '', profit: 0, margin: null,
         approvedCreators: fin ? fin.auto.acceptedCount : null, talentWarning: '',
         hidden: !!recap.hidden,
       }
       groups.set(key, g)
     }
     g.mastersheetUrl ||= str(d.mastersheetUrl)
+
+    // Biaya internal invoice WA. Fee KOL/PIC: Recap Payment campaign (kalau ada) yang dipakai, supaya tidak dobel.
+    const ic = recap.internalCost
+    if (ic) {
+      const fin = cid ? finances.get(cid) : undefined
+      if (!fin?.feeCreator) g.expense.feeCreator += num(ic.feeKol)
+      if (!fin?.feePic) g.expense.feePic += num(ic.feePic)
+      g.expense.feeHandle += num(ic.feeHandle)
+      g.expense.adminInternal += num(ic.adminInternal)
+      if (ic.adminNote) g.adminNote = [g.adminNote, ic.adminNote].filter(Boolean).join('; ')
+    }
 
     const { rows, total } = invoiceTotals(d)
     for (const r of rows) {
@@ -123,7 +139,7 @@ async function buildRecap(tenantId: string, from: string, to: string, showHidden
 
   const list = [...groups.values()].map((g) => {
     const e = g.expense
-    e.total = e.feeCreator + e.feePic + e.feeMg + e.reimburse + e.ads + e.opex + e.custom
+    e.total = e.feeCreator + e.feePic + e.feeMg + e.feeHandle + e.adminInternal + e.reimburse + e.ads + e.opex + e.custom
     g.profit = g.income - e.total
     g.margin = g.income > 0 ? Math.round((g.profit / g.income) * 1000) / 10 : null
     g.talentWarning = talentWarning(g)
@@ -191,8 +207,8 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     const ws = wb.addWorksheet('Rekap Keuangan')
     const RP = '"Rp"#,##0;-"Rp"#,##0'
     const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'SOW', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
-      'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Reimburse', 'Ads', 'Opex',
-      'Uang Keluar', 'Profit', 'Margin (%)', 'Catatan Talent']
+      'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin Internal', 'Reimburse', 'Ads', 'Opex',
+      'Uang Keluar', 'Profit', 'Margin (%)', 'Catatan Talent', 'Ket. Gaji Admin']
     ws.addRow([`Rekap Keuangan ${range.from || 'awal'} s/d ${range.to || 'sekarang'}`]).font = { bold: true, size: 13 }
     ws.addRow([`Uang Masuk ${totals.income} · Uang Keluar ${totals.expense} · Profit ${totals.profit} · Piutang ${totals.receivable}`])
     ws.addRow([])
@@ -201,8 +217,8 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
 
     // Kolom per grup (di-merge vertikal) vs per item SOW
     const ITEM_COLS = new Set([6, 7, 8, 9, 10])
-    // Fee/Talent, Total, Total Payment, kolom tambahan uang, Fee Creator s/d Profit (8 kolom)
-    const moneyCols = [9, 10, 11, ...columns.flatMap((c, i) => (c.type === 'text' ? [] : [15 + i])), ...Array.from({ length: 8 }, (_, i) => 15 + columns.length + i)]
+    // Fee/Talent, Total, Total Payment, kolom tambahan uang, Fee Creator s/d Profit (10 kolom)
+    const moneyCols = [9, 10, 11, ...columns.flatMap((c, i) => (c.type === 'text' ? [] : [15 + i])), ...Array.from({ length: 10 }, (_, i) => 15 + columns.length + i)]
     for (const g of groups) {
       const items = g.items.length ? g.items : [null]
       const e = g.expense
@@ -213,7 +229,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
         g.invoices.map((i) => (i.paid ? `Lunas ${i.paidAt}` : 'Belum Lunas')).join('\n'),
         g.invoices.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '-')).join('\n'),
         ...columns.map((c) => g.custom[c.key] ?? ''),
-        e.feeCreator, e.feePic, e.feeMg, e.reimburse, e.ads, e.opex, e.total, g.profit, g.margin ?? '', g.talentWarning,
+        e.feeCreator, e.feePic, e.feeMg, e.feeHandle, e.adminInternal, e.reimburse, e.ads, e.opex, e.total, g.profit, g.margin ?? '', g.talentWarning, g.adminNote,
       ]
       const first = ws.rowCount + 1
       items.forEach((it, i) => {
