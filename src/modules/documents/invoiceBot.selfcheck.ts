@@ -84,4 +84,25 @@ const colonAlone = parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nItem:
 assert.ok(typeof colonAlone !== 'string' && colonAlone.mastersheetUrl === sheet)
 assert.match(String(parseInvoiceMessage('/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nMastersheet: https://evil.example/x')), /Mastersheet tidak valid/)
 
+// Template Okt 2026: biaya internal (Total Fee KOL/PIC/Handle by/Gaji Admin), contoh persis dari guide tim
+const tpl = parseInvoiceMessage([
+  '/invoice', '', 'Bill To: Pintarnya  ', 'PIC: Kak Rahel Indriawan  ', 'NPWP: -  ', 'Contact: +62 812-9488-9389  ',
+  'Campaign: Kiranti Lychee & Berry  ', 'Reference: -  ', 'Due: 7  ', '', 'Brand: Kiranti  ', '',
+  'Item: Kiranti Lychee — Buzzer | 1x TikTok Video mirroring Instagram Reels | 15 | 100.000',
+  'Item: Kiranti Berry — Buzzer | 1x TikTok Video mirroring Instagram Reels | 10 | 100.000  ',
+  'Item: Reimburse Product | All KOL | - | 250.000  ', '',
+  'Total fee KOL: 100.000  ', 'Total Fee PIC: 300.000', 'Total Fee Handle by: 400.000  ',
+  'Total Gaji Admin Campaign Internal Azera: 500.000 (Fee Handle 300.000; Fee Listing 50.000)',
+  'Mastersheet: ',
+].join('\n'))
+assert.ok(typeof tpl !== 'string', String(tpl))
+assert.equal(tpl.items.length, 3)
+assert.equal(tpl.mastersheetUrl, undefined)
+assert.deepEqual(tpl.internalCost, { feeKol: 100_000, feePic: 300_000, feeHandle: 400_000, adminInternal: 500_000, adminNote: 'Fee Handle 300.000; Fee Listing 50.000' })
+const labelNote = parseInvoiceMessage('/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nTotal Gaji Admin Campaign Internal Azera (Keterangan): 50rb\nTotal Fee PIC: -')
+assert.ok(typeof labelNote !== 'string', String(labelNote))
+assert.deepEqual(labelNote.internalCost, { adminInternal: 50_000 })
+assert.equal(ok.internalCost, undefined)
+assert.match(String(parseInvoiceMessage('/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nTotal Fee KOL: banyak')), /Nominal tidak valid/)
+
 console.log('invoiceBot selfcheck OK')

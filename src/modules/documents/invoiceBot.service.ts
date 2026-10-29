@@ -32,7 +32,19 @@ export interface ParsedInvoice {
   reference?: string
   dueInput?: string
   items: ParsedItem[]
+  /** Biaya internal Azera dari baris `Total Fee ...` (tidak tercetak di PDF, masuk uang keluar Rekap Keuangan) */
+  internalCost?: InternalCost
 }
+
+export interface InternalCost { feeKol?: number; feePic?: number; feeHandle?: number; adminInternal?: number; adminNote?: string }
+
+/** Baris biaya internal template invoice (Okt 2026). Label "Gaji Admin" boleh diikuti "(Keterangan)" sebelum titik dua. */
+const COST_SECTIONS = {
+  feeKol: /^total\s+fee\s+kol\s*:/i,
+  feePic: /^total\s+fee\s+pic\s*:/i,
+  feeHandle: /^total\s+fee\s+handle(\s+by)?\s*:/i,
+  adminInternal: /^total\s+gaji\s+admin[^:]*:/i,
+} as const
 
 const upperDate = (d: Date) => d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: TZ }).toUpperCase()
 /** "YYYY-MM-DD" menurut WIB, format field tanggal di template web */
@@ -106,7 +118,7 @@ export function parseDueInput(text: string, now: Date): string | null {
 /** Section `Nama:` sederhana (satu nilai teks) → field ParsedInvoice */
 const TEXT_SECTIONS = { pic: /^pic\s*:/i, npwp: /^npwp\s*:/i, contact: /^contact\s*:/i, reference: /^reference\s*:/i, dueInput: /^due\s*:/i } as const
 
-const SECTION_PREFIXES = [/^bill\s+to\s*:/i, /^client\s*:/i, /^campaign\s*:/i, /^brand\s*:/i, /^discount\s*:/i, /^item\s*:/i, /^biaya\s*:/i, /^mastersheet\s*:/i, ...Object.values(TEXT_SECTIONS)]
+const SECTION_PREFIXES = [...Object.values(COST_SECTIONS), /^bill\s+to\s*:/i, /^client\s*:/i, /^campaign\s*:/i, /^brand\s*:/i, /^discount\s*:/i, /^item\s*:/i, /^biaya\s*:/i, /^mastersheet\s*:/i, ...Object.values(TEXT_SECTIONS)]
 const isSectionLine = (line: string) => SECTION_PREFIXES.some((re) => re.test(line))
 
 function parseItems(itemLines: string[]): ParsedItem[] {
@@ -137,7 +149,8 @@ export function parseInvoiceMessage(body: string): ParsedInvoice | string {
   if (mastersheetIndex >= 0) {
     sectionLines = lines.slice(0, mastersheetIndex)
     const rest = lines.slice(mastersheetIndex + 1)
-    if (rest.length !== 1) return `❌ Setelah "Mastersheet" harus ada tepat 1 link Google Sheets.`
+    // "Mastersheet:" kosong di baris terakhir = tidak ada link (opsional)
+    if (rest.length > 1) return `❌ Setelah "Mastersheet" harus ada tepat 1 link Google Sheets.`
     mastersheetUrl = rest[0]
   }
   const inline = sectionLines.find((line) => /^mastersheet\s*:\s*\S/i.test(line))
@@ -156,7 +169,22 @@ export function parseInvoiceMessage(body: string): ParsedInvoice | string {
   const itemLines: string[] = []
   const chargeLines: string[] = []
   const text: Partial<Record<keyof typeof TEXT_SECTIONS, string>> = {}
+  const internalCost: InternalCost = {}
   for (const line of sectionLines) {
+    const costKey = (Object.keys(COST_SECTIONS) as (keyof typeof COST_SECTIONS)[]).find((k) => COST_SECTIONS[k].test(line))
+    if (costKey) {
+      // "500.000 (Fee Handle 300.000; Fee Listing 50.000)": nominal di depan, keterangan dalam kurung
+      const value = line.replace(COST_SECTIONS[costKey], '').trim()
+      const m = value.match(/^([^(]*?)\s*(?:\((.*)\))?\s*$/)
+      const amountStr = (m?.[1] ?? value).trim()
+      if (amountStr && amountStr !== '-') {
+        const amount = parseRateInput(amountStr)
+        if (amount === null) return `❌ Nominal tidak valid di "${line}"\nContoh: 300.000, 300rb, 1.5jt, atau - kalau tidak ada.`
+        internalCost[costKey] = amount
+      }
+      if (costKey === 'adminInternal' && m?.[2]?.trim()) internalCost.adminNote = m[2].trim()
+      continue
+    }
     const textKey = (Object.keys(TEXT_SECTIONS) as (keyof typeof TEXT_SECTIONS)[]).find((k) => TEXT_SECTIONS[k].test(line))
     if (textKey) { text[textKey] = line.replace(TEXT_SECTIONS[textKey], '').trim(); continue }
     if (/^bill\s+to\s*:/i.test(line)) billTo = line.replace(/^bill\s+to\s*:\s*/i, '').trim()
@@ -183,7 +211,10 @@ export function parseInvoiceMessage(body: string): ParsedInvoice | string {
   if (!itemLines.length) return `❌ Gunakan \`Item: nama | deskripsi | qty | rate\` untuk menambahkan item.`
 
   try {
-    return { billTo, campaign, brand, mastersheetUrl, discountInput, chargeInputs: chargeLines.length ? chargeLines : undefined, ...text, items: parseItems(itemLines) }
+    return {
+      billTo, campaign, brand, mastersheetUrl, discountInput, chargeInputs: chargeLines.length ? chargeLines : undefined, ...text, items: parseItems(itemLines),
+      ...(Object.keys(internalCost).length && { internalCost }),
+    }
   } catch (err) {
     return (err as Error).message
   }
@@ -213,6 +244,10 @@ async function invoiceHelp(): Promise<string> {
     ``,
     `Brand: [nama brand]  (opsional)`,
     ``,
+    `Total Fee KOL: [nominal]  (opsional, internal)`,
+    `Total Fee PIC: [nominal]  (opsional, internal)`,
+    `Total Fee Handle by: [nominal]  (opsional, internal)`,
+    `Total Gaji Admin Campaign Internal Azera: [nominal] ([keterangan])  (opsional, internal)`,
     `Mastersheet: [link Google Sheets]  (opsional)`,
     '```',
     ``,
@@ -233,6 +268,10 @@ async function invoiceHelp(): Promise<string> {
     `Biaya: PPH 21 | 50rb`,
     `Biaya: PPh 23 | -2%`,
     ``,
+    `Total Fee KOL: 2.000.000`,
+    `Total Fee PIC: 300rb`,
+    `Total Fee Handle by: 400rb`,
+    `Total Gaji Admin Campaign Internal Azera: 350.000 (Fee Handle 300.000; Fee Listing 50.000)`,
     `Mastersheet: https://docs.google.com/spreadsheets/d/xxxxxxxx/edit`,
     '```',
     ``,
@@ -241,9 +280,18 @@ async function invoiceHelp(): Promise<string> {
     'Discount bisa persentase atau nominal: `10%`, `150rb`, `1.5jt`.',
     'Biaya = baris di bawah Subtotal Net (pajak, biaya admin, dll). Nominal atau % dari subtotal; minus (`-2%`, `-50rb`) = potongan.',
     'Tanpa `Discount:` / `Biaya:` → tidak ada baris di bawah Subtotal Net.',
+    '`Total Fee ...` & `Total Gaji Admin` = biaya internal Azera: *tidak tercetak di invoice*, masuk uang keluar di Rekap Keuangan.',
     '`Campaign:` & `Brand:` tampil di baris Campaign Information invoice.',
     `Due date default ${DUE_DAYS} hari: *${upperDate(addDays(new Date(), DUE_DAYS))}*. Ubah dengan \`Due: 14\` atau \`Due: 15/10/2026\`.`,
   ].join('\n')
+}
+
+function internalCostLines(c?: InternalCost): string[] {
+  if (!c) return []
+  const rows: [string, number | undefined][] = [['Fee KOL', c.feeKol], ['Fee PIC', c.feePic], ['Fee Handle by', c.feeHandle], ['Gaji Admin Internal', c.adminInternal]]
+  const shown = rows.filter(([, v]) => v !== undefined).map(([k, v]) => `   • ${k}: ${rp(v!)}`)
+  const total = rows.reduce((s, [, v]) => s + (v ?? 0), 0)
+  return ['', `🔒 *Biaya internal tercatat* (tidak tampil di invoice): ${rp(total)}`, ...shown, ...(c.adminNote ? [`   ${c.adminNote}`] : [])]
 }
 
 export interface InvoiceBotReply { text: string; pdf?: Buffer; fileName?: string }
@@ -291,6 +339,8 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     brand: parsed.brand,
     mastersheetUrl: parsed.mastersheetUrl,
     source: `wa:${source}`,
+    // Biaya internal → data.recap (tidak ikut tercetak), dibaca Rekap Keuangan sebagai uang keluar
+    ...(parsed.internalCost && { recap: { internalCost: parsed.internalCost } }),
   }
   const accessCode = crypto.randomBytes(8).toString('hex')
   const doc = await DocumentModel.create({ tenantId: tenant._id, type: 'invoice', data, accessCode })
@@ -309,6 +359,7 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     ...(shownCharges.length ? [`Subtotal: ${rp(subtotal)}`] : []),
     ...shownCharges.map((c) => (c.amount < 0 ? `➖ ${c.label}: -${rp(-c.amount)}` : `➕ ${c.label}: ${rp(c.amount)}`)),
     `💰 Total: *${rp(total)}*`,
+    ...internalCostLines(parsed.internalCost),
     ``,
     `📎 ${previewUrl}`,
   ].join('\n')
