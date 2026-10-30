@@ -21,6 +21,9 @@ import { captureIncomingPicReply } from '../modules/pic/picPayment.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
 const SENT_CACHE_MAX = 2000
+// Retry receipt dari HP penerima cuma dilayani selama jendela ini. Lewat dari itu WhatsApp/HP penerima
+// bisa menampilkan kiriman ulang sebagai pesan baru (broadcast grup dobel 19.54, 19.59, 01.12 untuk 1 kiriman).
+const RETRY_WINDOW_MS = 5 * 60_000
 const SEND_DELAY_MS = 3000 // jarak antar pesan, mitigasi risiko banned (AD-29)
 const RECONNECT_DELAY_MS = 3000
 // Bot invoice (port bot-cashflow) hanya di bot partnership, hanya di grup ini. Nama grup bisa ditiru
@@ -94,8 +97,8 @@ class WaBot {
 
   // Isi pesan yang kita kirim, untuk dijawab lewat getMessage saat HP penerima gagal dekripsi dan minta
   // dikirim ulang (retry receipt). Tanpa ini pesan macet di "Waiting for this message" selamanya.
-  // ponytail: Map in-memory dibatasi SENT_CACHE_MAX, setelah restart fallback ke teks di WaChatMessage.
-  private readonly sentContent = new Map<string, proto.IMessage>()
+  // ponytail: Map in-memory dibatasi SENT_CACHE_MAX, setelah restart fallback ke teks di WaChatMessage (tetap dalam RETRY_WINDOW_MS).
+  private readonly sentContent = new Map<string, { message: proto.IMessage; at: number }>()
   // Penghitung retry per pesan, dipakai Baileys supaya tidak kirim ulang tanpa batas. Hidup lintas reconnect.
   private readonly retryCounter = new Map<string, unknown>()
   private readonly retryCache: CacheStore = {
@@ -110,7 +113,7 @@ class WaBot {
     if (!id) return
     this.sentMessageIds.add(id)
     if (sent.message) {
-      this.sentContent.set(id, sent.message)
+      this.sentContent.set(id, { message: sent.message, at: Date.now() })
       if (this.sentContent.size > SENT_CACHE_MAX) this.sentContent.delete(this.sentContent.keys().next().value!)
     }
   }
@@ -118,9 +121,9 @@ class WaBot {
   private async getMessage(key: proto.IMessageKey): Promise<proto.IMessage | undefined> {
     if (!key.id) return undefined
     const cached = this.sentContent.get(key.id)
-    if (cached) return cached
+    if (cached) return Date.now() - cached.at < RETRY_WINDOW_MS ? cached.message : undefined
     if (this.ephemeral) return undefined
-    const text = await findOutgoingText(this.id as BotId, key.id).catch(() => undefined)
+    const text = await findOutgoingText(this.id as BotId, key.id, new Date(Date.now() - RETRY_WINDOW_MS)).catch(() => undefined)
     return text ? { conversation: text } : undefined
   }
 
@@ -175,6 +178,7 @@ class WaBot {
         auth: state, logger, syncFullHistory: !this.ephemeral,
         getMessage: (key) => this.getMessage(key),
         msgRetryCounterCache: this.retryCache,
+        maxMsgRetryCount: 2,
       })
       this.sock = sock
 
