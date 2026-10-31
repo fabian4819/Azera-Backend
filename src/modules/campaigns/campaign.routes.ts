@@ -367,7 +367,16 @@ const EDITABLE_FIELDS = [
 
 function sanitizeApplyFields(a: Record<string, unknown> = {}) {
   const order = Array.isArray(a.order) ? a.order.filter((k): k is string => typeof k === 'string' && k.length <= 64).slice(0, 200) : undefined
-  return { pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true, ...(order?.length ? { order } : {}) }
+  const descriptions = Object.fromEntries(
+    Object.entries(a.descriptions && typeof a.descriptions === 'object' ? a.descriptions : {})
+      .filter((e): e is [string, string] => e[0].length <= 64 && typeof e[1] === 'string' && e[1].trim() !== '')
+      .slice(0, 50)
+      .map(([k, v]) => [k, v.trim().slice(0, 1000)]),
+  )
+  return {
+    pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true,
+    ...(order?.length ? { order } : {}), ...(Object.keys(descriptions).length ? { descriptions } : {}),
+  }
 }
 
 const ACCESS = ['hidden', 'view', 'edit'] as const
