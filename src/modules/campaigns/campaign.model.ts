@@ -27,11 +27,13 @@ export type WorkflowStage = (typeof WORKFLOW_STAGES)[number]
  * field inti supaya Smart Curation (yang baca dari Creator, bukan dari sini)
  * tidak perlu berubah.
  */
-export type CustomFieldType = 'text' | 'textarea' | 'number' | 'select' | 'checkbox'
+export type CustomFieldType = 'text' | 'textarea' | 'number' | 'select' | 'checkbox' | 'file'
 
 export interface ICustomField {
   id: string
   label: string
+  /** Keterangan opsional dari admin, tampil di bawah judul pertanyaan di form apply */
+  description?: string
   type: CustomFieldType
   required: boolean
   /** Dipakai untuk type 'select' (pilih satu) & 'checkbox' (bisa lebih dari satu) */
@@ -148,7 +150,8 @@ const CustomFieldSchema = new Schema<ICustomField>(
   {
     id: { type: String, required: true },
     label: { type: String, required: true },
-    type: { type: String, enum: ['text', 'textarea', 'number', 'select', 'checkbox'], required: true },
+    description: String,
+    type: { type: String, enum: ['text', 'textarea', 'number', 'select', 'checkbox', 'file'], required: true },
     required: { type: Boolean, default: false },
     options: [String],
   },

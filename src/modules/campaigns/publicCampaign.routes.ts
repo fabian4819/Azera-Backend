@@ -202,6 +202,30 @@ router.get('/:slug', async (req: Request, res: Response) => {
 })
 
 // AD-19: submit pendaftaran creator ke campaign, buat/link Creator by nomor WA
+// Jawaban pertanyaan tipe 'file' di form apply: file di-upload dulu ke sini, URL-nya dikirim sebagai jawaban.
+// Publik, jadi cuma boleh untuk campaign yang pendaftarannya buka & memang punya pertanyaan upload.
+router.post('/:slug/upload', (req: Request, res: Response, next) => {
+  uploadAsset.single('file')(req, res, (err: unknown) => {
+    if (err) { res.status(400).json({ message: 'File harus gambar, video, PDF, atau dokumen, maksimal 25MB' }); return }
+    next()
+  })
+}, async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const tenant = await getDefaultTenant()
+    const campaign = await findCampaignBySlug(tenant._id, req.params.slug)
+    if (!campaign || !campaign.applyOpen || !(campaign.customFields || []).some((f) => f.type === 'file')) {
+      res.status(404).json({ message: 'Campaign tidak ditemukan' })
+      return
+    }
+    const file = (req as Request & { file?: { buffer: Buffer } }).file
+    if (!file) { res.status(400).json({ message: 'File tidak ditemukan' }); return }
+    res.json({ url: await uploadToCloudinary(file.buffer, 'apply-uploads') })
+  } catch {
+    res.status(500).json({ message: 'Gagal upload' })
+  }
+})
+
 router.post('/:slug/apply', async (req: Request, res: Response) => {
   try {
     await connectDB()
@@ -274,6 +298,15 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     })
     if (missingRequired.length > 0) {
       res.status(400).json({ message: `Wajib diisi: ${missingRequired.map((f) => f.label).join(', ')}` })
+      return
+    }
+    // Jawaban upload harus URL hasil /:slug/upload (Cloudinary), bukan link sembarang
+    const badFile = (campaign.customFields || []).find((f) => {
+      const v = customAnswers?.[f.id]
+      return f.type === 'file' && v !== undefined && v !== '' && !(typeof v === 'string' && v.startsWith('https://res.cloudinary.com/'))
+    })
+    if (badFile) {
+      res.status(400).json({ message: `File untuk "${badFile.label}" tidak valid, upload ulang ya` })
       return
     }
 
