@@ -142,6 +142,8 @@ export interface ICampaign extends Document {
   applyFields: IApplyFields
   /** Spreadsheet Google milik campaign ini (tab Master/Pendaftar/Report/Recap), lihat campaignWorkbook.service.ts */
   spreadsheetId?: string
+  /** Folder campaign di Shared Drive, tempat spreadsheet (dan file campaign lain) disimpan */
+  driveFolderId?: string
   progressColumns: IProgressColumn[]
   /** Akses creator ke kolom non-progress di tabel portal (key = columnKey di sheetSync.service.ts).
    * Tidak ada entry = pakai default (lihat DEFAULT_VIEW_COLUMNS). Nilai 'edit' diperlakukan 'view'. */
@@ -246,6 +248,7 @@ const CampaignSchema = new Schema<ICampaign>(
     applySlug: { type: String, required: true },
     customFields: { type: [CustomFieldSchema], default: [] },
     spreadsheetId: String,
+    driveFolderId: String,
     applyFields: {
       pic: { type: Boolean, default: true },
       handleBy: { type: Boolean, default: true },

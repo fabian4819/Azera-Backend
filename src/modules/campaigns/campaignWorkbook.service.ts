@@ -1,7 +1,7 @@
 import { Types } from 'mongoose'
 import Campaign from './campaign.model'
 import { buildSheetView, SheetKind } from './sheetView.service'
-import { createCampaignWorkbook, writeWorkbookTabs, getWorkbookTabUrl } from '../../lib/googleSheets'
+import { createCampaignWorkbook, createCampaignFolder, moveDriveFile, writeWorkbookTabs, getWorkbookTabUrl } from '../../lib/googleSheets'
 
 /** 1 campaign = 1 spreadsheet di Shared Drive, satu tab per tabel di halaman Sheet admin. */
 export const WORKBOOK_TABS: Record<SheetKind, string> = {
@@ -17,12 +17,22 @@ const table = (headers: string[], rows: Cell[][], totals?: Cell[]) =>
   ({ values: [headers, ...rows, ...(totals ? [totals] : [])], tableRows: rows.length + 1 })
 
 async function syncWorkbook(tenantId: string, campaignId: string): Promise<void> {
-  const campaign = await Campaign.findOne({ _id: campaignId, tenantId }).select('name spreadsheetId')
+  const campaign = await Campaign.findOne({ _id: campaignId, tenantId }).select('name spreadsheetId driveFolderId')
   if (!campaign) return
+  // Shared Drive: 1 folder per campaign, spreadsheet di dalamnya (bukan langsung di root)
+  let folderId = campaign.driveFolderId
+  if (!folderId) {
+    const created = await createCampaignFolder(campaign.name)
+    if (!created) return // Google Sheets belum dikonfigurasi (mis. lokal)
+    folderId = created
+    await Campaign.updateOne({ _id: campaign._id }, { driveFolderId: folderId })
+    // Spreadsheet yang terlanjur dibuat di root (sebelum ada folder per campaign) dipindah ke folder ini
+    if (campaign.spreadsheetId) await moveDriveFile(campaign.spreadsheetId, folderId)
+  }
   let spreadsheetId = campaign.spreadsheetId
   if (!spreadsheetId) {
-    const created = await createCampaignWorkbook(`${campaign.name} | AZERA`, TAB_ORDER)
-    if (!created) return // Google Sheets belum dikonfigurasi (mis. lokal)
+    const created = await createCampaignWorkbook(`${campaign.name} | AZERA`, TAB_ORDER, folderId)
+    if (!created) return
     spreadsheetId = created
     await Campaign.updateOne({ _id: campaign._id }, { spreadsheetId })
   }

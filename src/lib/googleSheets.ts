@@ -289,15 +289,40 @@ export function getCampaignTabUrl(campaignName: string): Promise<string | null> 
 const campaignDriveFolderId = () => process.env.GOOGLE_SHEETS_CAMPAIGN_DRIVE_ID || '0AJT4s-GYnzUVUk9PVA'
 const quoteTab = (tab: string) => `'${tab.replace(/'/g, "''")}'`
 
-/** Buat spreadsheet baru di Shared Drive dengan tab-tab ini (urut). null kalau Sheets belum dikonfigurasi. */
-export async function createCampaignWorkbook(title: string, tabs: string[]): Promise<string | null> {
+/** Buat folder di root Shared Drive campaign (1 folder per campaign). null kalau Sheets belum dikonfigurasi. */
+export async function createCampaignFolder(name: string): Promise<string | null> {
+  if (!getSheetsClient() || !auth) return null
+  const res = await auth.request<{ id: string }>({
+    url: 'https://www.googleapis.com/drive/v3/files',
+    method: 'POST',
+    params: { supportsAllDrives: true, fields: 'id' },
+    data: { name, mimeType: 'application/vnd.google-apps.folder', parents: [campaignDriveFolderId()] },
+  })
+  return res.data.id
+}
+
+/** Pindahkan file Drive ke folder lain (dipakai: spreadsheet campaign lama yang dibuat di root Shared Drive). */
+export async function moveDriveFile(fileId: string, folderId: string): Promise<void> {
+  if (!getSheetsClient() || !auth) return
+  const file = await auth.request<{ parents?: string[] }>({
+    url: `https://www.googleapis.com/drive/v3/files/${fileId}`, params: { supportsAllDrives: true, fields: 'parents' },
+  })
+  await auth.request({
+    url: `https://www.googleapis.com/drive/v3/files/${fileId}`,
+    method: 'PATCH',
+    params: { supportsAllDrives: true, addParents: folderId, removeParents: (file.data.parents || []).join(','), fields: 'id' },
+  })
+}
+
+/** Buat spreadsheet baru di folder Drive ini dengan tab-tab ini (urut). null kalau Sheets belum dikonfigurasi. */
+export async function createCampaignWorkbook(title: string, tabs: string[], folderId: string): Promise<string | null> {
   const sheets = getSheetsClient()
   if (!sheets || !auth) return null
   const res = await auth.request<{ id: string }>({
     url: 'https://www.googleapis.com/drive/v3/files',
     method: 'POST',
     params: { supportsAllDrives: true, fields: 'id' },
-    data: { name: title, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [campaignDriveFolderId()] },
+    data: { name: title, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [folderId] },
   })
   const spreadsheetId = res.data.id
   const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.sheetId' })
