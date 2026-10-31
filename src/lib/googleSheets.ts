@@ -317,23 +317,61 @@ export async function createCampaignWorkbook(title: string, tabs: string[]): Pro
 /** Tulis ulang isi tab-tab spreadsheet campaign (tab yang belum ada dibuat). Ditulis ulang utuh, bukan
  * upsert per baris: isi = tabel dashboard, kolom bisa berubah (form kustom / kolom progress).
  * ponytail: clear lalu tulis bukan atomik; pembuka sheet di detik yang sama bisa lihat tab kosong sesaat. */
-export async function writeWorkbookTabs(spreadsheetId: string, tabs: { title: string; values: (string | number)[][] }[]): Promise<void> {
+// Nama kolom tabel harus unik & tidak kosong (dua pertanyaan form bisa berjudul sama)
+function uniqueNames(headers: (string | number)[]): string[] {
+  const seen = new Map<string, number>()
+  return headers.map((h, i) => {
+    const base = String(h).trim() || `Kolom ${i + 1}`
+    const n = (seen.get(base) ?? 0) + 1
+    seen.set(base, n)
+    return n === 1 ? base : `${base} (${n})`
+  })
+}
+
+export async function writeWorkbookTabs(spreadsheetId: string, tabs: { title: string; values: (string | number)[][]; tableRows: number }[]): Promise<void> {
   const sheets = getSheetsClient()
   if (!sheets) return
-  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' })
-  const existing = new Set(meta.data.sheets?.map((sh) => sh.properties?.title))
-  const missing = tabs.filter((t) => !existing.has(t.title))
+  const sheetMeta = async () => (await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title,sheetId),tables(tableId))' })).data.sheets || []
+  let meta = await sheetMeta()
+  const missing = tabs.filter((t) => !meta.some((sh) => sh.properties?.title === t.title))
   if (missing.length) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
       requestBody: { requests: missing.map((t) => ({ addSheet: { properties: { title: t.title, gridProperties: { frozenRowCount: 1 } } } })) },
     })
+    meta = await sheetMeta()
+  }
+  // Tabel Google Sheets (Format > Convert to table) ikut ukuran data, jadi tiap sync: buang tabel lama,
+  // tulis ulang isi, buat tabel baru. Format tabel gagal tidak boleh menggagalkan isi data.
+  const oldTables = meta.flatMap((sh) => (tabs.some((t) => t.title === sh.properties?.title) ? sh.tables || [] : []))
+  if (oldTables.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: oldTables.map((t) => ({ deleteTable: { tableId: t.tableId } })) } })
+      .catch((err) => console.error('Sheets deleteTable error:', (err as Error).message))
   }
   await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges: tabs.map((t) => quoteTab(t.title)) } })
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
     requestBody: { valueInputOption: 'RAW', data: tabs.map((t) => ({ range: `${quoteTab(t.title)}!A1`, values: t.values })) },
   })
+  const addTables = tabs.flatMap((t) => {
+    const sheetId = meta.find((sh) => sh.properties?.title === t.title)?.properties?.sheetId
+    const headers = t.values[0] || []
+    if (sheetId == null || !headers.length) return []
+    return [{
+      addTable: {
+        table: {
+          name: t.title,
+          // Tabel minimal header + 1 baris; baris total (Report/Recap) sengaja di luar tabel, tepat di bawahnya
+          range: { sheetId, startRowIndex: 0, endRowIndex: Math.max(t.tableRows, 2), startColumnIndex: 0, endColumnIndex: headers.length },
+          columnProperties: uniqueNames(headers).map((columnName, columnIndex) => ({ columnIndex, columnName })),
+        },
+      },
+    }]
+  })
+  if (addTables.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: addTables } })
+      .catch((err) => console.error('Sheets addTable error:', (err as Error).message))
+  }
 }
 
 export function getWorkbookTabUrl(spreadsheetId: string, tab: string): Promise<string | null> {

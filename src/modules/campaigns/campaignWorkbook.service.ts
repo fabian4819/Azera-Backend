@@ -12,7 +12,9 @@ const TAB_ORDER = [WORKBOOK_TABS.master, WORKBOOK_TABS.applicants, WORKBOOK_TABS
 const STATUS_LABEL: Record<string, string> = { pending: 'Pending', accepted: 'Approved', rejected: 'Rejected' }
 
 type Cell = string | number
-const table = (headers: string[], rows: Cell[][], totals?: Cell[]) => [headers, ...rows, ...(totals ? [totals] : [])]
+// tableRows = header + baris data (baris total di luar tabel Google Sheets)
+const table = (headers: string[], rows: Cell[][], totals?: Cell[]) =>
+  ({ values: [headers, ...rows, ...(totals ? [totals] : [])], tableRows: rows.length + 1 })
 
 async function syncWorkbook(tenantId: string, campaignId: string): Promise<void> {
   const campaign = await Campaign.findOne({ _id: campaignId, tenantId }).select('name spreadsheetId')
@@ -29,17 +31,17 @@ async function syncWorkbook(tenantId: string, campaignId: string): Promise<void>
   )
   if (!master || !applicants || !report || !recap) return
   await writeWorkbookTabs(spreadsheetId, [
-    { title: WORKBOOK_TABS.master, values: table(master.headers, master.rows, master.totals) },
+    { title: WORKBOOK_TABS.master, ...table(master.headers, master.rows, master.totals) },
     {
       title: WORKBOOK_TABS.applicants,
-      values: table([...applicants.headers, 'Status'], applicants.rows.map((r, i) => {
+      ...table([...applicants.headers, 'Status'], applicants.rows.map((r, i) => {
         const st = applicants.rowStatus?.[i] ?? ''
         return [...r, STATUS_LABEL[st] ?? st]
       })),
     },
-    { title: WORKBOOK_TABS.report, values: table(report.headers, report.rows, report.totals) },
-    { title: WORKBOOK_TABS.recap, values: table(recap.headers, recap.rows, recap.totals) },
-    ...(recap.byPic ? [{ title: RECAP_BY_PIC_TAB, values: table(recap.byPic.headers, recap.byPic.rows, recap.byPic.totals) }] : []),
+    { title: WORKBOOK_TABS.report, ...table(report.headers, report.rows, report.totals) },
+    { title: WORKBOOK_TABS.recap, ...table(recap.headers, recap.rows, recap.totals) },
+    ...(recap.byPic ? [{ title: RECAP_BY_PIC_TAB, ...table(recap.byPic.headers, recap.byPic.rows, recap.byPic.totals) }] : []),
   ])
 }
 
