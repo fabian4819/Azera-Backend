@@ -352,7 +352,8 @@ const EDITABLE_FIELDS = [
 ] as const
 
 function sanitizeApplyFields(a: Record<string, unknown> = {}) {
-  return { pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true }
+  const order = Array.isArray(a.order) ? a.order.filter((k): k is string => typeof k === 'string' && k.length <= 64).slice(0, 200) : undefined
+  return { pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true, ...(order?.length ? { order } : {}) }
 }
 
 const ACCESS = ['hidden', 'view', 'edit'] as const

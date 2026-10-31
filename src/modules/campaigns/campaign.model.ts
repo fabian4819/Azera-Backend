@@ -46,6 +46,9 @@ export interface IApplyFields {
   pic: boolean
   handleBy: boolean
   handleByRequired: boolean
+  /** Urutan field form apply hasil drag admin: key default (name, phone, email, niches, domicile,
+   * social:<platform>, pic, handleBy) + id custom field. Kosong = urutan default. */
+  order?: string[]
 }
 
 /** Akses creator ke satu kolom di tabel portal (magic link). 'edit' cuma berlaku untuk kolom progress. */
@@ -239,6 +242,7 @@ const CampaignSchema = new Schema<ICampaign>(
       pic: { type: Boolean, default: true },
       handleBy: { type: Boolean, default: true },
       handleByRequired: { type: Boolean, default: false },
+      order: { type: [String], default: undefined },
     },
     progressColumns: { type: [ProgressColumnSchema], default: [] },
     columnAccess: { type: Map, of: { type: String, enum: ['hidden', 'view', 'edit'] }, default: {} },
