@@ -43,7 +43,7 @@ export function getSheetsClient(): sheets_v4.Sheets | null {
   if (!sheetsEnabled()) return null
   if (!auth) {
     const { email, key } = creds()
-    auth = new googleAuth.JWT({ email, key, scopes: ['https://www.googleapis.com/auth/spreadsheets'] })
+    auth = new googleAuth.JWT({ email, key, scopes: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.file'] })
   }
   if (!sheetsClient) sheetsClient = sheets({ version: 'v4', auth })
   return sheetsClient
@@ -282,31 +282,62 @@ export function getCampaignTabUrl(campaignName: string): Promise<string | null> 
   return getTabUrl(campaignSpreadsheetId(), campaignTabPrefix(campaignName))
 }
 
-/** Nama tab pendaftar campaign di spreadsheet mastersheet campaign (maks 100 char: prefix ≤ 80). */
-export const applicantsTabName = (campaignName: string) => `${campaignTabPrefix(campaignName)} - Pendaftar`
+/* ---------- spreadsheet per campaign (1 campaign = 1 file, tab per tabel dashboard) ---------- */
 
-export function getApplicantsTabUrl(campaignName: string): Promise<string | null> {
-  return getTabUrl(campaignSpreadsheetId(), applicantsTabName(campaignName))
+/** Shared Drive tempat spreadsheet per campaign dibuat. Harus Shared Drive: service account tidak
+ * punya kuota My Drive, file yang dia buat di My Drive biasa gagal. */
+const campaignDriveFolderId = () => process.env.GOOGLE_SHEETS_CAMPAIGN_DRIVE_ID || '0AJT4s-GYnzUVUk9PVA'
+const quoteTab = (tab: string) => `'${tab.replace(/'/g, "''")}'`
+
+/** Buat spreadsheet baru di Shared Drive dengan tab-tab ini (urut). null kalau Sheets belum dikonfigurasi. */
+export async function createCampaignWorkbook(title: string, tabs: string[]): Promise<string | null> {
+  const sheets = getSheetsClient()
+  if (!sheets || !auth) return null
+  const res = await auth.request<{ id: string }>({
+    url: 'https://www.googleapis.com/drive/v3/files',
+    method: 'POST',
+    params: { supportsAllDrives: true, fields: 'id' },
+    data: { name: title, mimeType: 'application/vnd.google-apps.spreadsheet', parents: [campaignDriveFolderId()] },
+  })
+  const spreadsheetId = res.data.id
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.sheetId' })
+  const firstId = meta.data.sheets?.[0]?.properties?.sheetId ?? 0
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        { updateSheetProperties: { properties: { sheetId: firstId, title: tabs[0], gridProperties: { frozenRowCount: 1 } }, fields: 'title,gridProperties.frozenRowCount' } },
+        ...tabs.slice(1).map((title) => ({ addSheet: { properties: { title, gridProperties: { frozenRowCount: 1 } } } })),
+      ],
+    },
+  })
+  return spreadsheetId
 }
 
-/** Tab pendaftar ditulis ulang utuh tiap sync (bukan upsert per baris): isinya = tabel Pendaftar
- * dashboard, jumlah baris kecil, dan urutan/kolom bisa berubah (form kustom), jadi tulis ulang paling aman.
- * ponytail: clear + update bukan atomik; pembaca di detik yang sama bisa lihat tab kosong sesaat. */
-export async function replaceApplicantsTab(campaignName: string, values: (string | number)[][]): Promise<void> {
+/** Tulis ulang isi tab-tab spreadsheet campaign (tab yang belum ada dibuat). Ditulis ulang utuh, bukan
+ * upsert per baris: isi = tabel dashboard, kolom bisa berubah (form kustom / kolom progress).
+ * ponytail: clear lalu tulis bukan atomik; pembuka sheet di detik yang sama bisa lihat tab kosong sesaat. */
+export async function writeWorkbookTabs(spreadsheetId: string, tabs: { title: string; values: (string | number)[][] }[]): Promise<void> {
   const sheets = getSheetsClient()
-  const spreadsheetId = campaignSpreadsheetId()
-  if (!sheets || !spreadsheetId) return
-  const tab = applicantsTabName(campaignName)
-  const range = `'${tab.replace(/'/g, "''")}'`
-  const meta = await sheets.spreadsheets.get({ spreadsheetId })
-  if (!meta.data.sheets?.some((sh) => sh.properties?.title === tab)) {
+  if (!sheets) return
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties.title' })
+  const existing = new Set(meta.data.sheets?.map((sh) => sh.properties?.title))
+  const missing = tabs.filter((t) => !existing.has(t.title))
+  if (missing.length) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
-      requestBody: { requests: [{ addSheet: { properties: { title: tab, gridProperties: { frozenRowCount: 1 } } } }] },
+      requestBody: { requests: missing.map((t) => ({ addSheet: { properties: { title: t.title, gridProperties: { frozenRowCount: 1 } } } })) },
     })
   }
-  await sheets.spreadsheets.values.clear({ spreadsheetId, range })
-  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${range}!A1`, valueInputOption: 'RAW', requestBody: { values } })
+  await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges: tabs.map((t) => quoteTab(t.title)) } })
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: 'RAW', data: tabs.map((t) => ({ range: `${quoteTab(t.title)}!A1`, values: t.values })) },
+  })
+}
+
+export function getWorkbookTabUrl(spreadsheetId: string, tab: string): Promise<string | null> {
+  return getTabUrl(spreadsheetId, tab)
 }
 
 /** Link ke tab spesifik di sebuah spreadsheet. Kalau tab belum pernah disync (belum ada baris),

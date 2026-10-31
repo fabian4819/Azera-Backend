@@ -270,11 +270,11 @@ export function campaignSheetRow(
 }
 
 async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {
-  // Tab Pendaftar ikut di-update untuk setiap perubahan pendaftaran. Import dinamis: applicantsSheet →
-  // sheetView → modul ini (hindari import melingkar saat load).
-  import('../modules/campaigns/applicantsSheet.service')
-    .then((m) => m.scheduleApplicantsSync(tenantId, campaignId))
-    .catch((err) => console.error('Sheet sync error (pendaftar):', (err as Error).message))
+  // Spreadsheet campaign (semua tab) ikut di-update tiap perubahan pendaftaran. Import dinamis:
+  // campaignWorkbook → sheetView → modul ini (hindari import melingkar saat load).
+  import('../modules/campaigns/campaignWorkbook.service')
+    .then((m) => m.scheduleWorkbookSync(tenantId, campaignId))
+    .catch((err) => console.error('Sheet sync error (workbook campaign):', (err as Error).message))
   const application = await Application.findOne({ tenantId, campaignId, creatorId })
   if (!application) return
   const [campaign, creator, submissions, picUser] = await Promise.all([

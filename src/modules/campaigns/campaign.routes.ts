@@ -27,8 +27,8 @@ import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
 import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
-import { getCampaignTabUrl, getApplicantsTabUrl } from '../../lib/googleSheets'
-import { scheduleApplicantsSync } from './applicantsSheet.service'
+import { getCampaignTabUrl } from '../../lib/googleSheets'
+import { scheduleWorkbookSync, workbookTabUrl } from './campaignWorkbook.service'
 import { isCreatorEditableBase } from '../../lib/sheetSync.service'
 
 const router = Router()
@@ -97,6 +97,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       applySlug: slugify(name),
       accessCode: generateAccessCode(),
     })
+    scheduleWorkbookSync(req.auth!.tenantId, campaign._id)
     res.status(201).json(hideBudgetIfAdmin(req, campaign.toJSON()))
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: (err as Error).message })
@@ -161,16 +162,19 @@ router.get('/:id', async (req: AuthRequest, res: Response) => {
     // dipakai jalur akses-kode publik (publicCampaign.routes.ts) yang tidak boleh bocorin link
     // ke spreadsheet internal. masterSheetUrl per-campaign (tab-nya beda tiap campaign); report
     // & recap payment statis (1 sheet dipakai bareng semua campaign).
-    const [masterSheetUrl, brand] = await Promise.all([
-      getCampaignTabUrl(campaign.name),
+    // Spreadsheet milik campaign (kalau sudah dibuat) menggantikan link sheet global
+    const [masterSheetUrl, reportSheetUrl, recapPaymentSheetUrl, brand] = await Promise.all([
+      workbookTabUrl(campaign.spreadsheetId, 'master').then((u) => u ?? getCampaignTabUrl(campaign!.name)),
+      workbookTabUrl(campaign.spreadsheetId, 'report').then((u) => u ?? (env.googleSheetsReportUrl || null)),
+      workbookTabUrl(campaign.spreadsheetId, 'recap').then((u) => u ?? (env.googleSheetsRecapPaymentUrl || null)),
       Brand.findById(campaign.brandId).select('namaBrand'),
     ])
     res.json(hideBudgetIfAdmin(req, {
       ...campaign.toJSON(),
       brandName: brand?.namaBrand ?? null,
       masterSheetUrl,
-      reportSheetUrl: env.googleSheetsReportUrl || null,
-      recapPaymentSheetUrl: env.googleSheetsRecapPaymentUrl || null,
+      reportSheetUrl,
+      recapPaymentSheetUrl,
     }))
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -186,13 +190,15 @@ router.get('/:id/sheet/:kind', async (req: AuthRequest, res: Response) => {
     if (!SHEET_KINDS.includes(kind)) { res.status(400).json({ message: 'Sheet tidak dikenal' }); return }
     const view = await buildSheetView(req.auth!.tenantId, req.params.id, kind)
     if (!view) { res.status(404).json({ message: 'Not found' }); return }
-    // Pendaftar punya tab sendiri "<campaign> - Pendaftar"; dibuka admin = sekalian disinkron (isi tab
-    // untuk campaign yang pendaftarnya masuk sebelum fitur ini ada).
-    if (kind === 'applicants') scheduleApplicantsSync(req.auth!.tenantId, req.params.id)
-    const sheetUrl = kind === 'master' ? await getCampaignTabUrl(view.campaign.name)
-      : kind === 'report' ? env.googleSheetsReportUrl || null
-        : kind === 'recap' ? env.googleSheetsRecapPaymentUrl || null
-          : await getApplicantsTabUrl(view.campaign.name)
+    // Tiap campaign punya spreadsheet sendiri (tab per tabel). Dibuka admin = sekalian disinkron, jadi
+    // campaign lama otomatis dibuatkan spreadsheet-nya. Belum ada (baru dibuat 3 dtk lagi) → link lama.
+    scheduleWorkbookSync(req.auth!.tenantId, req.params.id)
+    const own = await Campaign.findById(req.params.id).select('spreadsheetId')
+    const sheetUrl = (await workbookTabUrl(own?.spreadsheetId, kind))
+      ?? (kind === 'master' ? await getCampaignTabUrl(view.campaign.name)
+        : kind === 'report' ? env.googleSheetsReportUrl || null
+          : kind === 'recap' ? env.googleSheetsRecapPaymentUrl || null
+            : null)
     res.json({ ...view, sheetUrl })
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -437,6 +443,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       { new: true }
     )
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    scheduleWorkbookSync(req.auth!.tenantId, campaign._id) // form kustom / kolom progress mengubah kolom spreadsheet
 
     // AD-31: campaign_started / campaign_completed, kirim ke client saat status berubah
     if (updates.status && updates.status !== before.status && ['active', 'completed'].includes(updates.status as string)) {

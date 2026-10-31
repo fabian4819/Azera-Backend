@@ -140,6 +140,8 @@ export interface ICampaign extends Document {
   /** AD-47: pertanyaan tambahan custom di form Apply, diisi admin lewat CampaignDetail */
   customFields: ICustomField[]
   applyFields: IApplyFields
+  /** Spreadsheet Google milik campaign ini (tab Master/Pendaftar/Report/Recap), lihat campaignWorkbook.service.ts */
+  spreadsheetId?: string
   progressColumns: IProgressColumn[]
   /** Akses creator ke kolom non-progress di tabel portal (key = columnKey di sheetSync.service.ts).
    * Tidak ada entry = pakai default (lihat DEFAULT_VIEW_COLUMNS). Nilai 'edit' diperlakukan 'view'. */
@@ -243,6 +245,7 @@ const CampaignSchema = new Schema<ICampaign>(
     applyOpen: { type: Boolean, default: false },
     applySlug: { type: String, required: true },
     customFields: { type: [CustomFieldSchema], default: [] },
+    spreadsheetId: String,
     applyFields: {
       pic: { type: Boolean, default: true },
       handleBy: { type: Boolean, default: true },
