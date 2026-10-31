@@ -3,7 +3,7 @@ import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import crypto from 'crypto'
 import { Types } from 'mongoose'
-import Campaign, { ICampaign } from './campaign.model'
+import Campaign, { ICampaign, findCampaignBySlug } from './campaign.model'
 import Creator, { type SocialPlatform } from '../creators/creator.model'
 import Application from '../applications/application.model'
 import PicUser from '../pic/pic.model'
@@ -168,7 +168,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
   try {
     await connectDB()
     const tenant = await getDefaultTenant()
-    const campaign = await Campaign.findOne({ tenantId: tenant._id, applySlug: req.params.slug })
+    const campaign = await findCampaignBySlug(tenant._id, req.params.slug)
       .populate('brandId', 'namaBrand')
     if (!campaign) {
       res.status(404).json({ message: 'Campaign tidak ditemukan' })
@@ -206,7 +206,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
   try {
     await connectDB()
     const tenant = await getDefaultTenant()
-    const campaign = await Campaign.findOne({ tenantId: tenant._id, applySlug: req.params.slug })
+    const campaign = await findCampaignBySlug(tenant._id, req.params.slug)
     if (!campaign) {
       res.status(404).json({ message: 'Campaign tidak ditemukan' })
       return

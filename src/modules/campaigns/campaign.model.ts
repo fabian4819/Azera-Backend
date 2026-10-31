@@ -253,4 +253,14 @@ const CampaignSchema = new Schema<ICampaign>(
 withTenant(CampaignSchema)
 CampaignSchema.index({ tenantId: 1, applySlug: 1 }, { unique: true })
 
-export default mongoose.model<ICampaign>('Campaign', CampaignSchema)
+const Campaign = mongoose.model<ICampaign>('Campaign', CampaignSchema)
+export default Campaign
+
+/** Link apply pendek: /apply/<kode> pakai 6 hex terakhir applySlug ("pigeon-maret-4e3742" → "4e3742"). */
+export const shortApplyCode = (applySlug: string) => applySlug.split('-').pop() || applySlug
+
+/** Cari campaign dari link apply: slug lengkap (link lama) atau kode pendek di ujung slug. */
+export function findCampaignBySlug(tenantId: Types.ObjectId, slug: string) {
+  const bySuffix = /^[a-z0-9]{4,12}$/.test(slug) ? [{ applySlug: { $regex: `-${slug}$` } }] : []
+  return Campaign.findOne({ tenantId, $or: [{ applySlug: slug }, ...bySuffix] })
+}

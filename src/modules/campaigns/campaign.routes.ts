@@ -4,7 +4,7 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
-import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS } from './campaign.model'
+import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS, shortApplyCode } from './campaign.model'
 import { upload, uploadDraft, uploadAsset } from '../../middleware/upload'
 import { writeProgressCell, appendScreenshots, CellError, ensurePortalToken, portalUrl, setPostingLink, uploadDraftFiles, reviewSubmission, appendPostScreenshots } from './progress.service'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
@@ -669,7 +669,7 @@ router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
       syarat: body.syarat,
       sow: body.sow,
       note: body.note ? `📝 Catatan: ${body.note}\n` : '',
-      apply_link: `${env.clientOrigin}/apply/${campaign.applySlug}`,
+      apply_link: `${env.clientOrigin}/apply/${shortApplyCode(campaign.applySlug)}`,
       pic: body.pic,
     })
 
