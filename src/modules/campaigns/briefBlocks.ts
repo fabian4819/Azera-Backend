@@ -37,3 +37,17 @@ export function setBrief(campaign: ICampaign, blocks: BriefBlock[], filledBy: 'a
   campaign.briefCampaign = { blocks, filledBy, updatedAt: new Date() }
   campaign.markModified('briefCampaign')
 }
+
+/** Teks broadcast (briefContent) untuk halaman apply publik: bagian fee tidak ditampilkan.
+ * Format broadcast (client/src/lib/broadcast.ts) = bagian dipisah baris kosong; yang dibuang:
+ * bagian "*Benefit:*" (isinya fee creator) & baris fee PIC/MG ("_fee pic 5k, mg 5k_"). */
+export function publicBriefText(text?: string): string {
+  if (!text) return ''
+  return text
+    .split(/\n\s*\n/)
+    .filter((section) => {
+      const first = section.trim().split('\n')[0].replace(/[*_~\s]/g, '').toLowerCase()
+      return !first.startsWith('benefit') && !/^(fee(pic|mg)|mg\d)/.test(first)
+    })
+    .join('\n\n')
+}

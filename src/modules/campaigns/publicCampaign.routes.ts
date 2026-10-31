@@ -13,7 +13,7 @@ import { reviewSubmission, CellError } from './progress.service'
 import { syncApplicationToSheet, creatorAccess } from '../../lib/sheetSync.service'
 import { uploadAsset } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
-import { parseBriefBlocks, setBrief, uploadKind } from './briefBlocks'
+import { parseBriefBlocks, setBrief, uploadKind, publicBriefText } from './briefBlocks'
 
 const router = Router()
 
@@ -186,7 +186,7 @@ router.get('/:slug', async (req: Request, res: Response) => {
     res.json({
       name: campaign.name,
       brand: campaign.brandId,
-      briefContent: campaign.briefContent,
+      briefContent: publicBriefText(campaign.briefContent), // tanpa bagian fee
       deliverables: campaign.deliverables,
       criteria: campaign.criteria,
       type: campaign.type,
