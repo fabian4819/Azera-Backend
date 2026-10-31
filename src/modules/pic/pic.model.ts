@@ -10,7 +10,18 @@ import { withTenant } from '../../db/tenantPlugin'
  */
 export interface IPicUser extends Document {
   tenantId: Types.ObjectId
+  /** Nama Management/Agency (dulu "Nama MG"), dipakai sebagai label PIC di mana-mana */
   name: string
+  /** Data sign up: kota agency, nama & jabatan PIC, WA cadangan, sosmed & porto agency (opsional),
+   * foto/PDF KTP (Cloudinary), waktu centang pernyataan kewenangan + persetujuan data */
+  city?: string
+  ownerName?: string
+  position?: string
+  backupPhone?: string
+  consentAt?: Date
+  socialMedia?: string
+  portfolio?: string
+  ktpUrl?: string
   email: string
   phone: string
   password: string
@@ -36,6 +47,14 @@ export interface IPicUser extends Document {
 const PicUserSchema = new Schema<IPicUser>(
   {
     name: { type: String, required: true },
+    city: String,
+    ownerName: String,
+    position: String,
+    backupPhone: String,
+    consentAt: Date,
+    socialMedia: String,
+    portfolio: String,
+    ktpUrl: String,
     email: { type: String, required: true },
     phone: { type: String, required: true },
     password: { type: String, required: true },

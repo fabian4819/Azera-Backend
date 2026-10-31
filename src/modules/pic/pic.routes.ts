@@ -7,18 +7,35 @@ import PicUser from './pic.model'
 import Campaign from '../campaigns/campaign.model'
 import { getCampaignDashboardData } from '../campaigns/dashboard.service'
 import { getCampaignTabUrl } from '../../lib/googleSheets'
+import { uploadProof } from '../../middleware/upload'
+import { uploadToCloudinary } from '../../lib/cloudinary'
 
 // PIC/Handle-by account, sign up tanpa accessCode, akun dibuat kosong
 // (campaignIds: []). Admin yang assign campaign ke akun ini (lihat endpoint
 // /:id/pic di campaign.routes.ts), baru muncul di dashboard PIC.
 export const picAuthRouter = Router()
 
-picAuthRouter.post('/register', async (req: Request, res: Response) => {
+// KTP: gambar/PDF maks 5MB; error multer (tipe/ukuran) dibalikin 400, bukan 500
+const ktpUpload = (req: Request, res: Response, next: () => void) =>
+  uploadProof.single('ktp')(req, res, (err: unknown) => {
+    if (err) { res.status(400).json({ message: 'KTP harus gambar atau PDF, maksimal 5MB' }); return }
+    next()
+  })
+
+picAuthRouter.post('/register', ktpUpload, async (req: Request, res: Response) => {
   try {
     await connectDB()
-    const { name, email, password, phone } = req.body
-    if (!name || !email || !password || !phone) {
-      res.status(400).json({ message: 'Nama, nomor WhatsApp, email, dan password wajib diisi' })
+    const { name, city, ownerName, position, email, password, phone, backupPhone, socialMedia, portfolio, authorized, dataConsent } = req.body as Record<string, string | undefined>
+    if (!name?.trim() || !city?.trim() || !ownerName?.trim() || !position?.trim() || !email || !password || !phone) {
+      res.status(400).json({ message: 'Nama & kota management/agency, nama & jabatan PIC, email, WhatsApp, dan password wajib diisi' })
+      return
+    }
+    if (authorized !== 'true' || dataConsent !== 'true') {
+      res.status(400).json({ message: 'Pernyataan kewenangan dan persetujuan penggunaan data wajib dicentang' })
+      return
+    }
+    if (!req.file) {
+      res.status(400).json({ message: 'Upload KTP wajib' })
       return
     }
     if (password.length < 6) {
@@ -32,8 +49,12 @@ picAuthRouter.post('/register', async (req: Request, res: Response) => {
       return
     }
     const hashed = await bcrypt.hash(password, 10)
+    // ponytail: KTP di Cloudinary pakai URL publik tak tertebak (sama seperti bukti transfer); pindah ke type 'authenticated' + signed URL kalau perlu lebih ketat
+    const ktpUrl = await uploadToCloudinary(req.file.buffer, 'pic-ktp')
     const picUser = await PicUser.create({
-      tenantId: tenant._id, name, email, phone, password: hashed, campaignIds: [],
+      tenantId: tenant._id, name: name.trim(), city: city.trim(), ownerName: ownerName.trim(), position: position.trim(), email, phone,
+      backupPhone: backupPhone?.trim() || undefined, password: hashed, socialMedia: socialMedia?.trim() || undefined,
+      portfolio: portfolio?.trim() || undefined, ktpUrl, consentAt: new Date(), campaignIds: [],
     })
     const token = signPicToken(String(picUser._id), String(picUser.tenantId))
     res.status(201).json({ token, pic: { name: picUser.name, email: picUser.email } })
@@ -118,7 +139,7 @@ picAdminRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const picUsers = await PicUser.find({ tenantId: req.auth!.tenantId })
-      .select('name email phone campaignIds createdAt')
+      .select('name city ownerName position email phone backupPhone socialMedia portfolio ktpUrl campaignIds createdAt')
       .populate('campaignIds', 'name')
       .sort({ createdAt: -1 })
     res.json(picUsers)
