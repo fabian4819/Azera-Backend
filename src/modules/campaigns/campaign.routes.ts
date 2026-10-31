@@ -14,6 +14,7 @@ import { generateCaseStudy } from '../documents/caseStudy.service'
 import { renderHtmlToPdf } from '../../lib/pdf'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import Brand from '../../models/Brand'
+import { exactName } from '../imports/import.service'
 import DocumentModel from '../documents/document.model'
 import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
@@ -56,13 +57,26 @@ router.post('/', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const {
-      brandId, name, objective, deliverables, budget, timeline,
+      name, objective, deliverables, budget, timeline,
       criteria, type, eventDetails, picUserId, handleByUserId, fee, targetKpi,
-      feeNote, benefits, requirements, infoLink, customFields, applyFields,
+      feeNote, benefits, requirements, infoLink, customFields, applyFields, brandName,
     } = req.body
-    if (!brandId || !name || !objective || budget === undefined) {
-      res.status(400).json({ message: 'brandId, name, objective, budget wajib diisi' })
+    let brandId = req.body.brandId
+    const typedBrand = typeof brandName === 'string' ? brandName.trim() : ''
+    if ((!brandId && !typedBrand) || !name || !objective || budget === undefined) {
+      res.status(400).json({ message: 'brand, name, objective, budget wajib diisi' })
       return
+    }
+    // Brand diketik manual (tidak ada di daftar): pakai brand bernama sama kalau ada, kalau belum buat baru
+    // dengan data kontak placeholder, sama seperti import spreadsheet. Brand legacy belum multi-tenant.
+    if (!brandId) {
+      const brand = await Brand.findOne({ namaBrand: exactName(typedBrand) }) ?? await Brand.create({
+        namaBrand: typedBrand,
+        namaPIC: '-', whatsapp: '-', email: '-', kategori: '-', paket: '-',
+        targetAudience: '-', budget: '-', tujuan: [], durasi: '-',
+        deskripsi: 'Dibuat manual dari form campaign baru',
+      })
+      brandId = brand._id
     }
     const campaign = await Campaign.create({
       tenantId: req.auth!.tenantId,
