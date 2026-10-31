@@ -282,6 +282,33 @@ export function getCampaignTabUrl(campaignName: string): Promise<string | null> 
   return getTabUrl(campaignSpreadsheetId(), campaignTabPrefix(campaignName))
 }
 
+/** Nama tab pendaftar campaign di spreadsheet mastersheet campaign (maks 100 char: prefix ≤ 80). */
+export const applicantsTabName = (campaignName: string) => `${campaignTabPrefix(campaignName)} - Pendaftar`
+
+export function getApplicantsTabUrl(campaignName: string): Promise<string | null> {
+  return getTabUrl(campaignSpreadsheetId(), applicantsTabName(campaignName))
+}
+
+/** Tab pendaftar ditulis ulang utuh tiap sync (bukan upsert per baris): isinya = tabel Pendaftar
+ * dashboard, jumlah baris kecil, dan urutan/kolom bisa berubah (form kustom), jadi tulis ulang paling aman.
+ * ponytail: clear + update bukan atomik; pembaca di detik yang sama bisa lihat tab kosong sesaat. */
+export async function replaceApplicantsTab(campaignName: string, values: (string | number)[][]): Promise<void> {
+  const sheets = getSheetsClient()
+  const spreadsheetId = campaignSpreadsheetId()
+  if (!sheets || !spreadsheetId) return
+  const tab = applicantsTabName(campaignName)
+  const range = `'${tab.replace(/'/g, "''")}'`
+  const meta = await sheets.spreadsheets.get({ spreadsheetId })
+  if (!meta.data.sheets?.some((sh) => sh.properties?.title === tab)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: { requests: [{ addSheet: { properties: { title: tab, gridProperties: { frozenRowCount: 1 } } } }] },
+    })
+  }
+  await sheets.spreadsheets.values.clear({ spreadsheetId, range })
+  await sheets.spreadsheets.values.update({ spreadsheetId, range: `${range}!A1`, valueInputOption: 'RAW', requestBody: { values } })
+}
+
 /** Link ke tab spesifik di sebuah spreadsheet. Kalau tab belum pernah disync (belum ada baris),
  * balikin link ke spreadsheet tanpa #gid, tab-nya baru dibuat begitu ada data pertama yang
  * di-sync (lihat ensureTab di atas). */

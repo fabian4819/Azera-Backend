@@ -27,7 +27,8 @@ import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
 import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
-import { getCampaignTabUrl } from '../../lib/googleSheets'
+import { getCampaignTabUrl, getApplicantsTabUrl } from '../../lib/googleSheets'
+import { scheduleApplicantsSync } from './applicantsSheet.service'
 import { isCreatorEditableBase } from '../../lib/sheetSync.service'
 
 const router = Router()
@@ -185,12 +186,13 @@ router.get('/:id/sheet/:kind', async (req: AuthRequest, res: Response) => {
     if (!SHEET_KINDS.includes(kind)) { res.status(400).json({ message: 'Sheet tidak dikenal' }); return }
     const view = await buildSheetView(req.auth!.tenantId, req.params.id, kind)
     if (!view) { res.status(404).json({ message: 'Not found' }); return }
-    // Pendaftar tidak di-sync ke Google Sheets (master sheet cuma creator yang sudah approve admin + client),
-    // jadi tab ini tanpa tombol; sebelumnya jatuh ke link Recap Payment dan membuka sheet yang salah.
+    // Pendaftar punya tab sendiri "<campaign> - Pendaftar"; dibuka admin = sekalian disinkron (isi tab
+    // untuk campaign yang pendaftarnya masuk sebelum fitur ini ada).
+    if (kind === 'applicants') scheduleApplicantsSync(req.auth!.tenantId, req.params.id)
     const sheetUrl = kind === 'master' ? await getCampaignTabUrl(view.campaign.name)
       : kind === 'report' ? env.googleSheetsReportUrl || null
         : kind === 'recap' ? env.googleSheetsRecapPaymentUrl || null
-          : null
+          : await getApplicantsTabUrl(view.campaign.name)
     res.json({ ...view, sheetUrl })
   } catch {
     res.status(500).json({ message: 'Server error' })
