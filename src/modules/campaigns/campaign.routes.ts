@@ -747,7 +747,7 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const tenantId = req.auth!.tenantId
-    const { message, groupJids = [], creatorIds = [], bot = 'partnership' } = req.body as { message?: string; groupJids?: string[]; creatorIds?: string[]; bot?: WaBotKey }
+    const { message, groupJids = [], creatorIds = [], picIds = [], bot = 'partnership' } = req.body as { message?: string; groupJids?: string[]; creatorIds?: string[]; picIds?: string[]; bot?: WaBotKey }
     if (!visibleBots().includes(bot)) { res.status(400).json({ message: 'Bot tidak dikenal' }); return }
     if (getWaStatus(bot).status !== 'connected') { res.status(400).json({ message: 'WhatsApp pengirim belum terhubung' }); return }
     if (!message?.trim()) { res.status(400).json({ message: 'Teks broadcast kosong' }); return }
@@ -758,6 +758,8 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
     const memberOf = groupJids.length ? new Set((await listGroups(bot)).map((g) => g.jid)) : new Set<string>()
     const groups = groupJids.filter((jid) => memberOf.has(jid)).map((jid) => ({ jid }))
     const creators = creatorIds.length ? await Creator.find({ tenantId, _id: { $in: creatorIds } }, 'phone') : []
+    // DM ke akun PIC (nomor WhatsApp saat sign up PIC)
+    const pics = picIds.length ? await PicUser.find({ tenantId, _id: { $in: picIds } }, 'phone') : []
     const base = { tenantId, trigger: 'broadcast_campaign' as const, payload: message, campaignId: String(campaign._id), bot }
     let sent = 0
     const failed: string[] = []
@@ -771,6 +773,15 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
         sent++
       } catch {
         failed.push(String(c._id))
+      }
+    }
+    for (const p of pics) {
+      if (!p.phone) { failed.push(String(p._id)); continue }
+      try {
+        await enqueueWaMessage({ ...base, to: p.phone })
+        sent++
+      } catch {
+        failed.push(String(p._id))
       }
     }
     res.status(201).json({ sent, failed })
