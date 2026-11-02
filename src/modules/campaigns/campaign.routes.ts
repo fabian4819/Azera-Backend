@@ -211,7 +211,9 @@ router.get('/:id/sheet/:kind', async (req: AuthRequest, res: Response) => {
     if (!view) { res.status(404).json({ message: 'Not found' }); return }
     // Tiap campaign punya spreadsheet sendiri (tab per tabel). Dibuka admin = sekalian disinkron, jadi
     // campaign lama otomatis dibuatkan spreadsheet-nya. Belum ada (baru dibuat 3 dtk lagi) → link lama.
-    scheduleWorkbookSync(req.auth!.tenantId, req.params.id)
+    // Muat ulang otomatis (polling tab Pendaftar, ?auto=1) tidak memicu sync: kuota Google Sheets.
+    // Perubahan data sendiri sudah memicu sync lewat syncCampaignRow.
+    if (req.query.auto !== '1') scheduleWorkbookSync(req.auth!.tenantId, req.params.id)
     const own = await Campaign.findById(req.params.id).select('spreadsheetId')
     const sheetUrl = (await workbookTabUrl(own?.spreadsheetId, kind))
       ?? (kind === 'master' ? await getCampaignTabUrl(view.campaign.name)
