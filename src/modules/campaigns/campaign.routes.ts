@@ -29,10 +29,29 @@ import WorkflowAudit from './workflowAudit.model'
 import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
 import { getCampaignTabUrl } from '../../lib/googleSheets'
 import { scheduleWorkbookSync, workbookTabUrl } from './campaignWorkbook.service'
+import { deleteCampaigns } from './campaignDelete.service'
 import { isCreatorEditableBase } from '../../lib/sheetSync.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
+
+// Hapus banyak campaign sekaligus (dari daftar campaign), owner saja, wajib ketik "HAPUS" di frontend
+router.post('/bulk-delete', requireRole('owner'), async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const { ids, confirm } = req.body as { ids?: unknown; confirm?: unknown }
+    if (confirm !== 'HAPUS') { res.status(400).json({ message: 'Konfirmasi hapus tidak valid' }); return }
+    if (!Array.isArray(ids) || !ids.length || ids.length > 100 || ids.some((id) => typeof id !== 'string')) {
+      res.status(400).json({ message: 'Pilih 1 sampai 100 campaign' }); return
+    }
+    const deleted = await deleteCampaigns(req.auth!.tenantId, ids as string[])
+    console.log(`Campaign dihapus oleh ${req.auth!.userId}: ${deleted.join(', ')}`)
+    res.json({ deleted })
+  } catch (err) {
+    console.error('Bulk delete campaign error:', err)
+    res.status(500).json({ message: 'Gagal menghapus campaign' })
+  }
+})
 
 function slugify(name: string): string {
   const base = name
