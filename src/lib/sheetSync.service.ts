@@ -10,6 +10,7 @@ import PicUser from '../modules/pic/pic.model'
 import SocialSnapshot, { ISocialSnapshot } from '../modules/extension/socialSnapshot.model'
 import { upsertCreatorRow, upsertCampaignRow, deleteCampaignRow, CAMPAIGN_HEADERS_BASE } from './googleSheets'
 import { env } from '../config/env'
+import { emitCampaignChange } from './campaignEvents'
 
 /** AD-adjustment-4: baru lolos ke Campaign Tracker + master sheet kalau admin (status) DAN
  * client (clientApprovalStatus) sama-sama 'accepted'. */
@@ -270,6 +271,8 @@ export function campaignSheetRow(
 }
 
 async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {
+  // Semua perubahan pendaftaran lewat sini: kabari halaman admin yang sedang membuka campaign ini (realtime)
+  emitCampaignChange(campaignId)
   // Spreadsheet campaign (semua tab) ikut di-update tiap perubahan pendaftaran. Import dinamis:
   // campaignWorkbook → sheetView → modul ini (hindari import melingkar saat load).
   import('../modules/campaigns/campaignWorkbook.service')

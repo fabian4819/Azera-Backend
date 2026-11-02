@@ -30,10 +30,28 @@ import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
 import { getCampaignTabUrl } from '../../lib/googleSheets'
 import { scheduleWorkbookSync, workbookTabUrl } from './campaignWorkbook.service'
 import { deleteCampaigns } from './campaignDelete.service'
+import { onCampaignChange } from '../../lib/campaignEvents'
 import { isCreatorEditableBase } from '../../lib/sheetSync.service'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
+
+// Realtime tab Pendaftar (SSE): kirim "change" tiap ada perubahan pendaftaran campaign ini, frontend
+// lalu memuat ulang tabelnya. Client pakai fetch (bukan EventSource) supaya header Authorization terkirim.
+router.get('/:id/events', (req: AuthRequest, res: Response) => {
+  res.set({
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no', // nginx (client container) jangan menahan stream
+  })
+  res.flushHeaders()
+  res.write('retry: 3000\n\n')
+  const off = onCampaignChange(req.params.id, () => res.write('data: change\n\n'))
+  // Ping < 60 dtk (proxy_read_timeout nginx) supaya koneksi diam tidak diputus proxy
+  const ping = setInterval(() => res.write(': ping\n\n'), 25_000)
+  req.on('close', () => { off(); clearInterval(ping) })
+})
 
 // Hapus banyak campaign sekaligus (dari daftar campaign), owner saja, wajib ketik "HAPUS" di frontend
 router.post('/bulk-delete', requireRole('owner'), async (req: AuthRequest, res: Response) => {
