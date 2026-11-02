@@ -11,6 +11,7 @@ import { runSmartCuration } from '../applications/curation.service'
 import { buildPortalView, buildClientApplicantsView } from './sheetView.service'
 import { reviewSubmission, CellError } from './progress.service'
 import { syncApplicationToSheet, creatorAccess } from '../../lib/sheetSync.service'
+import { notifyCreatorAccepted } from '../applications/acceptedNotify.service'
 import { uploadAsset } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import { parseBriefBlocks, setBrief, uploadKind, publicBriefText } from './briefBlocks'
@@ -118,13 +119,19 @@ router.patch('/:id/client/applicants/:appId', async (req: Request, res: Response
     if (!['accepted', 'rejected'].includes(status)) { res.status(400).json({ message: 'status harus accepted atau rejected' }); return }
     const { tenant, campaign } = found
     // Cuma yang sudah lolos stage 1 (admin) yang boleh diputuskan client
-    const application = await Application.findOneAndUpdate(
+    // `new: false` = sebelum update, supaya notif lolos cuma terkirim sekali (bukan tiap klik approve ulang)
+    const before = await Application.findOneAndUpdate(
       { _id: req.params.appId, tenantId: tenant._id, campaignId: campaign._id, status: 'accepted' },
       { clientApprovalStatus: status },
-      { new: true }
+      { new: false }
     )
-    if (!application) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
+    if (!before) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
+    const application = (await Application.findById(before._id))!
     syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (client approval):', err))
+    // Lolos tahap 2 (client) = creator resmi lolos: baru sekarang dikabari lewat WA + email
+    if (status === 'accepted' && before.clientApprovalStatus !== 'accepted') {
+      notifyCreatorAccepted(application).catch((err) => console.error('Accepted notify error:', err))
+    }
     res.json({ ok: true })
   } catch {
     res.status(500).json({ message: 'Server error' })

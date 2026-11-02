@@ -14,8 +14,6 @@ import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { WaTrigger } from '../whatsapp/waTemplate.model'
 import { syncApplicationToSheet } from '../../lib/sheetSync.service'
 import { ensurePortalToken, portalUrl } from '../campaigns/progress.service'
-import { sendEmail } from '../../lib/email'
-import { creatorAcceptedEmail } from '../../lib/emailTemplates'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -94,31 +92,10 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Magic link portal campaign ini, dibuat saat diterima, dikirim lewat WA & email
-    const portalLink = status === 'accepted' ? portalUrl(await ensurePortalToken(application)) : undefined
-
-    // AD-30: diterima → WA creator_accepted (+ email di bawah). Ditolak sengaja tidak dikirimi apa pun.
-    const creator = application.creatorId as unknown as { _id: string; name: string; phone: string; email?: string } | null
-    const campaign = await Campaign.findOne({ _id: application.campaignId, tenantId: req.auth!.tenantId })
-    if (status === 'accepted' && creator?.phone && campaign) {
-      const trigger = 'creator_accepted'
-      const template = await getTemplate(req.auth!.tenantId, trigger)
-      let payload = renderTemplate(template, {
-        nama: creator.name,
-        campaign: campaign.name,
-        password: generatedPassword,
-        grup_link: campaign.waGroupLink,
-        portal_link: portalLink,
-      })
-      // Template lama (sudah di-seed/diedit sebelum ada {{portal_link}}) tetap harus bawa link-nya
-      if (portalLink && !template.includes('portal_link')) payload += `\n\nUpdate progress campaign kamu di sini: ${portalLink}`
-      await enqueueWaMessage({ tenantId: req.auth!.tenantId, trigger, to: creator.phone, payload, campaignId: String(campaign._id), creatorId: String(creator._id) })
-    }
-    if (portalLink && creator?.email && campaign) {
-      const mail = creatorAcceptedEmail(creator.name, campaign.name, portalLink, campaign.waGroupLink)
-      sendEmail(creator.email, mail.subject, mail.html).catch((err) => console.error('Accepted email error:', err))
-    }
-
+    // Magic link portal dibuat saat lolos tahap 1 (admin bisa salin dari tab Pendaftar), tapi notif WA +
+    // email baru dikirim setelah client juga approve (tahap 2), lihat notifyCreatorAccepted.
+    if (status === 'accepted') await ensurePortalToken(application)
+    const creator = application.creatorId as unknown as { _id: string } | null
 
     syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
     const latestSubmission = await findLatestSubmission(req.auth!.tenantId, application.campaignId, creator?._id)
