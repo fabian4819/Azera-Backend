@@ -58,3 +58,31 @@ export function creatorAcceptedEmail(name: string, campaign: string, portalLink:
         ${groupLink ? `<p style="${P}">Gabung grup WA campaign: <a href="${escape(groupLink)}" style="color: #6728e4;">${escape(groupLink)}</a></p>` : ''}`),
   }
 }
+
+/** Link Komunitas WhatsApp AzeraKOL, dikirim ke creator yang profilnya disetujui (menu Creator). */
+export const CREATOR_COMMUNITY_LINK = 'https://chat.whatsapp.com/HWX9FvHpIpKF57aFLog1Kx'
+
+/** Menu Creator: profil lolos kurasi + ajakan join komunitas. */
+export function creatorProfileApprovedEmail(name: string): { subject: string; html: string } {
+  return {
+    subject: 'Selamat, kamu lolos kurasi creator AzeraKOL! 🎉',
+    html: layout(`
+        <h1 style="margin: 0 0 12px; font-size: 1.25rem; color: #191c20;">Halo Kak ${escape(name)}! 🎉</h1>
+        <p style="${P}">Selamat, profil Kakak sudah <strong>lolos kurasi</strong> dan resmi bergabung sebagai creator AzeraKOL! 🥳</p>
+        <p style="${P}">Yuk join Komunitas WhatsApp AzeraKOL supaya Kakak nggak ketinggalan info campaign terbaru, tips konten, dan kabar dari tim kami.</p>
+        <p style="margin: 0 0 20px;"><a href="${CREATOR_COMMUNITY_LINK}" style="display: inline-block; background: #6728e4; color: white; text-decoration: none; font-weight: 700; padding: 12px 22px; border-radius: 999px;">Gabung Komunitas WhatsApp</a></p>
+        <p style="${P}">Sampai ketemu di komunitas ya, Kak! 💜</p>`),
+  }
+}
+
+/** Menu Creator: profil belum cocok, dikabari kalau ada campaign yang pas (tanpa link komunitas). */
+export function creatorProfileRejectedEmail(name: string): { subject: string; html: string } {
+  return {
+    subject: 'Terima kasih sudah mendaftar di AzeraKOL',
+    html: layout(`
+        <h1 style="margin: 0 0 12px; font-size: 1.25rem; color: #191c20;">Halo Kak ${escape(name)} 😊</h1>
+        <p style="${P}">Terima kasih banyak sudah mendaftar sebagai creator di AzeraKOL. Setelah kami review, untuk saat ini profil Kakak belum sesuai dengan kebutuhan campaign yang sedang berjalan.</p>
+        <p style="${P}">Tapi jangan khawatir ya, Kak! Data Kakak tetap kami simpan. Kalau nanti ada campaign yang cocok dengan profil Kakak, tim kami akan langsung mengabari. 🙏</p>
+        <p style="${P}">Terima kasih dan sukses selalu untuk kontennya! 💜</p>`),
+  }
+}

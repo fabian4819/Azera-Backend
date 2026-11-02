@@ -8,6 +8,10 @@ import SocialSnapshot from '../extension/socialSnapshot.model'
 import { computePerformanceScore } from './performanceScore.service'
 import { syncCreatorToSheet } from '../../lib/sheetSync.service'
 import { getCreatorsTabUrl } from '../../lib/googleSheets'
+import { enqueueWaMessage } from '../../lib/baileys'
+import { getTemplate, renderTemplate } from '../whatsapp/template.service'
+import { sendEmail } from '../../lib/email'
+import { creatorProfileApprovedEmail, creatorProfileRejectedEmail, CREATOR_COMMUNITY_LINK } from '../../lib/emailTemplates'
 
 const router = Router()
 router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
@@ -114,6 +118,21 @@ const EDITABLE_FIELDS = [
   'portfolioLink', 'photoUrl', 'status',
 ] as const
 
+/** Menu Creator: kabari keputusan kurasi profil lewat WA (template, bisa diedit/dimatikan) + email.
+ * Disetujui = ajakan join Komunitas WhatsApp; ditolak = dikabari kalau ada campaign yang cocok. */
+async function notifyCreatorDecision(tenantId: string, creator: { _id: unknown; name: string; phone?: string; email?: string; status: string }) {
+  const approved = creator.status === 'approved'
+  if (creator.phone) {
+    const trigger = approved ? 'creator_profile_approved' : 'creator_profile_rejected'
+    const payload = renderTemplate(await getTemplate(tenantId, trigger), { nama: creator.name, community_link: CREATOR_COMMUNITY_LINK })
+    await enqueueWaMessage({ tenantId, trigger, to: creator.phone, payload, creatorId: String(creator._id) })
+  }
+  if (creator.email) {
+    const mail = approved ? creatorProfileApprovedEmail(creator.name) : creatorProfileRejectedEmail(creator.name)
+    await sendEmail(creator.email, mail.subject, mail.html)
+  }
+}
+
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -121,13 +140,19 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     for (const field of EDITABLE_FIELDS) {
       if (field in req.body) updates[field] = req.body[field]
     }
-    const creator = await Creator.findOneAndUpdate(
+    // `new: false` = dokumen SEBELUM update, untuk tahu status benar-benar berubah (pesan tidak terkirim dobel)
+    const before = await Creator.findOneAndUpdate(
       { _id: req.params.id, tenantId: req.auth!.tenantId },
       updates,
-      { new: true }
+      { new: false }
     )
-    if (!creator) { res.status(404).json({ message: 'Not found' }); return }
+    if (!before) { res.status(404).json({ message: 'Not found' }); return }
+    const creator = (await Creator.findById(before._id))!
     syncCreatorToSheet(creator).catch((err) => console.error('Sheet sync error (creator):', err))
+    if (before.status !== creator.status && (creator.status === 'approved' || creator.status === 'rejected')) {
+      notifyCreatorDecision(String(req.auth!.tenantId), creator)
+        .catch((err) => console.error('Creator decision notify error:', err))
+    }
     res.json(creator)
   } catch {
     res.status(500).json({ message: 'Server error' })

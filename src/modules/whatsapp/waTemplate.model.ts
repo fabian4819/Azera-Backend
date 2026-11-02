@@ -8,6 +8,9 @@ export const WA_TRIGGERS = [
   // creator
   'creator_accepted',
   'creator_rejected',
+  // Menu Creator: profil creator disetujui / ditolak (bukan pendaftaran campaign)
+  'creator_profile_approved',
+  'creator_profile_rejected',
   'brief_campaign',
   'reminder_draft',
   'reminder_upload',

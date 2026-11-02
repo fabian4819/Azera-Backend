@@ -14,6 +14,14 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
     audience: 'creator',
     body: "Halo Kak {{nama}} 😊\n\nTerima kasih banyak sudah mendaftar campaign *{{campaign}}*. Setelah kami review, untuk campaign kali ini Kakak belum terpilih.\n\nJangan berkecil hati ya, Kak! Masih banyak campaign seru lain yang akan datang, dan kami tunggu pendaftaran Kakak berikutnya 💜",
   },
+  creator_profile_approved: {
+    audience: 'creator',
+    body: "Halo Kak {{nama}}! 🎉\n\nSelamat, profil Kakak sudah *lolos kurasi* dan resmi bergabung sebagai creator AzeraKOL! 🥳\n\nYuk join Komunitas WhatsApp AzeraKOL supaya Kakak nggak ketinggalan info campaign terbaru, tips konten, dan kabar dari tim kami:\n👉 {{community_link}}\n\nSampai ketemu di komunitas ya, Kak! 💜",
+  },
+  creator_profile_rejected: {
+    audience: 'creator',
+    body: "Halo Kak {{nama}} 😊\n\nTerima kasih banyak sudah mendaftar sebagai creator di AzeraKOL. Setelah kami review, untuk saat ini profil Kakak belum sesuai dengan kebutuhan campaign yang sedang berjalan.\n\nTapi jangan khawatir ya, Kak! Data Kakak tetap kami simpan. Kalau nanti ada campaign yang cocok dengan profil Kakak, tim kami akan langsung mengabari. 🙏\n\nTerima kasih dan sukses selalu untuk kontennya! 💜",
+  },
   brief_campaign: {
     audience: 'creator',
     body: "Halo Kak {{nama}}! 👋\n\nBerikut brief lengkap untuk campaign *{{campaign}}*:\n\n{{brief}}\n\n📊 Progress (link draft, posting, insight) bisa Kakak isi di dashboard ini:\n{{portal_link}}\n\nKalau ada yang kurang jelas, jangan ragu tanya kami ya, Kak. Selamat berkarya! ✨",
