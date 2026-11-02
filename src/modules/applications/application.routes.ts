@@ -97,11 +97,11 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     // Magic link portal campaign ini, dibuat saat diterima, dikirim lewat WA & email
     const portalLink = status === 'accepted' ? portalUrl(await ensurePortalToken(application)) : undefined
 
-    // AD-30: trigger creator_accepted / creator_rejected
+    // AD-30: diterima → WA creator_accepted (+ email di bawah). Ditolak sengaja tidak dikirimi apa pun.
     const creator = application.creatorId as unknown as { _id: string; name: string; phone: string; email?: string } | null
     const campaign = await Campaign.findOne({ _id: application.campaignId, tenantId: req.auth!.tenantId })
-    if (creator?.phone && campaign) {
-      const trigger = status === 'accepted' ? 'creator_accepted' : 'creator_rejected'
+    if (status === 'accepted' && creator?.phone && campaign) {
+      const trigger = 'creator_accepted'
       const template = await getTemplate(req.auth!.tenantId, trigger)
       let payload = renderTemplate(template, {
         nama: creator.name,
