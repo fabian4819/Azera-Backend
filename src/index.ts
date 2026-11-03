@@ -37,6 +37,8 @@ import { connectAllBots } from './lib/baileys'
 import { backfillBotDiscriminator } from './modules/whatsapp/waChat.service'
 import { migrateLegacyStages } from './modules/campaigns/workflow.service'
 import { startCronJobs } from './lib/cron'
+import { startSheetPolling } from './modules/campaigns/sheetPoll.service'
+import sheetHookRouter from './routes/sheetHook'
 
 const app = express()
 
@@ -73,6 +75,7 @@ app.use('/api/admin/campaigns', campaignRouter)
 app.use('/api/admin/applications', applicationRouter)
 app.use('/api/admin/creators', creatorRouter)
 app.use('/api/campaigns', publicCampaignRouter)
+app.use('/api/sheet-hook', sheetHookRouter) // edit dari Google Sheet (Apps Script) → platform
 app.use('/api/portal', portalRouter)
 app.use('/api/creator', talentPortalRouter)
 app.use('/api/pic', picAuthRouter)
@@ -119,6 +122,8 @@ backfillBotDiscriminator()
 // Cron (reminder invoice, progress report) cuma di production, backend lokal pakai DB production juga,
 // kalau ikut jalan bakal kirim dobel & menandai reminder 'sudah terkirim' di data asli.
 if (env.isProd) startCronJobs()
+// Cadangan sinkron Google Sheet → platform (campaign tanpa pemicu Apps Script / jaring pengaman)
+if (env.isProd) startSheetPolling()
 
 // Progress campaign 17 tahap → 5 tahap: petakan tahap lama di data production (idempoten). Tidak di lokal,
 // karena backend lokal juga tersambung ke DB production dan ini menulis data.

@@ -11,7 +11,7 @@ import { runSmartCuration } from '../applications/curation.service'
 import { buildPortalView, buildClientApplicantsView } from './sheetView.service'
 import { reviewSubmission, CellError } from './progress.service'
 import { syncApplicationToSheet, creatorAccess } from '../../lib/sheetSync.service'
-import { notifyCreatorAccepted } from '../applications/acceptedNotify.service'
+import { clientDecideApplication } from '../applications/decision.service'
 import { uploadAsset } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import { parseBriefBlocks, setBrief, uploadKind, publicBriefText } from './briefBlocks'
@@ -34,6 +34,10 @@ async function loadBoardCampaign(id: string, code: unknown, role: 'pic' | 'clien
   if (!campaign || !codeMatches(role === 'pic' ? campaign.accessCode : campaign.clientAccessCode, code)) return null
   return { tenant, campaign }
 }
+
+/** Sheet EXTERNAL campaign (tanpa data internal) untuk tombol "Buka Google Sheet" di dashboard client saja */
+const clientSheetUrl = (campaign: ICampaign) =>
+  campaign.clientSpreadsheetId ? `https://docs.google.com/spreadsheets/d/${campaign.clientSpreadsheetId}/edit` : ''
 
 function boardCampaignInfo(campaign: ICampaign, withGroup: boolean) {
   const brand = campaign.brandId as unknown as { namaBrand?: string } | null
@@ -69,7 +73,7 @@ router.get('/:id/client', async (req: Request, res: Response) => {
     await connectDB()
     const found = await loadBoardCampaign(req.params.id, req.query.code, 'client')
     if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
-    res.json({ campaign: boardCampaignInfo(found.campaign, false), ...(await buildPortalView(found.tenant._id, found.campaign, { role: 'client' })) })
+    res.json({ campaign: { ...boardCampaignInfo(found.campaign, false), clientSheetUrl: clientSheetUrl(found.campaign) }, ...(await buildPortalView(found.tenant._id, found.campaign, { role: 'client' })) })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -104,7 +108,7 @@ router.get('/:id/client/applicants', async (req: Request, res: Response) => {
     await connectDB()
     const found = await loadBoardCampaign(req.params.id, req.query.code, 'client')
     if (!found) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
-    res.json({ campaign: boardCampaignInfo(found.campaign, false), ...(await buildClientApplicantsView(found.tenant._id, found.campaign)) })
+    res.json({ campaign: { ...boardCampaignInfo(found.campaign, false), clientSheetUrl: clientSheetUrl(found.campaign) }, ...(await buildClientApplicantsView(found.tenant._id, found.campaign)) })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -119,19 +123,9 @@ router.patch('/:id/client/applicants/:appId', async (req: Request, res: Response
     if (!['accepted', 'rejected'].includes(status)) { res.status(400).json({ message: 'status harus accepted atau rejected' }); return }
     const { tenant, campaign } = found
     // Cuma yang sudah lolos stage 1 (admin) yang boleh diputuskan client
-    // `new: false` = sebelum update, supaya notif lolos cuma terkirim sekali (bukan tiap klik approve ulang)
-    const before = await Application.findOneAndUpdate(
-      { _id: req.params.appId, tenantId: tenant._id, campaignId: campaign._id, status: 'accepted' },
-      { clientApprovalStatus: status },
-      { new: false }
-    )
-    if (!before) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
-    const application = (await Application.findById(before._id))!
-    syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (client approval):', err))
-    // Lolos tahap 2 (client) = creator resmi lolos: baru sekarang dikabari lewat WA + email
-    if (status === 'accepted' && before.clientApprovalStatus !== 'accepted') {
-      notifyCreatorAccepted(application).catch((err) => console.error('Accepted notify error:', err))
-    }
+    // Cuma yang sudah lolos stage 1 (admin) yang boleh diputuskan client; lolos = creator dikabari
+    const application = await clientDecideApplication(tenant._id, campaign._id, req.params.appId, status)
+    if (!application) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
     res.json({ ok: true })
   } catch {
     res.status(500).json({ message: 'Server error' })

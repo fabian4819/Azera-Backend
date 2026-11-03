@@ -28,7 +28,7 @@ import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
 import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
 import { getCampaignTabUrl } from '../../lib/googleSheets'
-import { scheduleWorkbookSync, workbookTabUrl } from './campaignWorkbook.service'
+import { scheduleWorkbookSync, workbookTabUrl, releaseSheetHooks } from './campaignWorkbook.service'
 import { deleteCampaigns } from './campaignDelete.service'
 import { onCampaignChange } from '../../lib/campaignEvents'
 import { isCreatorEditableBase } from '../../lib/sheetSync.service'
@@ -483,6 +483,9 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     )
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
     scheduleWorkbookSync(req.auth!.tenantId, campaign._id) // form kustom / kolom progress mengubah kolom spreadsheet
+    if (['completed', 'cancelled'].includes(String(updates.status))) {
+      releaseSheetHooks(campaign).catch((err) => console.error('Sheet hook release error:', err))
+    }
 
     // AD-31: campaign_started / campaign_completed, kirim ke client saat status berubah
     if (updates.status && updates.status !== before.status && ['active', 'completed'].includes(updates.status as string)) {

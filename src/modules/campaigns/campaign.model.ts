@@ -142,6 +142,10 @@ export interface ICampaign extends Document {
   applyFields: IApplyFields
   /** Spreadsheet Google milik campaign ini (tab Master/Pendaftar/Report/Recap), lihat campaignWorkbook.service.ts */
   spreadsheetId?: string
+  /** Spreadsheet EXTERNAL untuk client (tab Listing & Campaign Tracker, tanpa data internal), di folder campaign */
+  clientSpreadsheetId?: string
+  /** Spreadsheet (internal/external) yang sudah dipasangi pemicu Apps Script onEdit (sinkron realtime sheet → platform) */
+  sheetHooks?: string[]
   /** Folder campaign di Shared Drive, tempat spreadsheet (dan file campaign lain) disimpan */
   driveFolderId?: string
   progressColumns: IProgressColumn[]
@@ -248,6 +252,8 @@ const CampaignSchema = new Schema<ICampaign>(
     applySlug: { type: String, required: true },
     customFields: { type: [CustomFieldSchema], default: [] },
     spreadsheetId: String,
+    clientSpreadsheetId: String,
+    sheetHooks: { type: [String], default: undefined },
     driveFolderId: String,
     applyFields: {
       pic: { type: Boolean, default: true },

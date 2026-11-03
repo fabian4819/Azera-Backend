@@ -353,10 +353,28 @@ function uniqueNames(headers: (string | number)[]): string[] {
   })
 }
 
-export async function writeWorkbookTabs(spreadsheetId: string, tabs: { title: string; values: (string | number)[][]; tableRows: number }[]): Promise<void> {
+/** Satu tab spreadsheet campaign yang ditulis ulang tiap sync. */
+export interface WorkbookTab {
+  title: string
+  values: (string | number)[][]
+  /** header + baris data (baris total di luar tabel Google Sheets) */
+  tableRows: number
+  /** Kolom A = ID application, disembunyikan (dipakai Apps Script mencocokkan baris yang diedit) */
+  hideFirstColumn?: boolean
+  /** index kolom → pilihan dropdown (kolom tabel tipe DROPDOWN) */
+  dropdowns?: Record<number, string[]>
+  /** Kalau diisi: seluruh tab dikunci (cuma service account yang bisa edit) KECUALI kolom-kolom ini, baris 2 ke bawah */
+  editableColumns?: number[]
+}
+
+const LOCK_DESCRIPTION = 'azera-lock'
+
+export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab[]): Promise<void> {
   const sheets = getSheetsClient()
   if (!sheets) return
-  const sheetMeta = async () => (await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets(properties(title,sheetId),tables(tableId))' })).data.sheets || []
+  const sheetMeta = async () => (await sheets.spreadsheets.get({
+    spreadsheetId, fields: 'sheets(properties(title,sheetId),tables(tableId),protectedRanges(protectedRangeId,description))',
+  })).data.sheets || []
   let meta = await sheetMeta()
   const missing = tabs.filter((t) => !meta.some((sh) => sh.properties?.title === t.title))
   if (missing.length) {
@@ -366,37 +384,95 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: { title: st
     })
     meta = await sheetMeta()
   }
-  // Tabel Google Sheets (Format > Convert to table) ikut ukuran data, jadi tiap sync: buang tabel lama,
-  // tulis ulang isi, buat tabel baru. Format tabel gagal tidak boleh menggagalkan isi data.
-  const oldTables = meta.flatMap((sh) => (tabs.some((t) => t.title === sh.properties?.title) ? sh.tables || [] : []))
-  if (oldTables.length) {
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: oldTables.map((t) => ({ deleteTable: { tableId: t.tableId } })) } })
-      .catch((err) => console.error('Sheets deleteTable error:', (err as Error).message))
+  const sheetIdOf = (title: string) => meta.find((sh) => sh.properties?.title === title)?.properties?.sheetId
+  const ours = meta.filter((sh) => tabs.some((t) => t.title === sh.properties?.title))
+  // Tabel Google Sheets (Format > Convert to table) & kunci kolom ikut ukuran/susunan data, jadi tiap sync:
+  // buang tabel & kunci lama, tulis ulang isi, buat lagi. Gagal format tidak boleh menggagalkan isi data.
+  const cleanup = [
+    ...ours.flatMap((sh) => sh.tables || []).map((t) => ({ deleteTable: { tableId: t.tableId } })),
+    ...ours.flatMap((sh) => sh.protectedRanges || []).filter((p) => p.description === LOCK_DESCRIPTION)
+      .map((p) => ({ deleteProtectedRange: { protectedRangeId: p.protectedRangeId } })),
+  ]
+  if (cleanup.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: cleanup } })
+      .catch((err) => console.error('Sheets cleanup error:', (err as Error).message))
   }
   await sheets.spreadsheets.values.batchClear({ spreadsheetId, requestBody: { ranges: tabs.map((t) => quoteTab(t.title)) } })
   await sheets.spreadsheets.values.batchUpdate({
     spreadsheetId,
     requestBody: { valueInputOption: 'RAW', data: tabs.map((t) => ({ range: `${quoteTab(t.title)}!A1`, values: t.values })) },
   })
-  const addTables = tabs.flatMap((t) => {
-    const sheetId = meta.find((sh) => sh.properties?.title === t.title)?.properties?.sheetId
+  const { email: serviceEmail } = creds()
+  const tables = tabs.flatMap((t) => {
+    const sheetId = sheetIdOf(t.title)
     const headers = t.values[0] || []
     if (sheetId == null || !headers.length) return []
-    return [{
-      addTable: {
-        table: {
-          name: t.title,
-          // Tabel minimal header + 1 baris; baris total (Report/Recap) sengaja di luar tabel, tepat di bawahnya
-          range: { sheetId, startRowIndex: 0, endRowIndex: Math.max(t.tableRows, 2), startColumnIndex: 0, endColumnIndex: headers.length },
-          columnProperties: uniqueNames(headers).map((columnName, columnIndex) => ({ columnIndex, columnName })),
+    return [
+      {
+        addTable: {
+          table: {
+            name: t.title,
+            // Tabel minimal header + 1 baris; baris total (Report/Recap) sengaja di luar tabel, tepat di bawahnya
+            range: { sheetId, startRowIndex: 0, endRowIndex: Math.max(t.tableRows, 2), startColumnIndex: 0, endColumnIndex: headers.length },
+            columnProperties: uniqueNames(headers).map((columnName, columnIndex) => {
+              const options = t.dropdowns?.[columnIndex]
+              return options
+                ? { columnIndex, columnName, columnType: 'DROPDOWN', dataValidationRule: { condition: { type: 'ONE_OF_LIST', values: options.map((userEnteredValue) => ({ userEnteredValue })) } } }
+                : { columnIndex, columnName }
+            }),
+          },
         },
       },
-    }]
+    ]
   })
-  if (addTables.length) {
-    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: addTables } })
+  if (tables.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: tables } })
       .catch((err) => console.error('Sheets addTable error:', (err as Error).message))
   }
+  // Kunci kolom & sembunyikan ID dikirim TERPISAH dari tabel: tabel gagal tidak boleh bikin sheet client
+  // terbuka bebas diedit.
+  const lock = tabs.flatMap((t) => {
+    const sheetId = sheetIdOf(t.title)
+    if (sheetId == null) return []
+    return [
+      ...(t.hideFirstColumn ? [{
+        updateDimensionProperties: {
+          range: { sheetId, dimension: 'COLUMNS', startIndex: 0, endIndex: 1 }, properties: { hiddenByUser: true }, fields: 'hiddenByUser',
+        },
+      }] : []),
+      ...(t.editableColumns && serviceEmail ? [{
+        addProtectedRange: {
+          protectedRange: {
+            range: { sheetId },
+            description: LOCK_DESCRIPTION,
+            warningOnly: false,
+            unprotectedRanges: t.editableColumns.map((c) => ({ sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 })),
+            editors: { users: [serviceEmail] },
+          },
+        },
+      }] : []),
+    ]
+  })
+  if (lock.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: lock } })
+}
+
+/** Buka file untuk siapa saja yang punya link (bisa edit). Kolom yang dikunci tetap tidak bisa diubah. */
+export async function shareAnyoneCanEdit(fileId: string): Promise<void> {
+  if (!getSheetsClient() || !auth) return
+  await auth.request({
+    url: `https://www.googleapis.com/drive/v3/files/${fileId}/permissions`,
+    method: 'POST',
+    params: { supportsAllDrives: true },
+    data: { type: 'anyone', role: 'writer', allowFileDiscovery: false },
+  })
+}
+
+/** Baca isi tab (nilai tampilan, sama seperti yang dilihat orang di sheet). Dipakai polling cadangan sheet → platform. */
+export async function readWorkbookTabs(spreadsheetId: string, tabs: string[]): Promise<Record<string, string[][]>> {
+  const sheets = getSheetsClient()
+  if (!sheets) return {}
+  const res = await sheets.spreadsheets.values.batchGet({ spreadsheetId, ranges: tabs.map(quoteTab), valueRenderOption: 'FORMATTED_VALUE' })
+  return Object.fromEntries((res.data.valueRanges || []).map((v, i) => [tabs[i], (v.values || []) as string[][]]))
 }
 
 export function getWorkbookTabUrl(spreadsheetId: string, tab: string): Promise<string | null> {
