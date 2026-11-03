@@ -269,11 +269,19 @@ export async function buildSheetView(tenantId: Types.ObjectId | string, campaign
   return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null }, ...table }
 }
 
-/** Tab "Pendaftar" di dashboard client (AD-adjustment-4, stage 2): kolom sama dengan tab Pendaftar
- * admin, tapi cuma yang sudah lolos stage 1 (admin), dan badge/approve-reject-nya keputusan client. */
+/** Kolom data internal AZERA (kontak creator & orang internal) yang tidak boleh terlihat oleh client:
+ * dashboard client = versi "eksternal" dari sheet internal. */
+const CLIENT_HIDDEN_COLUMNS = new Set(['WhatsApp', 'Email', 'PIC/Partner', 'Handle By'])
+
+/** Tab "Listing" di dashboard client (stage 2): kandidat yang sudah lolos stage 1 (admin), badge &
+ * approve-reject = keputusan client. Kolom sama dengan tab Pendaftar admin minus data internal. */
 export async function buildClientApplicantsView(tenantId: Types.ObjectId | string, campaign: ICampaign) {
   const data = await loadCampaignData(tenantId, campaign)
-  return applicantsTable(campaign, data, { onlyStage1Accepted: true, statusField: 'clientApprovalStatus' })
+  const table = applicantsTable(campaign, data, { onlyStage1Accepted: true, statusField: 'clientApprovalStatus' })
+  const keep = table.headers.map((h, i) => (CLIENT_HIDDEN_COLUMNS.has(h) ? -1 : i)).filter((i) => i >= 0)
+  // rowLinks (magic link portal creator) sengaja dibuang: client tidak boleh bisa masuk dashboard creator
+  const { rowLinks: _drop, ...rest } = table
+  return { ...rest, headers: keep.map((i) => table.headers[i]), rows: table.rows.map((r) => keep.map((i) => r[i])) }
 }
 
 /** Sel portal: draft creator lain disamarkan (belum tayang). Status review dikirim mentah, frontend
@@ -295,7 +303,10 @@ export type BoardViewer = { role: 'creator'; mine: IApplication } | { role: 'pic
 export async function buildPortalView(tenantId: Types.ObjectId | string, campaign: ICampaign, viewer: BoardViewer) {
   const data = await loadCampaignData(tenantId, campaign)
   const cols = campaignSheetColumns(campaign)
-  const visible = cols.map((c, i) => ({ c, i, access: creatorAccess(campaign, c) })).filter((x) => x.access !== 'hidden')
+  const visible = cols.map((c, i) => ({ c, i, access: creatorAccess(campaign, c) }))
+    .filter((x) => x.access !== 'hidden')
+    // Campaign Tracker client = Master Sheet tanpa data internal (WA, email, PIC, handle by), apa pun aturan akses kolomnya
+    .filter((x) => viewer.role !== 'client' || !CLIENT_HIDDEN_COLUMNS.has(x.c.key))
   const mineId = viewer.role === 'creator' ? String(viewer.mine._id) : null
   // Baris sendiri paling atas supaya creator langsung ketemu
   const accepted = data.applications.filter(isFullyApproved)
