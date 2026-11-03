@@ -1,9 +1,8 @@
 import { Router, Response } from 'express'
-import crypto from 'crypto'
-import bcrypt from 'bcryptjs'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { setCreatorPaymentStatus } from './creatorPayment.service'
+import { decideApplication } from './decision.service'
 import Application from './application.model'
 import Creator from '../creators/creator.model'
 import Campaign from '../campaigns/campaign.model'
@@ -12,7 +11,6 @@ import Submission from '../submissions/submission.model'
 import { enqueueWaMessage } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { WaTrigger } from '../whatsapp/waTemplate.model'
-import { syncApplicationToSheet } from '../../lib/sheetSync.service'
 import { ensurePortalToken, portalUrl } from '../campaigns/progress.service'
 
 const router = Router()
@@ -75,29 +73,10 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ message: 'status harus accepted atau rejected' })
       return
     }
-    const application = await Application.findOneAndUpdate(
-      { _id: req.params.id, tenantId: req.auth!.tenantId },
-      { status, decidedByUserId: req.auth!.userId, decidedAt: new Date() },
-      { new: true }
-    ).populate('creatorId').populate('picUserId', 'name email')
-    if (!application) { res.status(404).json({ message: 'Not found' }); return }
-
-    let generatedPassword: string | undefined
-    if (status === 'accepted') {
-      const creator = await Creator.findOne({ _id: application.creatorId, tenantId: req.auth!.tenantId })
-      if (creator && !creator.password) {
-        generatedPassword = crypto.randomBytes(4).toString('hex')
-        creator.password = await bcrypt.hash(generatedPassword, 12)
-        await creator.save()
-      }
-    }
-
-    // Magic link portal dibuat saat lolos tahap 1 (admin bisa salin dari tab Pendaftar), tapi notif WA +
-    // email baru dikirim setelah client juga approve (tahap 2), lihat notifyCreatorAccepted.
-    if (status === 'accepted') await ensurePortalToken(application)
+    const result = await decideApplication(req.auth!.tenantId, req.params.id, status, req.auth!.userId)
+    if (!result) { res.status(404).json({ message: 'Not found' }); return }
+    const { application, generatedPassword } = result
     const creator = application.creatorId as unknown as { _id: string } | null
-
-    syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
     const latestSubmission = await findLatestSubmission(req.auth!.tenantId, application.campaignId, creator?._id)
     res.json({ application: { ...application.toJSON(), latestSubmission }, generatedPassword })
   } catch {
