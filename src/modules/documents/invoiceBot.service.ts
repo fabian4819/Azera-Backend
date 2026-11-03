@@ -143,24 +143,24 @@ export function parseInvoiceMessage(body: string): ParsedInvoice | string {
   const lines = body.split('\n').map((l) => l.trim()).filter(Boolean).slice(1)
 
   // Dua bentuk: "Mastersheet" (atau "Mastersheet:") sendirian + link di baris berikutnya (format bot-cashflow,
-  // harus paling akhir), atau satu baris "Mastersheet: <link>" di mana saja.
-  const mastersheetIndex = lines.findIndex((line) => /^mastersheet\s*:?$/i.test(line))
+  // harus paling akhir), atau "Mastersheet: <link>" di mana saja. Boleh lebih dari 1 link (satu per baris
+  // atau dipisah spasi), disimpan di mastersheetUrl dipisah baris baru.
+  const mastersheetIndex = lines.findIndex((line) => /^mastersheet\b\s*:?/i.test(line))
   let mastersheetUrl: string | undefined
   let sectionLines = lines
   if (mastersheetIndex >= 0) {
-    sectionLines = lines.slice(0, mastersheetIndex)
-    const rest = lines.slice(mastersheetIndex + 1)
-    // "Mastersheet:" kosong di baris terakhir = tidak ada link (opsional)
-    if (rest.length > 1) return `❌ Setelah "Mastersheet" harus ada tepat 1 link Google Sheets.`
-    mastersheetUrl = rest[0]
-  }
-  const inline = sectionLines.find((line) => /^mastersheet\s*:\s*\S/i.test(line))
-  if (inline) mastersheetUrl = inline.replace(/^mastersheet\s*:\s*/i, '')
-  if (mastersheetUrl !== undefined) {
-    mastersheetUrl = mastersheetUrl.trim().replace(/[,.]+$/, '')
-    if (!/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+(?:[/?#].*)?$/i.test(mastersheetUrl)) {
+    const inlineLinks = lines[mastersheetIndex].replace(/^mastersheet\b\s*:?\s*/i, '')
+    let end = mastersheetIndex + 1
+    while (end < lines.length && /^https?:\/\//i.test(lines[end])) end++
+    if (!inlineLinks && end < lines.length) return `❌ Setelah "Mastersheet" cuma boleh link Google Sheets (boleh lebih dari 1, satu per baris).`
+    sectionLines = [...lines.slice(0, mastersheetIndex), ...lines.slice(end)]
+    const links = [inlineLinks, ...lines.slice(mastersheetIndex + 1, end)].join(' ').split(/\s+/)
+      .map((u) => u.replace(/[,.]+$/, '')).filter(Boolean)
+    // "Mastersheet:" kosong = tidak ada link (opsional)
+    if (links.some((u) => !/^https:\/\/docs\.google\.com\/spreadsheets\/d\/[\w-]+(?:[/?#].*)?$/i.test(u))) {
       return `❌ Link Mastersheet tidak valid. Gunakan link Google Sheets lengkap.`
     }
+    if (links.length) mastersheetUrl = links.join('\n')
   }
 
   let billTo: string | undefined
@@ -249,7 +249,7 @@ async function invoiceHelp(): Promise<string> {
     `Total Fee PIC: [nominal]  (opsional, internal)`,
     `Total Fee Handle by: [nominal]  (opsional, internal)`,
     `Total Gaji Admin Campaign Internal Azera: [nominal] ([keterangan])  (opsional, internal)`,
-    `Mastersheet: [link Google Sheets]  (opsional)`,
+    `Mastersheet: [link Google Sheets]  (opsional, boleh lebih dari 1 link, satu per baris)`,
     '```',
     ``,
     `*Contoh:*`,

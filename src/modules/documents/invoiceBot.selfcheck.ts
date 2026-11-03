@@ -105,4 +105,15 @@ assert.deepEqual(labelNote.internalCost, { adminInternal: 50_000 })
 assert.equal(ok.internalCost, undefined)
 assert.match(String(parseInvoiceMessage('/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nTotal Fee KOL: banyak')), /Nominal tidak valid/)
 
+// 2 mastersheet (Nov 2026): "Mastersheet:" lalu 2 link di baris berikutnya, persis kiriman tim di WA
+const sheet2 = 'https://docs.google.com/spreadsheets/d/1s42Hk8oNFZc/edit?usp=drivesdk'
+const two = parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nTotal Fee KOL: 100rb\nMastersheet:\n${sheet}\n${sheet2}`)
+assert.ok(typeof two !== 'string', String(two))
+assert.equal(two.mastersheetUrl, `${sheet}\n${sheet2}`)
+assert.deepEqual(two.internalCost, { feeKol: 100_000 })
+const twoInline = parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nMastersheet: ${sheet}\n${sheet2}\nItem: a | b | 1 | 1rb`)
+assert.ok(typeof twoInline !== 'string' && twoInline.mastersheetUrl === `${sheet}\n${sheet2}` && twoInline.items.length === 1)
+assert.match(String(parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nMastersheet:\n${sheet}\nhttps://evil.example/x`)), /Mastersheet tidak valid/)
+assert.match(String(parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nMastersheet\n${sheet}\nItem: a | b | 1 | 1rb`)), /cuma boleh link/)
+
 console.log('invoiceBot selfcheck OK')
