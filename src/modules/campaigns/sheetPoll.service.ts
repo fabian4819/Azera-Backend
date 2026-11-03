@@ -1,4 +1,5 @@
 import Campaign from './campaign.model'
+import { getDefaultTenant } from '../tenants/defaultTenant'
 import { readWorkbookTabs } from '../../lib/googleSheets'
 import { applySheetRow, type SheetRow } from './sheetEdit.service'
 import { lastWritten, WORKBOOK_TABS, CLIENT_TABS, ID_HEADER } from './campaignWorkbook.service'
@@ -42,7 +43,8 @@ async function pollSpreadsheet(spreadsheetId: string, tabs: string[]): Promise<v
 }
 
 async function pollOnce(): Promise<void> {
-  const campaigns = await Campaign.find({ status: { $nin: ['completed', 'cancelled'] }, spreadsheetId: { $exists: true } })
+  const tenant = await getDefaultTenant()
+  const campaigns = await Campaign.find({ tenantId: tenant._id, status: { $nin: ['completed', 'cancelled'] }, spreadsheetId: { $exists: true } })
     .select('spreadsheetId clientSpreadsheetId sheetHooks')
   const now = Date.now()
   for (const c of campaigns) {

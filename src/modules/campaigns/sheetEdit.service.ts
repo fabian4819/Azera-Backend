@@ -1,5 +1,6 @@
 import { Types } from 'mongoose'
 import Campaign from './campaign.model'
+import { getDefaultTenant } from '../tenants/defaultTenant'
 import Application from '../applications/application.model'
 import Submission from '../submissions/submission.model'
 import { decideApplication, clientDecideApplication, type Decision } from '../applications/decision.service'
@@ -25,7 +26,8 @@ export type SheetRow = Record<string, string | number | undefined>
 export async function applySheetRow(spreadsheetId: string, tab: string, row: SheetRow): Promise<string> {
   const appId = String(row[ID_HEADER] ?? '').trim()
   if (!Types.ObjectId.isValid(appId)) return 'skip: tanpa ID'
-  const campaign = await Campaign.findOne({ $or: [{ spreadsheetId }, { clientSpreadsheetId: spreadsheetId }] })
+  const tenant = await getDefaultTenant()
+  const campaign = await Campaign.findOne({ tenantId: tenant._id, $or: [{ spreadsheetId }, { clientSpreadsheetId: spreadsheetId }] })
   if (!campaign) return 'skip: spreadsheet tidak dikenal'
   const isInternal = campaign.spreadsheetId === spreadsheetId
   const application = await Application.findOne({ _id: appId, tenantId: campaign.tenantId, campaignId: campaign._id })
