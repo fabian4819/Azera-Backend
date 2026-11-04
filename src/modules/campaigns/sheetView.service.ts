@@ -4,6 +4,7 @@ import Application, { IApplication } from '../applications/application.model'
 import Submission, { ISubmission } from '../submissions/submission.model'
 import Creator, { ICreator } from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
+import SocialSnapshot from '../extension/socialSnapshot.model'
 import '../../models/Brand' // daftarkan model untuk populate('brandId')
 import { campaignSheetColumns, campaignSheetRow, creatorAccess, progressKind, CellKind, SheetColumn, BASE_SUBMISSION_COLUMNS, isFullyApproved, paymentStatusLabel } from '../../lib/sheetSync.service'
 import { portalUrl } from './progress.service'
@@ -55,11 +56,15 @@ const sum = (rows: Cell[][], col: number) => rows.reduce((acc, r) => acc + (type
 
 async function loadCampaignData(tenantId: Types.ObjectId | string, campaign: ICampaign) {
   const applications = await Application.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: 1 })
-  const [creators, submissions, pics] = await Promise.all([
+  const creatorIds = applications.map((a) => a.creatorId)
+  const [creators, submissions, pics, snapshots] = await Promise.all([
     Creator.find({ tenantId, _id: { $in: applications.map((a) => a.creatorId) } }).select('name phone email bankAccount npwp niches domicile socials pendingPaymentReply'),
     Submission.find({ tenantId, campaignId: campaign._id }).sort({ createdAt: -1 }),
     PicUser.find({ tenantId, _id: { $in: applications.map((a) => a.picUserId).filter(Boolean) } })
       .select('name phone paymentInfo pendingPaymentReply paymentInfoRequestedAt paidCampaignIds'),
+    // Hasil scan ekstensi KOL Lister (rata-rata 12 post terakhir), terbaru dulu
+    SocialSnapshot.find({ tenantId, creatorId: { $in: creatorIds } }).sort({ createdAt: -1 })
+      .select('creatorId platform username profileUrl followers avgViews avgLikes avgComments'),
   ])
   const creatorById = new Map(creators.map((c) => [String(c._id), c]))
   const picById = new Map(pics.map((p) => [String(p._id), p.name]))
@@ -70,8 +75,17 @@ async function loadCampaignData(tenantId: Types.ObjectId | string, campaign: ICa
     const k = String(s.creatorId)
     submissionsByCreator.set(k, [...(submissionsByCreator.get(k) || []), s])
   }
-  return { applications, creatorById, picById, picFullById, submissions, submissionsByCreator }
+  // Snapshot terbaru per (creator, platform)
+  const snapshotByKey = new Map<string, (typeof snapshots)[number]>()
+  for (const sn of snapshots) {
+    const k = `${sn.creatorId}:${sn.platform}`
+    if (!snapshotByKey.has(k)) snapshotByKey.set(k, sn)
+  }
+  return { applications, creatorById, picById, picFullById, submissions, submissionsByCreator, snapshotByKey }
 }
+
+const PROFILE_PREFIX: Record<string, string> = { instagram: 'instagram.com/', tiktok: 'tiktok.com/@', threads: 'threads.com/@', x: 'x.com/' }
+const round2 = (n?: number | null) => (n == null ? '' : Math.round(n * 100) / 100)
 type CampaignData = Awaited<ReturnType<typeof loadCampaignData>>
 
 function masterRow(campaign: ICampaign, d: CampaignData, a: CampaignData['applications'][number]): Cell[] {
@@ -117,7 +131,7 @@ const CURATION_LABELS: Record<string, string> = {
  * `opts` dipakai juga oleh dashboard client (AD-adjustment-4, stage 2): kolom identik, tapi
  * cuma baris yang sudah lolos admin (stage 1), dan rowStatus-nya keputusan client sendiri. */
 function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStage1Accepted?: boolean; statusField?: 'status' | 'clientApprovalStatus' }): SheetTable {
-  const applications = opts?.onlyStage1Accepted ? d.applications.filter((a) => a.status === 'accepted') : d.applications
+  const applications = opts?.onlyStage1Accepted ? d.applications.filter((a) => a.status === 'accepted') : [...d.applications]
   const custom = campaign.customFields || []
   // Kolom ikut field form apply campaign ini: niche, domisili (kalau ada kriteria provinsi/kota), akun per platform
   const platforms = campaign.criteria?.platforms || []
@@ -125,9 +139,25 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
   const PLATFORM_LABEL: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', threads: 'Threads', x: 'X' }
   const headers = [
     'Creator', 'WhatsApp', 'Email', 'Niche', ...(askDomicile ? ['Provinsi', 'Kota'] : []),
-    ...platforms.flatMap((p) => [`${PLATFORM_LABEL[p] ?? p}`, `Followers ${PLATFORM_LABEL[p] ?? p}`]),
+    // Per platform: akun + metrik scan ekstensi KOL Lister (12 post terakhir), lalu gabungan avg views
+    ...platforms.flatMap((p) => {
+      const l = PLATFORM_LABEL[p] ?? p
+      return [`Username ${l}`, `Link Akun ${l}`, `Followers ${l}`, `Avg Views 12 Post Terakhir ${l}`, `Avg Likes ${l}`, `Avg Comments ${l}`]
+    }),
+    ...(platforms.length > 1 ? [`Gabungan Avg Views 12 Post Terakhir ${platforms.map((p) => PLATFORM_LABEL[p] ?? p).join(' + ')}`] : []),
     'PIC/Partner', 'Handle By', ...custom.map((f) => f.label), 'Hasil Kurasi', 'Alasan Kurasi', 'Tanggal Daftar',
   ]
+  // Gabungan avg views semua platform yang sudah di-scan; kosong kalau belum ada satu pun (bukan #VALUE!)
+  const gabungan = (a: CampaignData['applications'][number]): Cell => {
+    const vals = platforms.map((p) => d.snapshotByKey.get(`${a.creatorId}:${p}`)?.avgViews).filter((v): v is number => typeof v === 'number')
+    return vals.length ? Math.round(vals.reduce((x, y) => x + y, 0)) : ''
+  }
+  // Urut gabungan avg views terbesar dulu (seperti sheet listing manual); yang belum di-scan di bawah, urut tanggal daftar
+  const score = (a: CampaignData['applications'][number]) => {
+    const g = gabungan(a)
+    return typeof g === 'number' ? g : -1
+  }
+  applications.sort((x, y) => score(y) - score(x) || +x.createdAt - +y.createdAt)
   const rows: Cell[][] = applications.map((a) => {
     const c = d.creatorById.get(String(a.creatorId))
     const ans = (id: string) => {
@@ -140,8 +170,14 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
       ...(askDomicile ? [c?.domicile?.province || '', c?.domicile?.city || ''] : []),
       ...platforms.flatMap((p) => {
         const acc = c?.socials?.find((x) => x.platform === p)
-        return [acc?.username ? `@${acc.username}` : '', acc ? acc.followers : '']
+        const snap = d.snapshotByKey.get(`${a.creatorId}:${p}`)
+        const username = acc?.username || snap?.username || ''
+        const link = snap?.profileUrl || (username ? `https://${PROFILE_PREFIX[p] ?? ''}${username.replace(/^@+/, '')}` : '')
+        // Followers: hasil scan ekstensi (lebih akurat) kalau ada, kalau belum isian creator saat daftar
+        return [username ? `@${username.replace(/^@+/, '')}` : '', link, snap?.followers ?? acc?.followers ?? '',
+          round2(snap?.avgViews), round2(snap?.avgLikes), round2(snap?.avgComments)]
       }),
+      ...(platforms.length > 1 ? [gabungan(a)] : []),
       a.picUserId ? d.picById.get(String(a.picUserId)) || '' : '',
       a.handleBy || '',
       ...custom.map((f) => ans(f.id)),
