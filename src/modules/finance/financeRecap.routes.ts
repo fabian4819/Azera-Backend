@@ -5,6 +5,8 @@ import { Types } from 'mongoose'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import DocumentModel from '../documents/document.model'
+import { ensureInvoiceShortIds } from './invoiceShortId.service'
+import { openFinanceSheet, scheduleFinanceSheetSync } from './financeSheet.service'
 import { invoiceTotals } from '../documents/docTemplates'
 import Campaign from '../campaigns/campaign.model'
 import Tenant from '../tenants/tenant.model'
@@ -49,7 +51,7 @@ const todayJakarta = () => new Date().toLocaleDateString('en-CA', { timeZone: 'A
 export interface RecapGroup {
   key: string; campaignId: string | null; campaign: string; company: string; contact: string; mastersheetUrl: string
   runningMonth: string; items: { sow: string; tier: string; qty: number; unitFee: number; amount: number }[]
-  invoices: { _id: string; number: string; issueDate: string; dueDate: string; total: number; paid: boolean; paidAt: string; overdue: boolean }[]
+  invoices: { _id: string; shortId?: number; number: string; issueDate: string; dueDate: string; total: number; paid: boolean; paidAt: string; overdue: boolean }[]
   custom: Record<string, string | number>; totalInvoice: number; income: number; receivable: number
   expense: { feeCreator: number; feePic: number; feeMg: number; feeHandle: number; adminInternal: number; reimburse: number; ads: number; opex: number; custom: number; total: number }
   /** Keterangan Gaji Admin dari invoice WA */
@@ -63,6 +65,7 @@ export interface RecapGroup {
 /** Rekap per campaign untuk periode tanggal invoice [from, to] (YYYY-MM-DD, opsional). Dipakai GET / dan export. */
 export async function buildRecap(tenantId: string, from: string, to: string, showHidden = false) {
   // Periode = tanggal invoice (data.issueDate, string YYYY-MM-DD → perbandingan string aman)
+  await ensureInvoiceShortIds(tenantId)
   const filter: Record<string, unknown> = { tenantId, type: 'invoice' }
   if (from || to) filter['data.issueDate'] = { ...(from && { $gte: from }), ...(to && { $lte: to }) }
   const [docs, columns] = await Promise.all([DocumentModel.find(filter).sort({ 'data.issueDate': -1, _id: -1 }), getColumns(tenantId)])
@@ -126,7 +129,7 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
     }
     const paid = recap.status === 'paid'
     const dueDate = str(d.dueDate)
-    g.invoices.push({ _id: String(doc._id), number: str(d.number), issueDate: str(d.issueDate), dueDate, total, paid, paidAt: str(recap.paidAt), overdue: !paid && !!dueDate && dueDate < today })
+    g.invoices.push({ _id: String(doc._id), shortId: doc.shortId, number: str(d.number), issueDate: str(d.issueDate), dueDate, total, paid, paidAt: str(recap.paidAt), overdue: !paid && !!dueDate && dueDate < today })
     g.totalInvoice += total
     if (paid) g.income += total; else g.receivable += total
 
@@ -317,9 +320,23 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
     doc.data = { ...doc.data, ...extra, recap }
     doc.markModified('data')
     await doc.save()
+    scheduleFinanceSheetSync(tenantId)
     res.json({ _id: doc._id, recap, dueDate: doc.data.dueDate ?? '' })
   } catch {
     res.status(500).json({ message: 'Gagal menyimpan data rekap' })
+  }
+})
+
+/** Tombol "Buka Google Sheet" (pengganti Export Excel): sinkron sekarang lalu balikin link spreadsheet Rekap Keuangan */
+router.get('/sheet', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const url = await openFinanceSheet(req.auth!.tenantId as string)
+    if (!url) { res.status(503).json({ message: 'Sinkron Google Sheets belum dikonfigurasi di server' }); return }
+    res.json({ url })
+  } catch (err) {
+    console.error('Rekap keuangan sheet error:', err)
+    res.status(500).json({ message: 'Gagal menyiapkan Google Sheet' })
   }
 })
 

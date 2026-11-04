@@ -4,6 +4,8 @@ import { requireAuth, requireRole, effectiveRole, AuthRequest } from '../../midd
 import { renderHtmlToPdf } from '../../lib/pdf'
 import { nextDocumentNumber } from '../finance/invoiceCounter.model'
 import DocumentModel from './document.model'
+import { ensureInvoiceShortIds } from '../finance/invoiceShortId.service'
+import { scheduleFinanceSheetSync } from '../finance/financeSheet.service'
 import { RENDERERS, DocKind, invoiceTotals } from './docTemplates'
 
 /**
@@ -36,10 +38,11 @@ router.get('/', async (req: AuthRequest, res: Response) => {
     const type = req.query.type
     if (!isKind(type)) { res.status(400).json({ message: 'type tidak valid' }); return }
     if (!canUse(req, type)) { res.status(403).json({ message: 'Forbidden' }); return }
+    if (type === 'invoice') await ensureInvoiceShortIds(req.auth!.tenantId!)
     const docs = await DocumentModel.find({ tenantId: req.auth!.tenantId, type }).sort({ updatedAt: -1 }).limit(200)
     res.json(docs.map((d) => ({
       _id: d._id, number: String(d.data.number ?? ''), client: clientName(type, d.data), mastersheetUrl: d.data.mastersheetUrl || undefined, updatedAt: d.updatedAt,
-      ...(type === 'invoice' && { total: invoiceTotals(d.data).total, paid: (d.data.recap as { status?: string } | undefined)?.status === 'paid' }),
+      ...(type === 'invoice' && { shortId: d.shortId, total: invoiceTotals(d.data).total, paid: (d.data.recap as { status?: string } | undefined)?.status === 'paid' }),
     })))
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -55,7 +58,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     // Nomor kosong → otomatis dari counter; admin tetap bisa menimpa manual
     if (!String(data.number ?? '').trim()) data.number = await nextDocumentNumber(req.auth!.tenantId, type)
     const doc = await DocumentModel.create({ tenantId: req.auth!.tenantId, type, data })
-    res.status(201).json(doc)
+    if (type === 'invoice') { await ensureInvoiceShortIds(req.auth!.tenantId!); scheduleFinanceSheetSync(String(req.auth!.tenantId)) }
+    res.status(201).json(type === 'invoice' ? await DocumentModel.findById(doc._id) : doc)
   } catch {
     res.status(500).json({ message: 'Gagal menyimpan dokumen' })
   }
@@ -91,6 +95,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     doc.data = data
     doc.version += 1
     await doc.save()
+    if (doc.type === 'invoice') scheduleFinanceSheetSync(String(req.auth!.tenantId))
     res.json(doc)
   } catch {
     res.status(500).json({ message: 'Gagal menyimpan dokumen' })
@@ -102,6 +107,7 @@ router.delete('/:id', async (req: AuthRequest, res: Response) => {
     await connectDB()
     const result = await DocumentModel.deleteOne({ _id: req.params.id, tenantId: req.auth!.tenantId, type: { $in: allowedKinds(req) } })
     if (!result.deletedCount) { res.status(404).json({ message: 'Dokumen tidak ditemukan' }); return }
+    scheduleFinanceSheetSync(String(req.auth!.tenantId)) // kalau yang dihapus invoice, rekap berubah
     res.json({ ok: true })
   } catch {
     res.status(500).json({ message: 'Gagal menghapus dokumen' })

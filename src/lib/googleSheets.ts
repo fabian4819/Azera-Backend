@@ -287,6 +287,8 @@ export function getCampaignTabUrl(campaignName: string): Promise<string | null> 
 /** Shared Drive tempat spreadsheet per campaign dibuat. Harus Shared Drive: service account tidak
  * punya kuota My Drive, file yang dia buat di My Drive biasa gagal. */
 const campaignDriveFolderId = () => process.env.GOOGLE_SHEETS_CAMPAIGN_DRIVE_ID || '0AJT4s-GYnzUVUk9PVA'
+/** Root Shared Drive (dipakai spreadsheet non-campaign, mis. Rekap Keuangan) */
+export const sharedDriveRootId = campaignDriveFolderId
 const quoteTab = (tab: string) => `'${tab.replace(/'/g, "''")}'`
 
 /** Buat folder di root Shared Drive campaign (1 folder per campaign). null kalau Sheets belum dikonfigurasi. */

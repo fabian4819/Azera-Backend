@@ -7,6 +7,7 @@ import DocumentModel from '../documents/document.model'
 import { invoiceTotals } from '../documents/docTemplates'
 import Campaign from '../campaigns/campaign.model'
 import Application from '../applications/application.model'
+import { scheduleFinanceSheetSync } from './financeSheet.service'
 
 const router = Router()
 // Guard per route, bukan router.use: router ini di-mount di /api/admin, router.use akan ikut
@@ -89,7 +90,9 @@ router.patch('/campaigns/:campaignId/finance', ...ownerOnly, async (req: AuthReq
       record[field] = Number(req.body[field]) || 0
       if (isAuto && !record.feeManual.includes(field as 'feeCreator')) record.feeManual.push(field as 'feeCreator')
     }
-    res.json(await syncRecord(record, req.params.campaignId, tenantId))
+    const synced = await syncRecord(record, req.params.campaignId, tenantId)
+    scheduleFinanceSheetSync(tenantId)
+    res.json(synced)
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

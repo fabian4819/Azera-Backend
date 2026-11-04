@@ -19,6 +19,8 @@ export interface IDocument extends MongoDocument {
   pdfUrl?: string
   /** Kunci link preview publik (?code=), diisi saat dokumen dibuat dari bot WA */
   accessCode?: string
+  /** Invoice: ID pendek urut per tenant (#12), dipakai perintah bot WA (/lunas 12). Lihat invoiceShortId.service.ts */
+  shortId?: number
   version: number
   createdAt: Date
   updatedAt: Date
@@ -36,6 +38,7 @@ const DocumentSchema = new Schema<IDocument>(
     data: { type: Schema.Types.Mixed, default: {} },
     pdfUrl: String,
     accessCode: String,
+    shortId: Number,
     version: { type: Number, default: 1 },
   },
   { timestamps: true }

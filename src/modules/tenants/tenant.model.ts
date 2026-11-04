@@ -10,6 +10,8 @@ export interface ITenant extends Document {
     autoReply?: { partnership?: boolean; creator?: boolean }
     /** Kolom tambahan Rekap Keuangan yang dibuat owner. income/expense ikut dihitung ke uang masuk/keluar. */
     financeRecapColumns?: { key: string; label: string; type: 'text' | 'income' | 'expense' }[]
+    /** Spreadsheet Rekap Keuangan di Shared Drive (financeSheet.service.ts) */
+    financeRecapSpreadsheetId?: string
   }
   createdAt: Date
   updatedAt: Date
@@ -24,6 +26,7 @@ const TenantSchema = new Schema<ITenant>(
       contactEmail: String,
       autoReply: { partnership: Boolean, creator: Boolean },
       financeRecapColumns: [{ _id: false, key: String, label: String, type: { type: String, enum: ['text', 'income', 'expense'] } }],
+      financeRecapSpreadsheetId: String,
     },
   },
   { timestamps: true }

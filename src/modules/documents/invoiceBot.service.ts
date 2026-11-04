@@ -5,6 +5,9 @@ import { renderHtmlToPdf } from '../../lib/pdf'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import { nextDocumentNumber, peekInvoiceNumber } from '../finance/invoiceCounter.model'
 import DocumentModel from './document.model'
+import { ensureInvoiceShortIds } from '../finance/invoiceShortId.service'
+import { handleFinanceCommand } from '../finance/financeBot.service'
+import { scheduleFinanceSheetSync } from '../finance/financeSheet.service'
 import { renderInvoice, rp } from './docTemplates'
 
 /**
@@ -292,6 +295,12 @@ export interface InvoiceBotReply { text: string; pdf?: Buffer; fileName?: string
 /** Pesan grup Invoice Maker → balasan. null = bukan perintah /invoice (diam saja, seperti bot-cashflow). */
 export async function handleInvoiceCommand(text: string, source: string): Promise<InvoiceBotReply | null> {
   const trimmed = text.trim()
+  // Perintah keuangan (/lunas, /belum-lunas, /omset, /profit, /piutang, /rekap, /keuangan) di grup yang sama
+  if (trimmed.startsWith('/')) {
+    await connectDB()
+    const finance = await handleFinanceCommand(trimmed.split('\n')[0])
+    if (finance !== null) return { text: finance }
+  }
   const firstLine = trimmed.split('\n')[0].toLowerCase().trim()
   if (firstLine !== '/invoice' && firstLine !== '/inv') return null
 
@@ -337,13 +346,16 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
   }
   const accessCode = crypto.randomBytes(8).toString('hex')
   const doc = await DocumentModel.create({ tenantId: tenant._id, type: 'invoice', data, accessCode })
+  await ensureInvoiceShortIds(tenant._id)
+  scheduleFinanceSheetSync(String(tenant._id))
+  const shortId = (await DocumentModel.findById(doc._id).select('shortId'))?.shortId
   const previewUrl = `${env.clientOrigin}/api/documents/${doc._id}?code=${accessCode}`
 
   const total = subtotal + charges.reduce((s, c) => s + c.amount, 0)
   const shownCharges = charges.filter((c) => c.amount !== 0)
   const summary = parsed.items.map((i) => `   • ${i.name}: ${i.qty ?? '-'} × ${rp(i.rate)} = ${rp((i.qty ?? 1) * i.rate)}`)
   const reply = [
-    `✅ Invoice *${number}*`,
+    `✅ Invoice *${number}*${shortId ? ` · ID *#${shortId}*` : ''}`,
     ``,
     `📋 *${parsed.campaign}*`,
     `👤 ${parsed.billTo}${parsed.pic ? ` (PIC: ${parsed.pic})` : ''}`,

@@ -69,3 +69,9 @@ export function nextInvoiceNumber(tenantId: Types.ObjectId | string, date = new 
 }
 
 export default InvoiceCounterModel
+
+/** Nomor urut mentah (tanpa format) per tenant+key, mis. ID pendek invoice. */
+export async function nextCounter(tenantId: Types.ObjectId | string, key: string): Promise<number> {
+  const counter = await InvoiceCounterModel.findOneAndUpdate({ tenantId, key }, { $inc: { seq: 1 } }, { upsert: true, new: true })
+  return counter.seq
+}
