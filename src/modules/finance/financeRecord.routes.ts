@@ -68,7 +68,9 @@ router.get('/campaigns/:campaignId/finance', ...ownerOnly, async (req: AuthReque
   }
 })
 
-const EDITABLE_FEE_FIELDS = ['feeCreator', 'feePic', 'feeMg', 'reimburse', 'ads', 'opex', 'discount'] as const
+const EDITABLE_FEE_FIELDS = ['feeCreator', 'feePic', 'feeMg', 'feeHandle', 'adminInternal', 'reimburse', 'ads', 'opex', 'discount'] as const
+// Bisa "kembali ke otomatis" (null): fee dari Recap Payment, atau Fee Handle/Gaji Admin dari invoice WA
+const OVERRIDABLE = new Set<string>(['feeCreator', 'feePic', 'feeMg', 'feeHandle', 'adminInternal'])
 
 router.patch('/campaigns/:campaignId/finance', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
@@ -78,7 +80,7 @@ router.patch('/campaigns/:campaignId/finance', ...ownerOnly, async (req: AuthReq
       ?? new FinanceRecord({ tenantId, campaignId: req.params.campaignId })
     for (const field of EDITABLE_FEE_FIELDS) {
       if (!(field in req.body)) continue
-      const isAuto = AUTO_FEES.some(([k]) => k === field)
+      const isAuto = OVERRIDABLE.has(field)
       // null untuk fee otomatis = kembali ke hitungan otomatis; angka = override manual
       if (isAuto && req.body[field] === null) {
         record.feeManual = record.feeManual.filter((k) => k !== field)

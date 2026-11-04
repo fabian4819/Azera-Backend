@@ -12,8 +12,11 @@ export interface IFinanceRecord extends Document {
   ads: number
   opex: number
   discount: number
+  /** Override manual Fee Handle by & Gaji Admin (default dari invoice WA /invoice), aktif kalau ada di feeManual */
+  feeHandle: number
+  adminInternal: number
   /** Fee yang diisi manual admin (atau dari import); fee lain dihitung otomatis = fee per creator x creator di-approve */
-  feeManual: ('feeCreator' | 'feePic' | 'feeMg')[]
+  feeManual: ('feeCreator' | 'feePic' | 'feeMg' | 'feeHandle' | 'adminInternal')[]
   profit: number
   createdAt: Date
   updatedAt: Date
@@ -30,7 +33,9 @@ const FinanceRecordSchema = new Schema<IFinanceRecord>(
     ads: { type: Number, default: 0 },
     opex: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
-    feeManual: { type: [String], enum: ['feeCreator', 'feePic', 'feeMg'], default: [] },
+    feeHandle: { type: Number, default: 0 },
+    adminInternal: { type: Number, default: 0 },
+    feeManual: { type: [String], enum: ['feeCreator', 'feePic', 'feeMg', 'feeHandle', 'adminInternal'], default: [] },
     profit: { type: Number, default: 0 },
   },
   { timestamps: true }

@@ -94,7 +94,10 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
         mastersheetUrl: str(d.mastersheetUrl), runningMonth: str(recap.runningMonth) || str(d.issueDate).slice(0, 7),
         items: [], invoices: [], custom: {}, totalInvoice: 0, income: 0, receivable: 0,
         expense: {
-          feeCreator: fin?.feeCreator || 0, feePic: fin?.feePic || 0, feeMg: fin?.feeMg || 0, feeHandle: 0, adminInternal: 0,
+          feeCreator: fin?.feeCreator || 0, feePic: fin?.feePic || 0, feeMg: fin?.feeMg || 0,
+          // Override manual di campaign menggantikan angka dari invoice WA
+          feeHandle: fin?.feeManual?.includes('feeHandle') ? fin.feeHandle || 0 : 0,
+          adminInternal: fin?.feeManual?.includes('adminInternal') ? fin.adminInternal || 0 : 0,
           reimburse: fin?.reimburse || 0, ads: fin?.ads || 0, opex: fin?.opex || 0, custom: 0, total: 0,
         },
         adminNote: '', profit: 0, margin: null,
@@ -109,10 +112,11 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
     const ic = recap.internalCost
     if (ic) {
       const fin = cid ? finances.get(cid) : undefined
-      if (!fin?.feeCreator) g.expense.feeCreator += num(ic.feeKol)
-      if (!fin?.feePic) g.expense.feePic += num(ic.feePic)
-      g.expense.feeHandle += num(ic.feeHandle)
-      g.expense.adminInternal += num(ic.adminInternal)
+      const manual = (k: 'feeCreator' | 'feePic' | 'feeHandle' | 'adminInternal') => !!fin?.feeManual?.includes(k)
+      if (!fin?.feeCreator && !manual('feeCreator')) g.expense.feeCreator += num(ic.feeKol)
+      if (!fin?.feePic && !manual('feePic')) g.expense.feePic += num(ic.feePic)
+      if (!manual('feeHandle')) g.expense.feeHandle += num(ic.feeHandle)
+      if (!manual('adminInternal')) g.expense.adminInternal += num(ic.adminInternal)
       if (ic.adminNote) g.adminNote = [g.adminNote, ic.adminNote].filter(Boolean).join('; ')
     }
 
