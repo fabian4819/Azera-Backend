@@ -3,6 +3,7 @@ import Campaign from './campaign.model'
 import { buildSheetView, buildClientApplicantsView, buildPortalView, SheetKind } from './sheetView.service'
 import { createCampaignWorkbook, createCampaignFolder, moveDriveFile, writeWorkbookTabs, getWorkbookTabUrl, shareAnyoneCanEdit, type WorkbookTab } from '../../lib/googleSheets'
 import { installSheetHook, uninstallSheetHook } from '../../lib/sheetHook'
+import { paymentStatusLabel } from '../../lib/sheetSync.service'
 
 /** 1 campaign = 1 spreadsheet di Shared Drive, satu tab per tabel di halaman Sheet admin. */
 export const WORKBOOK_TABS: Record<SheetKind, string> = {
@@ -35,8 +36,14 @@ const remember = (spreadsheetId: string, tabs: WorkbookTab[]) => {
   for (const t of tabs) if (t.hideFirstColumn) lastWritten.set(`${spreadsheetId}:${t.title}`, t.values)
 }
 
-/** Tab dengan kolom A = ID application (tersembunyi), dipakai Apps Script mencocokkan baris yang diedit */
-const withIds = (headers: string[], rows: Cell[][], ids: string[]) => table([ID_HEADER, ...headers], rows.map((r, i) => [ids[i] ?? '', ...r]))
+/** Tab dengan kolom A = ID baris (application, atau PIC di Recap per PIC), tersembunyi; dipakai Apps Script &
+ * polling mencocokkan baris yang diedit. Baris total (kalau ada) ID-nya kosong, jadi tidak pernah diterapkan. */
+const withIds = (headers: string[], rows: Cell[][], ids: string[], totals?: Cell[]) =>
+  table([ID_HEADER, ...headers], rows.map((r, i) => [ids[i] ?? '', ...r]), totals ? ['', ...totals] : undefined)
+export const RECAP_BY_PIC = RECAP_BY_PIC_TAB
+export const PAYMENT_OPTIONS = [paymentStatusLabel(false), paymentStatusLabel(true)]
+/** Indeks kolom (0-based, sudah termasuk kolom ID) untuk dropdown */
+const colOf = (headers: string[], h: string) => headers.indexOf(h) + 1
 
 /** Sheet external: Listing (lolos tahap 1, Status = keputusan client) + Campaign Tracker (progress, review
  * draft/posting + catatan revisi bisa diedit). Data internal (WA, email, PIC, handle by) sudah dibuang di view-nya. */
@@ -101,7 +108,8 @@ async function syncWorkbook(tenantId: string, campaignId: string): Promise<void>
   )
   if (!master || !applicants || !report || !recap) return
   const internalTabs: WorkbookTab[] = [
-    { title: WORKBOOK_TABS.master, ...table(master.headers, master.rows, master.totals) },
+    // Kolom progress (teks/angka/tanggal/link) & Link Posting bisa diedit langsung di sheet, lihat sheetEdit.service.ts
+    { title: WORKBOOK_TABS.master, ...withIds(master.headers, master.rows, master.rowIds ?? [], master.totals), hideFirstColumn: true },
     {
       // Kolom Status bisa diubah tim AZERA langsung di sheet (= approve tahap 1), disinkron balik lewat Apps Script
       title: WORKBOOK_TABS.applicants,
@@ -113,8 +121,15 @@ async function syncWorkbook(tenantId: string, campaignId: string): Promise<void>
       dropdowns: { [applicants.headers.length + 1]: STATUS_OPTIONS },
     },
     { title: WORKBOOK_TABS.report, ...table(report.headers, report.rows, report.totals) },
-    { title: WORKBOOK_TABS.recap, ...table(recap.headers, recap.rows, recap.totals) },
-    ...(recap.byPic ? [{ title: RECAP_BY_PIC_TAB, ...table(recap.byPic.headers, recap.byPic.rows, recap.byPic.totals) }] : []),
+    // Rekening/NPWP/Handle By & Status Pembayaran bisa diedit langsung di sheet
+    {
+      title: WORKBOOK_TABS.recap, ...withIds(recap.headers, recap.rows, recap.rowIds ?? [], recap.totals),
+      hideFirstColumn: true, dropdowns: { [colOf(recap.headers, 'Status Pembayaran')]: PAYMENT_OPTIONS },
+    },
+    ...(recap.byPic ? [{
+      title: RECAP_BY_PIC_TAB, ...withIds(recap.byPic.headers, recap.byPic.rows, recap.byPic.rowIds ?? [], recap.byPic.totals),
+      hideFirstColumn: true, dropdowns: { [colOf(recap.byPic.headers, 'Status Pembayaran')]: PAYMENT_OPTIONS },
+    }] : []),
   ]
   await writeWorkbookTabs(spreadsheetId, internalTabs)
   remember(spreadsheetId, internalTabs)

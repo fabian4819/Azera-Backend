@@ -20,7 +20,8 @@ import Application from '../applications/application.model'
 import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
 import { requestBankInfoFromPics } from '../pic/picPayment.service'
-import { markPicCreatorsPaid, requestBankInfoFromCreators } from '../applications/creatorPayment.service'
+import { requestBankInfoFromCreators } from '../applications/creatorPayment.service'
+import { setRecapCreatorCell, setRecapPicCell, setRecapPicPaid } from './recapEdit.service'
 import { parseBriefBlocks, setBrief, uploadKind } from './briefBlocks'
 import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
@@ -274,9 +275,7 @@ router.patch('/:id/sheet/cell', async (req: AuthRequest, res: Response) => {
 
 // AD-adjustment-6: seluruh tab Recap Payment editable admin/owner. columnKey eksplisit (bukan progress
 // column generik) karena field-nya beda-beda sumber: Creator (bank/NPWP) vs Application (handleBy).
-const RECAP_CREATOR_FIELDS: Record<string, 'bankName' | 'accountNumber' | 'accountName' | 'npwp'> = {
-  bankName: 'bankName', accountNumber: 'accountNumber', accountName: 'accountName', npwp: 'npwp',
-}
+// Logika di recapEdit.service.ts, dipakai juga oleh edit langsung di Google Sheet.
 router.patch('/:id/sheet/recap-cell', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -284,42 +283,23 @@ router.patch('/:id/sheet/recap-cell', async (req: AuthRequest, res: Response) =>
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     const application = campaign && await Application.findOne({ _id: applicationId, campaignId: campaign._id, tenantId: req.auth!.tenantId })
     if (!campaign || !application) { res.status(404).json({ message: 'Baris tidak ditemukan' }); return }
-    if (columnKey === 'handleBy') {
-      application.handleBy = value
-      await application.save()
-    } else if (RECAP_CREATOR_FIELDS[columnKey]) {
-      const creator = await Creator.findOne({ _id: application.creatorId, tenantId: req.auth!.tenantId })
-      if (!creator) { res.status(404).json({ message: 'Creator tidak ditemukan' }); return }
-      const field = RECAP_CREATOR_FIELDS[columnKey]
-      if (field === 'npwp') creator.npwp = value
-      else creator.bankAccount = { bankName: '', accountNumber: '', accountName: '', ...creator.bankAccount, [field]: value }
-      await creator.save()
-    } else {
-      res.status(400).json({ message: 'Kolom ini tidak bisa diedit' })
-      return
-    }
+    await setRecapCreatorCell(req.auth!.tenantId!, campaign, application, columnKey, value)
     res.json({ ok: true })
-  } catch {
-    res.status(500).json({ message: 'Server error' })
+  } catch (err) {
+    sendCellError(res, err)
   }
 })
 
-// Rekap per PIC: kolom rekening/e-wallet (generik bank-atau-e-wallet) edit langsung di sel.
-const PIC_RECAP_FIELDS = new Set(['methodName', 'accountNumber', 'accountName'])
 router.patch('/:id/sheet/recap-pic-cell', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const { picUserId, columnKey, value } = req.body as { picUserId: string; columnKey: string; value: string }
-    if (!PIC_RECAP_FIELDS.has(columnKey)) { res.status(400).json({ message: 'Kolom ini tidak bisa diedit' }); return }
-    const pic = await PicUser.findOneAndUpdate(
-      { _id: picUserId, tenantId: req.auth!.tenantId },
-      { $set: { [`paymentInfo.${columnKey}`]: value, 'paymentInfo.updatedAt': new Date() } },
-      { new: true }
-    )
-    if (!pic) { res.status(404).json({ message: 'PIC tidak ditemukan' }); return }
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
+    await setRecapPicCell(req.auth!.tenantId!, campaign, picUserId, columnKey, value)
     res.json({ ok: true })
-  } catch {
-    res.status(500).json({ message: 'Server error' })
+  } catch (err) {
+    sendCellError(res, err)
   }
 })
 
@@ -330,18 +310,10 @@ router.patch('/:id/sheet/recap-pic-paid', async (req: AuthRequest, res: Response
     const { picUserId, paid } = req.body as { picUserId: string; paid: boolean }
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
-    const pic = await PicUser.findOneAndUpdate(
-      { _id: picUserId, tenantId: req.auth!.tenantId },
-      paid ? { $addToSet: { paidCampaignIds: campaign._id } } : { $pull: { paidCampaignIds: campaign._id } },
-      { new: true }
-    )
-    if (!pic) { res.status(404).json({ message: 'PIC tidak ditemukan' }); return }
-    // PIC Lunas → creator di bawahnya ikut Lunas. Batal Lunas tidak menarik balik status creator
-    // (creator bisa saja sudah dibayar terpisah), ubah per creator kalau perlu.
-    const creatorsMarkedPaid = paid ? await markPicCreatorsPaid(req.auth!.tenantId!, campaign._id, pic._id) : 0
+    const creatorsMarkedPaid = await setRecapPicPaid(req.auth!.tenantId!, campaign, picUserId, Boolean(paid))
     res.json({ ok: true, creatorsMarkedPaid })
-  } catch {
-    res.status(500).json({ message: 'Server error' })
+  } catch (err) {
+    sendCellError(res, err)
   }
 })
 

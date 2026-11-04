@@ -4,13 +4,13 @@
  * Dipasang SEKALI di akun hello@azerakol.id sebagai Web App (lihat README.md di folder ini).
  * - Server memanggil doPost({action:'install'|'uninstall', spreadsheetId}) untuk memasang/melepas
  *   pemicu onEdit per spreadsheet campaign (internal & client).
- * - Tiap edit di tab Pendaftar / Listing / Campaign Tracker, onSheetEdit mengirim baris yang diedit
- *   (lengkap dengan header, termasuk kolom ID tersembunyi) ke https://azerakol.id/api/sheet-hook.
+ * - Tiap edit di tab MANA PUN, onSheetEdit mengirim baris yang diedit (lengkap dengan header, termasuk
+ *   kolom ID tersembunyi) ke https://azerakol.id/api/sheet-hook. Server yang memutuskan tab/kolom mana
+ *   yang diterapkan, jadi tab baru yang bisa diedit tidak perlu deploy ulang skrip ini.
  * Batas Google: 20 pemicu per akun per skrip (= 10 campaign aktif); sisanya disinkron server lewat polling.
  */
 const SECRET = 'GANTI_DENGAN_SHEET_HOOK_SECRET';
 const WEBHOOK = 'https://azerakol.id/api/sheet-hook';
-const TABS = ['Pendaftar', 'Listing', 'Campaign Tracker'];
 
 function doPost(e) {
   const body = JSON.parse((e.postData && e.postData.contents) || '{}');
@@ -31,7 +31,6 @@ function doPost(e) {
 
 function onSheetEdit(e) {
   const sheet = e.range.getSheet();
-  if (TABS.indexOf(sheet.getName()) < 0) return;
   const first = e.range.getRow();
   const last = first + e.range.getNumRows() - 1;
   const start = Math.max(first, 2); // baris 1 = header

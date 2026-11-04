@@ -2,7 +2,7 @@ import Campaign from './campaign.model'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import { readWorkbookTabs } from '../../lib/googleSheets'
 import { applySheetRow, type SheetRow } from './sheetEdit.service'
-import { lastWritten, WORKBOOK_TABS, CLIENT_TABS, ID_HEADER } from './campaignWorkbook.service'
+import { lastWritten, WORKBOOK_TABS, CLIENT_TABS, ID_HEADER, RECAP_BY_PIC } from './campaignWorkbook.service'
 
 /**
  * Cadangan sinkron sheet → platform kalau pemicu Apps Script tidak ada (lewat batas 20 pemicu, skrip belum
@@ -15,6 +15,13 @@ const SAFETY_MS = 120_000
 const lastPolled = new Map<string, number>()
 
 const str = (v: unknown) => String(v ?? '').trim()
+/** Server menulis angka mentah (1000), sheet dibaca balik berformat ("1,000"): anggap sama kalau nilainya sama */
+const same = (a: unknown, b: unknown) => {
+  const x = str(a), y = str(b)
+  if (x === y) return true
+  const nx = Number(x.replace(/,/g, '')), ny = Number(y.replace(/,/g, ''))
+  return x !== '' && y !== '' && !Number.isNaN(nx) && nx === ny
+}
 
 async function pollSpreadsheet(spreadsheetId: string, tabs: string[]): Promise<void> {
   const read = await readWorkbookTabs(spreadsheetId, tabs)
@@ -29,10 +36,11 @@ async function pollSpreadsheet(spreadsheetId: string, tabs: string[]): Promise<v
     if (idCol < 0) continue
     const beforeById = new Map(before.slice(1).map((r) => [str(r[idCol]), r]))
     for (const r of now.slice(1)) {
+      if (!str(r[idCol])) continue // baris total / kosong
       const old = beforeById.get(str(r[idCol]))
       if (!old) continue
-      // Cuma kolom yang memang bisa diedit (Status / review / catatan) yang menentukan "diedit"
-      const changed = headers.some((h, i) => /^(Status|Status Draft|Status Posting|Catatan Revisi)/.test(h) && str(r[i]) !== str(old[i]))
+      // Beda dari isi terakhir yang ditulis server = diedit orang; server yang memilah kolom mana yang diterapkan
+      const changed = headers.some((_h, i) => i !== idCol && !same(r[i], old[i]))
       if (!changed) continue
       const row: SheetRow = Object.fromEntries(headers.map((h, i) => [h, r[i]]))
       const result = await applySheetRow(spreadsheetId, tab, row).catch((err) => `error: ${(err as Error).message}`)
@@ -48,7 +56,7 @@ async function pollOnce(): Promise<void> {
     .select('spreadsheetId clientSpreadsheetId sheetHooks')
   const now = Date.now()
   for (const c of campaigns) {
-    const targets: [string | undefined, string[]][] = [[c.spreadsheetId, [WORKBOOK_TABS.applicants]], [c.clientSpreadsheetId, [CLIENT_TABS.listing, CLIENT_TABS.tracker]]]
+    const targets: [string | undefined, string[]][] = [[c.spreadsheetId, [WORKBOOK_TABS.applicants, WORKBOOK_TABS.master, WORKBOOK_TABS.recap, RECAP_BY_PIC]], [c.clientSpreadsheetId, [CLIENT_TABS.listing, CLIENT_TABS.tracker]]]
     for (const [id, tabs] of targets) {
       if (!id) continue
       const every = c.sheetHooks?.includes(id) ? SAFETY_MS : FAST_MS

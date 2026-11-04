@@ -1,8 +1,8 @@
 # Sinkron Google Sheet → platform (Apps Script)
 
-Edit kolom **Status** di sheet internal (tab Pendaftar), kolom **Status** di sheet client (tab Listing), atau
-**Status Draft / Status Posting / Catatan Revisi** di sheet client (tab Campaign Tracker) langsung diterapkan
-ke platform dalam ±1–3 detik. Tanpa skrip ini, server tetap menyinkron lewat polling tiap 20 detik.
+Edit di spreadsheet campaign (internal & client) diterapkan ke platform dalam ±1–3 detik. Skrip mengirim
+edit dari semua tab; server yang menentukan kolom mana yang diterima (lihat `src/modules/campaigns/sheetEdit.service.ts`),
+jadi menambah tab/kolom yang bisa diedit tidak perlu deploy ulang skrip. Tanpa skrip ini, server tetap menyinkron lewat polling tiap 20 detik.
 
 ## Setup sekali (akun hello@azerakol.id)
 
