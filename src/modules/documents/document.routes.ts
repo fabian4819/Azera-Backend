@@ -6,6 +6,13 @@ import { nextDocumentNumber } from '../finance/invoiceCounter.model'
 import DocumentModel from './document.model'
 import { ensureInvoiceShortIds } from '../finance/invoiceShortId.service'
 import { scheduleFinanceSheetSync } from '../finance/financeSheet.service'
+import { normalizeClientName } from '../finance/clientName'
+
+/** Nama penagihan klien dibakukan (mis. semua variasi Pintarnya → "Pintarnya (PDS Digital Agency)") */
+const normalizeBillTo = (data: Record<string, unknown>) => {
+  const b = data.billTo as Record<string, unknown> | undefined
+  if (b && typeof b.name === 'string') b.name = normalizeClientName(b.name.trim())
+}
 import { RENDERERS, DocKind, invoiceTotals } from './docTemplates'
 
 /**
@@ -57,6 +64,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     if (!canUse(req, type)) { res.status(403).json({ message: 'Forbidden' }); return }
     // Nomor kosong → otomatis dari counter; admin tetap bisa menimpa manual
     if (!String(data.number ?? '').trim()) data.number = await nextDocumentNumber(req.auth!.tenantId, type)
+    if (type === 'invoice') normalizeBillTo(data)
     const doc = await DocumentModel.create({ tenantId: req.auth!.tenantId, type, data })
     if (type === 'invoice') { await ensureInvoiceShortIds(req.auth!.tenantId!); scheduleFinanceSheetSync(String(req.auth!.tenantId)) }
     res.status(201).json(type === 'invoice' ? await DocumentModel.findById(doc._id) : doc)
@@ -92,6 +100,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     const doc = await DocumentModel.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId, type: { $in: allowedKinds(req) } })
     if (!doc) { res.status(404).json({ message: 'Dokumen tidak ditemukan' }); return }
     if (!String(data.number ?? '').trim()) data.number = doc.data.number
+    if (doc.type === 'invoice') normalizeBillTo(data)
     doc.data = data
     doc.version += 1
     await doc.save()

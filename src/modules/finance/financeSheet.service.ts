@@ -6,6 +6,7 @@ import { buildRecap, type InvoiceRecap } from './financeRecap.routes'
 import { updateCampaignFinance, type FeeField } from './financeRecord.routes'
 import { setPaid } from './financeBot.service'
 import { lastWritten, ID_HEADER } from '../campaigns/campaignWorkbook.service'
+import { isPintarnyaClient } from './clientName'
 
 /**
  * Rekap Keuangan → spreadsheet "Rekap Keuangan | AZERA" di Shared Drive (menggantikan Export Excel).
@@ -17,7 +18,7 @@ import { lastWritten, ID_HEADER } from '../campaigns/campaignWorkbook.service'
 const TAB = 'Rekap Keuangan'
 // Tab kedua khusus klien Pintarnya (nama penagihan bervariasi: "Pintarnya", "PT Pintarnya Indonesia", "Pintarnya/ Pikopi")
 const PINTARNYA_TAB = 'Pintarnya'
-const isPintarnya = (company: string) => /pintarnya/i.test(company)
+const isPintarnya = isPintarnyaClient // termasuk "PDS Digital Agency"
 const STATUS_OPTIONS = ['Lunas', 'Belum Lunas']
 /** Kolom biaya yang bisa diedit dari sheet (baris yang terhubung ke campaign) → field FinanceRecord */
 const FEE_HEADERS: Record<string, FeeField> = {

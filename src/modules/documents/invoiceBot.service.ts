@@ -6,6 +6,7 @@ import { getDefaultTenant } from '../tenants/defaultTenant'
 import { nextDocumentNumber, peekInvoiceNumber } from '../finance/invoiceCounter.model'
 import DocumentModel from './document.model'
 import { ensureInvoiceShortIds } from '../finance/invoiceShortId.service'
+import { normalizeClientName } from '../finance/clientName'
 import { handleFinanceCommand } from '../finance/financeBot.service'
 import { scheduleFinanceSheetSync } from '../finance/financeSheet.service'
 import { renderInvoice, rp } from './docTemplates'
@@ -334,7 +335,7 @@ export async function handleInvoiceCommand(text: string, source: string): Promis
     issueDate: isoDate(now),
     dueDate,
     reference: parsed.reference,
-    billTo: { name: parsed.billTo, pic: parsed.pic, npwp: parsed.npwp, contact: parsed.contact },
+    billTo: { name: normalizeClientName(parsed.billTo), pic: parsed.pic, npwp: parsed.npwp, contact: parsed.contact },
     items: parsed.items.map((i) => ({ name: i.name, description: i.description, qty: i.qty ?? '', unitFee: i.rate })),
     charges,
     campaign: parsed.campaign,
