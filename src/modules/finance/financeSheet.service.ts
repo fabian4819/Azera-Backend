@@ -4,10 +4,13 @@ import { buildRecap } from './financeRecap.routes'
 
 /**
  * Rekap Keuangan → spreadsheet "Rekap Keuangan | AZERA" di Shared Drive (menggantikan Export Excel).
- * Semua periode dalam satu Tabel (filter per bulan di Sheets), 1 baris per campaign/grup invoice supaya
+ * Dua tab (semua klien + khusus Pintarnya), semua periode dalam satu Tabel (filter per bulan di Sheets), 1 baris per campaign/grup invoice supaya
  * jumlah per kolom tidak dobel; SOW digabung dalam satu sel. Tab dikunci: isinya ditulis ulang dari platform.
  */
 const TAB = 'Rekap Keuangan'
+// Tab kedua khusus klien Pintarnya (nama penagihan bervariasi: "Pintarnya", "PT Pintarnya Indonesia", "Pintarnya/ Pikopi")
+const PINTARNYA_TAB = 'Pintarnya'
+const isPintarnya = (company: string) => /pintarnya/i.test(company)
 const monthLabel = (ym: string) => (ym ? new Date(`${ym}-01T00:00:00`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : '')
 
 async function ensureSpreadsheet(tenantId: string): Promise<string | null> {
@@ -28,7 +31,8 @@ async function syncFinanceSheet(tenantId: string): Promise<string | null> {
     'Total Payment', 'Invoice', 'Status', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
     'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
   ]
-  const rows = groups.filter((g) => !g.hidden).map((g) => {
+  const shown = groups.filter((g) => !g.hidden)
+  const toRow = (g: (typeof groups)[number]) => {
     const e = g.expense
     const inv = g.invoices
     return [
@@ -44,8 +48,14 @@ async function syncFinanceSheet(tenantId: string): Promise<string | null> {
       ...columns.map((c) => g.custom[c.key] ?? ''),
       e.feeCreator, e.feePic, e.feeMg, e.feeHandle, e.adminInternal, e.reimburse, e.ads, e.opex, e.total, g.profit, g.margin ?? '',
     ] as (string | number)[]
-  })
-  await writeWorkbookTabs(spreadsheetId, [{ title: TAB, values: [headers, ...rows], tableRows: rows.length + 1, editableColumns: [] }])
+  }
+  const all = shown.map(toRow)
+  const pintarnya = shown.filter((g) => isPintarnya(g.company)).map(toRow)
+  // Dua tab, kolom sama: semua klien + khusus Pintarnya
+  await writeWorkbookTabs(spreadsheetId, [
+    { title: TAB, values: [headers, ...all], tableRows: all.length + 1, editableColumns: [] },
+    { title: PINTARNYA_TAB, values: [headers, ...pintarnya], tableRows: pintarnya.length + 1, editableColumns: [] },
+  ])
   return spreadsheetId
 }
 
