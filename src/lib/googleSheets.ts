@@ -477,6 +477,15 @@ export async function readWorkbookTabs(spreadsheetId: string, tabs: string[]): P
   return Object.fromEntries((res.data.valueRanges || []).map((v, i) => [tabs[i], (v.values || []) as string[][]]))
 }
 
+/** Hapus tab kalau ada (mis. tab lama yang dipindah ke spreadsheet lain) */
+export async function deleteWorkbookTab(spreadsheetId: string, title: string): Promise<void> {
+  const sheets = getSheetsClient()
+  if (!sheets) return
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties(title,sheetId)' })
+  const id = meta.data.sheets?.find((sh) => sh.properties?.title === title)?.properties?.sheetId
+  if (id != null) await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: [{ deleteSheet: { sheetId: id } }] } })
+}
+
 export function getWorkbookTabUrl(spreadsheetId: string, tab: string): Promise<string | null> {
   return getTabUrl(spreadsheetId, tab)
 }

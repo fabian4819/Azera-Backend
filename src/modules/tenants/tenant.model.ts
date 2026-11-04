@@ -14,6 +14,9 @@ export interface ITenant extends Document {
     financeRecapSpreadsheetId?: string
     /** Pemicu Apps Script (edit sheet → platform) sudah terpasang untuk spreadsheet itu */
     financeRecapHooked?: boolean
+    /** Spreadsheet terpisah khusus klien Pintarnya + status pemicunya */
+    financeRecapPintarnyaSpreadsheetId?: string
+    financeRecapPintarnyaHooked?: boolean
   }
   createdAt: Date
   updatedAt: Date
@@ -30,6 +33,8 @@ const TenantSchema = new Schema<ITenant>(
       financeRecapColumns: [{ _id: false, key: String, label: String, type: { type: String, enum: ['text', 'income', 'expense'] } }],
       financeRecapSpreadsheetId: String,
       financeRecapHooked: Boolean,
+      financeRecapPintarnyaSpreadsheetId: String,
+      financeRecapPintarnyaHooked: Boolean,
     },
   },
   { timestamps: true }

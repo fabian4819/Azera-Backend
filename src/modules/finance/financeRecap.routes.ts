@@ -331,7 +331,8 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
 router.get('/sheet', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const url = await openFinanceSheet(req.auth!.tenantId as string)
+    // ?scope=pintarnya → spreadsheet khusus klien Pintarnya; default semua klien
+    const url = await openFinanceSheet(req.auth!.tenantId as string, req.query.scope === 'pintarnya' ? 'pintarnya' : 'all')
     if (!url) { res.status(503).json({ message: 'Sinkron Google Sheets belum dikonfigurasi di server' }); return }
     res.json({ url })
   } catch (err) {

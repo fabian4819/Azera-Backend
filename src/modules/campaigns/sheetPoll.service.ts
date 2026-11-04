@@ -56,8 +56,8 @@ async function pollOnce(): Promise<void> {
   const campaigns = await Campaign.find({ tenantId: tenant._id, status: { $nin: ['completed', 'cancelled'] }, spreadsheetId: { $exists: true } })
     .select('spreadsheetId clientSpreadsheetId sheetHooks')
   const now = Date.now()
-  const finance = await financeSheetTargets(String(tenant._id))
-  if (finance && now - (lastPolled.get(finance.id) ?? 0) >= (finance.hooked ? SAFETY_MS : FAST_MS)) {
+  for (const finance of await financeSheetTargets(String(tenant._id))) {
+    if (now - (lastPolled.get(finance.id) ?? 0) < (finance.hooked ? SAFETY_MS : FAST_MS)) continue
     lastPolled.set(finance.id, now)
     await pollSpreadsheet(finance.id, finance.tabs).catch((err) => console.error(`Sheet poll error [rekap keuangan]:`, (err as Error).message))
   }
