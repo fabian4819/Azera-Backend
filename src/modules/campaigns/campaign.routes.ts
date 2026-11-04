@@ -4,7 +4,8 @@ import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
-import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS, shortApplyCode } from './campaign.model'
+import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS, shortApplyCode, APPROVAL_FLOWS } from './campaign.model'
+import { decideApplication } from '../applications/decision.service'
 import { upload, uploadDraft, uploadAsset } from '../../middleware/upload'
 import { writeProgressCell, appendScreenshots, CellError, ensurePortalToken, portalUrl, setPostingLink, uploadDraftFiles, reviewSubmission, appendPostScreenshots } from './progress.service'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
@@ -98,7 +99,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     const {
       name, objective, deliverables, budget, timeline,
       criteria, type, eventDetails, picUserId, handleByUserId, fee, targetKpi,
-      feeNote, benefits, requirements, infoLink, customFields, applyFields, brandName,
+      feeNote, benefits, requirements, infoLink, customFields, applyFields, brandName, approvalFlow,
     } = req.body
     let brandId = req.body.brandId
     const typedBrand = typeof brandName === 'string' ? brandName.trim() : ''
@@ -131,6 +132,7 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       targetKpi: targetKpi || {},
       feeNote, benefits: benefits || [], requirements: requirements || [], infoLink,
       customFields: customFields || [],
+      approvalFlow: APPROVAL_FLOWS.includes(approvalFlow) ? approvalFlow : 'two_step',
       ...(applyFields ? { applyFields: sanitizeApplyFields(applyFields) } : {}),
       applySlug: slugify(name),
       accessCode: generateAccessCode(),
@@ -384,7 +386,7 @@ const EDITABLE_FIELDS = [
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
   'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
   'customFields', 'applyFields', 'progressColumns', 'columnAccess',
-  'feeNote', 'benefits', 'requirements', 'infoLink',
+  'feeNote', 'benefits', 'requirements', 'infoLink', 'approvalFlow',
 ] as const
 
 function sanitizeApplyFields(a: Record<string, unknown> = {}) {
@@ -446,6 +448,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     if ('progressColumns' in updates) updates.progressColumns = sanitizeProgressColumns(updates.progressColumns)
     if ('columnAccess' in updates) updates.columnAccess = sanitizeColumnAccess(updates.columnAccess)
     if ('applyFields' in updates) updates.applyFields = sanitizeApplyFields((updates.applyFields || {}) as Record<string, unknown>)
+    if ('approvalFlow' in updates && !APPROVAL_FLOWS.includes(updates.approvalFlow as never)) { res.status(400).json({ message: 'Skema approval tidak dikenal' }); return }
     const before = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!before) { res.status(404).json({ message: 'Not found' }); return }
     const campaign = await Campaign.findOneAndUpdate(
@@ -454,6 +457,12 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       { new: true }
     )
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    // Ganti ke "langsung ke client": pendaftar yang masih menunggu kurasi admin diteruskan ke Listing client.
+    // Balik ke 2 tahap: yang sudah diteruskan tetap di Listing, pendaftar baru menunggu kurasi admin lagi.
+    if (campaign.approvalFlow === 'client_only' && before.approvalFlow !== 'client_only') {
+      const pending = await Application.find({ tenantId: req.auth!.tenantId, campaignId: campaign._id, status: 'pending' }).select('_id')
+      for (const a of pending) await decideApplication(req.auth!.tenantId!, String(a._id), 'accepted')
+    }
     scheduleWorkbookSync(req.auth!.tenantId, campaign._id) // form kustom / kolom progress mengubah kolom spreadsheet
     if (['completed', 'cancelled'].includes(String(updates.status))) {
       releaseSheetHooks(campaign).catch((err) => console.error('Sheet hook release error:', err))

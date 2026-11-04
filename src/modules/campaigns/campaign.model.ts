@@ -27,6 +27,9 @@ export type WorkflowStage = (typeof WORKFLOW_STAGES)[number]
  * field inti supaya Smart Curation (yang baca dari Creator, bukan dari sini)
  * tidak perlu berubah.
  */
+export const APPROVAL_FLOWS = ['two_step', 'client_only'] as const
+export type ApprovalFlow = (typeof APPROVAL_FLOWS)[number]
+
 export type CustomFieldType = 'text' | 'textarea' | 'number' | 'select' | 'checkbox' | 'file'
 
 export interface ICustomField {
@@ -140,6 +143,9 @@ export interface ICampaign extends Document {
   /** AD-47: pertanyaan tambahan custom di form Apply, diisi admin lewat CampaignDetail */
   customFields: ICustomField[]
   applyFields: IApplyFields
+  /** Skema lolos creator: 'two_step' = kurasi admin lalu client (default); 'client_only' = pendaftar langsung
+   * masuk Listing client (tahap 1 otomatis), admin tidak memutuskan, tab Pendaftar ikut keputusan client. */
+  approvalFlow: ApprovalFlow
   /** Spreadsheet Google milik campaign ini (tab Master/Pendaftar/Report/Recap), lihat campaignWorkbook.service.ts */
   spreadsheetId?: string
   /** Spreadsheet EXTERNAL untuk client (tab Listing & Campaign Tracker, tanpa data internal), di folder campaign */
@@ -251,6 +257,7 @@ const CampaignSchema = new Schema<ICampaign>(
     applyOpen: { type: Boolean, default: false },
     applySlug: { type: String, required: true },
     customFields: { type: [CustomFieldSchema], default: [] },
+    approvalFlow: { type: String, enum: APPROVAL_FLOWS, default: 'two_step' },
     spreadsheetId: String,
     clientSpreadsheetId: String,
     sheetHooks: { type: [String], default: undefined },

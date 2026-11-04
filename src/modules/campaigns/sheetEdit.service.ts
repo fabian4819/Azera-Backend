@@ -72,6 +72,8 @@ export async function applySheetRow(spreadsheetId: string, tab: string, row: She
 
   // Sheet internal, tab Pendaftar: keputusan tahap 1 (AZERA)
   if (isInternal && tab === WORKBOOK_TABS.applicants) {
+    // Skema "langsung ke client": Status di sini cuma cerminan keputusan client, tidak diterapkan
+    if (campaign.approvalFlow === 'client_only') return 'skip: diputuskan client'
     const status = STATUS_FROM_LABEL[label('Status')]
     if (!status || status === application.status) return 'skip: status sama'
     await decideApplication(campaign.tenantId, appId, status)

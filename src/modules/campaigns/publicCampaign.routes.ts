@@ -11,7 +11,7 @@ import { runSmartCuration } from '../applications/curation.service'
 import { buildPortalView, buildClientApplicantsView } from './sheetView.service'
 import { reviewSubmission, CellError } from './progress.service'
 import { syncApplicationToSheet, creatorAccess } from '../../lib/sheetSync.service'
-import { clientDecideApplication } from '../applications/decision.service'
+import { clientDecideApplication, decideApplication } from '../applications/decision.service'
 import { uploadAsset } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import { parseBriefBlocks, setBrief, uploadKind, publicBriefText } from './briefBlocks'
@@ -366,13 +366,17 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       handleBy: applyFields.handleBy ? handleBy || undefined : undefined,
       curationResult: curation.result,
       curationReason: curation.reason,
-      status: curation.autoRejected ? 'rejected' : 'pending',
-      decidedAt: curation.autoRejected ? new Date() : undefined,
+      // Skema client_only: kurasi tidak menolak otomatis, client yang memutuskan
+      status: curation.autoRejected && campaign.approvalFlow !== 'client_only' ? 'rejected' : 'pending',
+      decidedAt: curation.autoRejected && campaign.approvalFlow !== 'client_only' ? new Date() : undefined,
     })
-    syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
+    // Skema "langsung ke client": tahap 1 otomatis lolos (lewat jalur yang sama dgn approve admin: magic link,
+    // akun portal, sync sheet), jadi pendaftar langsung muncul di Listing client. Kurasi tetap sebagai bahan.
+    if (campaign.approvalFlow === 'client_only') await decideApplication(tenant._id, String(application._id), 'accepted')
+    else syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
 
     res.status(201).json({
-      message: curation.autoRejected
+      message: curation.autoRejected && campaign.approvalFlow !== 'client_only'
         ? 'Pendaftaran diterima sistem, tapi belum memenuhi syarat saat ini.'
         : 'Pendaftaran berhasil, menunggu review dari tim.',
       applicationId: application._id,

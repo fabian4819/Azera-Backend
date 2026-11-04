@@ -73,6 +73,13 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
       res.status(400).json({ message: 'status harus accepted atau rejected' })
       return
     }
+    // Skema "langsung ke client": tahap 1 otomatis, keputusan cuma dari client
+    const target = await Application.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId }).select('campaignId')
+    const flow = target && await Campaign.findOne({ _id: target.campaignId, tenantId: req.auth!.tenantId }).select('approvalFlow')
+    if (flow?.approvalFlow === 'client_only') {
+      res.status(400).json({ message: 'Campaign ini memakai skema langsung ke client: lolos/tidaknya diputuskan client di Listing.' })
+      return
+    }
     const result = await decideApplication(req.auth!.tenantId, req.params.id, status, req.auth!.userId)
     if (!result) { res.status(404).json({ message: 'Not found' }); return }
     const { application, generatedPassword } = result

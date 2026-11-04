@@ -186,7 +186,8 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
       fmtDate(a.createdAt),
     ]
   })
-  const statusField = opts?.statusField ?? 'status'
+  // Skema "langsung ke client": status di tab Pendaftar admin = keputusan client (Pending sampai client memutuskan)
+  const statusField = opts?.statusField ?? (campaign.approvalFlow === 'client_only' ? 'clientApprovalStatus' : 'status')
   return {
     headers, rows,
     rowIds: applications.map((a) => String(a._id)),
@@ -302,7 +303,7 @@ export async function buildSheetView(tenantId: Types.ObjectId | string, campaign
     : kind === 'report' ? reportTable(data)
     : { ...recapTable(campaign, data), byPic: recapByPicTable(campaign, data) }
   const brand = campaign.brandId as unknown as { namaBrand?: string } | null
-  return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null }, ...table }
+  return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null, approvalFlow: campaign.approvalFlow ?? 'two_step' }, ...table }
 }
 
 /** Kolom data internal AZERA (kontak creator & orang internal) yang tidak boleh terlihat oleh client:
