@@ -2,6 +2,7 @@ import Campaign from './campaign.model'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import { readWorkbookTabs } from '../../lib/googleSheets'
 import { applySheetRow, type SheetRow } from './sheetEdit.service'
+import { financeSheetTargets } from '../finance/financeSheet.service'
 import { lastWritten, WORKBOOK_TABS, CLIENT_TABS, ID_HEADER, RECAP_BY_PIC } from './campaignWorkbook.service'
 
 /**
@@ -55,6 +56,11 @@ async function pollOnce(): Promise<void> {
   const campaigns = await Campaign.find({ tenantId: tenant._id, status: { $nin: ['completed', 'cancelled'] }, spreadsheetId: { $exists: true } })
     .select('spreadsheetId clientSpreadsheetId sheetHooks')
   const now = Date.now()
+  const finance = await financeSheetTargets(String(tenant._id))
+  if (finance && now - (lastPolled.get(finance.id) ?? 0) >= (finance.hooked ? SAFETY_MS : FAST_MS)) {
+    lastPolled.set(finance.id, now)
+    await pollSpreadsheet(finance.id, finance.tabs).catch((err) => console.error(`Sheet poll error [rekap keuangan]:`, (err as Error).message))
+  }
   for (const c of campaigns) {
     const targets: [string | undefined, string[]][] = [[c.spreadsheetId, [WORKBOOK_TABS.applicants, WORKBOOK_TABS.master, WORKBOOK_TABS.recap, RECAP_BY_PIC]], [c.clientSpreadsheetId, [CLIENT_TABS.listing, CLIENT_TABS.tracker]]]
     for (const [id, tabs] of targets) {

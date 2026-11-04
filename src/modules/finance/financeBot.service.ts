@@ -96,7 +96,7 @@ const list = (rows: InvoiceRow[], paidView: boolean) =>
   [...rows.slice(0, MAX_LINES).map((r) => line(r, paidView)), ...(rows.length > MAX_LINES ? [`… dan ${rows.length - MAX_LINES} lagi (lihat Rekap Keuangan di platform)`] : [])].join('\n')
 
 /** Tandai lunas / batal lunas, aturan sama dengan Rekap Keuangan platform (status + tanggal bayar di data.recap) */
-async function setPaid(doc: IDocument, paid: boolean, paidAt?: string) {
+export async function setPaid(doc: IDocument, paid: boolean, paidAt?: string) {
   const recap: InvoiceRecap = { ...((doc.data.recap || {}) as InvoiceRecap) }
   recap.status = paid ? 'paid' : 'unpaid'
   if (paid) recap.paidAt = paidAt || recap.paidAt || ymd(new Date())

@@ -12,6 +12,8 @@ export interface ITenant extends Document {
     financeRecapColumns?: { key: string; label: string; type: 'text' | 'income' | 'expense' }[]
     /** Spreadsheet Rekap Keuangan di Shared Drive (financeSheet.service.ts) */
     financeRecapSpreadsheetId?: string
+    /** Pemicu Apps Script (edit sheet → platform) sudah terpasang untuk spreadsheet itu */
+    financeRecapHooked?: boolean
   }
   createdAt: Date
   updatedAt: Date
@@ -27,6 +29,7 @@ const TenantSchema = new Schema<ITenant>(
       autoReply: { partnership: Boolean, creator: Boolean },
       financeRecapColumns: [{ _id: false, key: String, label: String, type: { type: String, enum: ['text', 'income', 'expense'] } }],
       financeRecapSpreadsheetId: String,
+      financeRecapHooked: Boolean,
     },
   },
   { timestamps: true }

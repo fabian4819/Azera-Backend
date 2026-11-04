@@ -8,6 +8,7 @@ import { reviewSubmission, writeProgressCell, setPostingLink } from './progress.
 import { buildSheetView } from './sheetView.service'
 import { setRecapCreatorCell, setRecapCreatorPaid, setRecapPicCell, setRecapPicPaid, RECAP_CREATOR_KEYS, RECAP_PIC_KEYS } from './recapEdit.service'
 import { paymentStatusLabel } from '../../lib/sheetSync.service'
+import { applyFinanceSheetRow } from '../finance/financeSheet.service'
 import { WORKBOOK_TABS, CLIENT_TABS, ID_HEADER, STATUS_LABEL, REVIEW_LABEL, REVIEW_NOTE_HEADER, RECAP_BY_PIC } from './campaignWorkbook.service'
 
 const invert = (m: Record<string, string>) => Object.fromEntries(Object.entries(m).map(([k, v]) => [v.toLowerCase(), k]))
@@ -43,9 +44,12 @@ async function platformRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId,
  * (sheet ditulis ulang dari platform di sync berikutnya, jadi edit liar di kolom lain hilang sendiri).
  */
 export async function applySheetRow(spreadsheetId: string, tab: string, row: SheetRow): Promise<string> {
+  const tenant = await getDefaultTenant()
+  // Spreadsheet Rekap Keuangan (bukan sheet campaign): ID baris = daftar invoice
+  const finance = await applyFinanceSheetRow(String(tenant._id), spreadsheetId, row)
+  if (finance !== null) return finance
   const appId = String(row[ID_HEADER] ?? '').trim()
   if (!Types.ObjectId.isValid(appId)) return 'skip: tanpa ID'
-  const tenant = await getDefaultTenant()
   const campaign = await Campaign.findOne({ tenantId: tenant._id, $or: [{ spreadsheetId }, { clientSpreadsheetId: spreadsheetId }] })
   if (!campaign) return 'skip: spreadsheet tidak dikenal'
   const isInternal = campaign.spreadsheetId === spreadsheetId

@@ -73,26 +73,32 @@ const EDITABLE_FEE_FIELDS = ['feeCreator', 'feePic', 'feeMg', 'feeHandle', 'admi
 // Bisa "kembali ke otomatis" (null): fee dari Recap Payment, atau Fee Handle/Gaji Admin dari invoice WA
 const OVERRIDABLE = new Set<string>(['feeCreator', 'feePic', 'feeMg', 'feeHandle', 'adminInternal'])
 
+export type FeeField = typeof EDITABLE_FEE_FIELDS[number]
+export const FEE_FIELDS: readonly string[] = EDITABLE_FEE_FIELDS
+
+/** Ubah biaya campaign (tab Finance, Rekap Keuangan, atau edit langsung di Google Sheet Rekap Keuangan).
+ * null untuk fee otomatis = kembali ke hitungan otomatis; angka = override manual. */
+export async function updateCampaignFinance(tenantId: string, campaignId: string, patch: Partial<Record<FeeField, number | null>>) {
+  const record = (await FinanceRecord.findOne({ tenantId, campaignId })) ?? new FinanceRecord({ tenantId, campaignId })
+  for (const field of EDITABLE_FEE_FIELDS) {
+    if (!(field in patch)) continue
+    const isAuto = OVERRIDABLE.has(field)
+    if (isAuto && patch[field] === null) {
+      record.feeManual = record.feeManual.filter((k) => k !== field)
+      continue
+    }
+    record[field] = Number(patch[field]) || 0
+    if (isAuto && !record.feeManual.includes(field as 'feeCreator')) record.feeManual.push(field as 'feeCreator')
+  }
+  const synced = await syncRecord(record, campaignId, tenantId)
+  scheduleFinanceSheetSync(tenantId)
+  return synced
+}
+
 router.patch('/campaigns/:campaignId/finance', ...ownerOnly, async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const tenantId = req.auth!.tenantId as string
-    const record = (await FinanceRecord.findOne({ tenantId, campaignId: req.params.campaignId }))
-      ?? new FinanceRecord({ tenantId, campaignId: req.params.campaignId })
-    for (const field of EDITABLE_FEE_FIELDS) {
-      if (!(field in req.body)) continue
-      const isAuto = OVERRIDABLE.has(field)
-      // null untuk fee otomatis = kembali ke hitungan otomatis; angka = override manual
-      if (isAuto && req.body[field] === null) {
-        record.feeManual = record.feeManual.filter((k) => k !== field)
-        continue
-      }
-      record[field] = Number(req.body[field]) || 0
-      if (isAuto && !record.feeManual.includes(field as 'feeCreator')) record.feeManual.push(field as 'feeCreator')
-    }
-    const synced = await syncRecord(record, req.params.campaignId, tenantId)
-    scheduleFinanceSheetSync(tenantId)
-    res.json(synced)
+    res.json(await updateCampaignFinance(req.auth!.tenantId as string, req.params.campaignId, req.body))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
