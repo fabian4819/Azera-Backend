@@ -15,6 +15,8 @@ export interface IWaMessageLog extends Document {
   campaignId?: Types.ObjectId
   creatorId?: Types.ObjectId
   sentAt?: Date
+  /** Waktu (terakhir) masuk antrean: kiriman ulang = di-set ulang; batas 24 jam dihitung dari sini */
+  queuedAt?: Date
   createdAt: Date
 }
 
@@ -29,6 +31,7 @@ const WaMessageLogSchema = new Schema<IWaMessageLog>(
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign' },
     creatorId: { type: Schema.Types.ObjectId, ref: 'Creator' },
     sentAt: Date,
+    queuedAt: Date,
   },
   { timestamps: { createdAt: true, updatedAt: false } }
 )

@@ -24,7 +24,15 @@ const SENT_CACHE_MAX = 2000
 // Retry receipt dari HP penerima cuma dilayani selama jendela ini. Lewat dari itu WhatsApp/HP penerima
 // bisa menampilkan kiriman ulang sebagai pesan baru (broadcast grup dobel 19.54, 19.59, 01.12 untuk 1 kiriman).
 const RETRY_WINDOW_MS = 5 * 60_000
-const SEND_DELAY_MS = 3000 // jarak antar pesan, mitigasi risiko banned (AD-29)
+// Pengiriman bertahap semua pesan otomatis (mitigasi pembatasan/banned WhatsApp, AD-29): jeda acak antar
+// pesan supaya tidak berpola mesin, plus istirahat panjang tiap beberapa pesan. Balasan interaktif
+// (sendDirect/sendManual) tidak lewat sini.
+const PACE = {
+  minGapMs: 6_000, maxGapMs: 15_000, // jeda acak antar pesan
+  burst: 15, restMinMs: 120_000, restMaxMs: 240_000, // istirahat 2-4 menit tiap 15 pesan
+  staleMs: 24 * 3600_000, // pesan antre > 24 jam tidak dikirim (kabar basi)
+}
+const randBetween = (a: number, b: number) => a + Math.floor(Math.random() * (b - a))
 const RECONNECT_DELAY_MS = 3000
 // Bot invoice (port bot-cashflow) hanya di bot partnership, hanya di grup ini. Nama grup bisa ditiru
 // siapa pun yang memasukkan nomor bot ke grup baru, isi WA_INVOICE_GROUP_JID untuk mengunci ke 1 JID.
@@ -54,6 +62,7 @@ interface QueueItem {
   logId: string
   to: string
   payload: string
+  queuedAt: number
 }
 
 /**
@@ -82,7 +91,9 @@ class WaBot {
   private generation = 0
 
   private readonly queue: QueueItem[] = []
+  private readonly queuedIds = new Set<string>()
   private processing = false
+  private sentInBurst = 0
 
   // Nama grup (subject) tidak ikut di setiap event pesan grup, cuma bisa didapat lewat
   // sock.groupMetadata() (panggilan API terpisah), di-cache di memori supaya tidak nge-hit
@@ -204,6 +215,8 @@ class WaBot {
           this.currentQr = null
           this.connectedNumber = sock.user?.id?.split(':')[0] ?? null
           console.log(`WA[${this.id}] connected as ${this.connectedNumber}`)
+          // Lanjutkan antrean: yang tertahan selama terputus + yang tersimpan di DB (mis. setelah restart server)
+          this.recoverQueue().catch((err) => console.error(`WA[${this.id}] recover queue error:`, err)).finally(() => { void this.processQueue() })
         }
 
         if (connection === 'close') {
@@ -443,28 +456,56 @@ class WaBot {
     return Object.values(groups).map((g) => ({ jid: g.id, name: g.subject })).sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  enqueue(logId: string, to: string, payload: string) {
-    this.queue.push({ logId, to, payload })
+  enqueue(logId: string, to: string, payload: string, queuedAt = Date.now()) {
+    if (this.queuedIds.has(logId)) return
+    this.queuedIds.add(logId)
+    this.queue.push({ logId, to, payload, queuedAt })
     this.processQueue().catch(() => {})
+  }
+
+  /** Log berstatus 'queued' milik bot ini di DB (antrean yang hilang saat restart) masuk lagi ke antrean memori. */
+  private async recoverQueue() {
+    if (this.ephemeral) return
+    const since = new Date(Date.now() - PACE.staleMs)
+    const pending = await WaMessageLog.find({ bot: this.id, status: 'queued', $or: [{ queuedAt: { $gte: since } }, { queuedAt: { $exists: false }, createdAt: { $gte: since } }] })
+      .sort({ createdAt: 1 }).select('to payload queuedAt createdAt')
+    for (const l of pending) this.enqueue(l._id.toString(), l.to, l.payload, (l.queuedAt ?? l.createdAt).getTime())
+    if (pending.length) console.log(`WA[${this.id}] lanjutkan ${pending.length} pesan antre`)
   }
 
   private async processQueue() {
     if (this.processing) return
     this.processing = true
-    while (this.queue.length) {
-      const item = this.queue.shift()!
-      try {
-        if (!this.sock || this.status !== 'connected') throw new Error('WhatsApp belum terhubung')
-        const sent = await this.sock.sendMessage(toJid(item.to), { text: item.payload })
-        this.trackSent(sent)
-        await this.updateLog(item.logId, { status: 'sent', sentAt: new Date() })
-        this.recordOut(item.to, item.payload, sent?.key.id)
-      } catch (err) {
-        await this.updateLog(item.logId, { status: 'failed', error: (err as Error).message })
+    try {
+      while (this.queue.length) {
+        // Terputus: berhenti (pesan TETAP di antrean), dilanjut otomatis saat connection 'open'
+        if (!this.sock || this.status !== 'connected') return
+        const item = this.queue[0]
+        if (Date.now() - item.queuedAt > PACE.staleMs) {
+          await this.updateLog(item.logId, { status: 'failed', error: 'Kedaluwarsa: antre lebih dari 24 jam' })
+        } else {
+          try {
+            const sent = await this.sock.sendMessage(toJid(item.to), { text: item.payload })
+            this.trackSent(sent)
+            await this.updateLog(item.logId, { status: 'sent', sentAt: new Date() })
+            this.recordOut(item.to, item.payload, sent?.key.id)
+          } catch (err) {
+            // Putus di tengah kirim: biarkan di antrean, coba lagi saat tersambung
+            if (this.status !== 'connected') return
+            await this.updateLog(item.logId, { status: 'failed', error: (err as Error).message })
+          }
+          this.sentInBurst++
+        }
+        this.queue.shift()
+        this.queuedIds.delete(item.logId)
+        if (!this.queue.length) break
+        const rest = this.sentInBurst >= PACE.burst
+        if (rest) this.sentInBurst = 0
+        await new Promise((r) => setTimeout(r, rest ? randBetween(PACE.restMinMs, PACE.restMaxMs) : randBetween(PACE.minGapMs, PACE.maxGapMs)))
       }
-      if (this.queue.length) await new Promise((r) => setTimeout(r, SEND_DELAY_MS))
+    } finally {
+      this.processing = false
     }
-    this.processing = false
   }
 }
 
@@ -588,7 +629,7 @@ export async function enqueueWaMessage(opts: {
     campaignId: opts.campaignId,
     creatorId: opts.creatorId,
     status: skipped ? 'skipped' : 'queued',
-    ...(skipped ? { error: 'Automation dimatikan di Template Pesan' } : {}),
+    ...(skipped ? { error: 'Automation dimatikan di Template Pesan' } : { queuedAt: new Date() }),
   })
   if (!skipped) bots[botId].enqueue(log._id.toString(), opts.to, opts.payload)
   return log
