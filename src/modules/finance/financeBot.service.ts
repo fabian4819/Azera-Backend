@@ -6,7 +6,7 @@ import { scheduleFinanceSheetSync } from './financeSheet.service'
 
 /**
  * Perintah keuangan di grup WA Invoice Maker (bot partnership), angkanya = Rekap Keuangan platform (buildRecap).
- * /lunas [periode] · /lunas <id..> [tanggal] · /batal-lunas <id..> · /belum-lunas · /omset|/profit|/rekap [periode] · /piutang
+ * /panduan · /lunas [periode] · /lunas <id..> [tanggal] · /batal-lunas <id..> · /belum-lunas · /omset|/profit|/rekap [periode] · /piutang
  */
 const rp = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`
 const MONTHS = ['januari', 'februari', 'maret', 'april', 'mei', 'juni', 'juli', 'agustus', 'september', 'oktober', 'november', 'desember']
@@ -68,6 +68,18 @@ const HELP = [
   '`/piutang` total tagihan belum dibayar',
   '',
   'Periode: _bulan ini_ (default), _bulan lalu_, _minggu ini_, _tahun ini_, _oktober 2026_, _2026_',
+].join('\n')
+
+/** /panduan (/help): semua perintah bot grup Invoice Maker dalam satu pesan */
+const GUIDE = [
+  '📖 *Panduan Bot Invoice Maker*',
+  '',
+  '🧾 *Buat invoice*',
+  '`/invoice` lihat format & contoh, lalu kirim `/invoice` + isian di baris berikutnya',
+  '',
+  HELP,
+  '',
+  'ID invoice (#12) ada di balasan `/invoice`, daftar `/belum-lunas`, menu Invoice & Rekap Keuangan di platform.',
 ].join('\n')
 
 type InvoiceRow = { shortId?: number; number: string; campaign: string; total: number; paid: boolean; paidAt: string; dueDate: string; overdue: boolean; issueDate: string }
@@ -135,11 +147,12 @@ async function summary(tenantId: string, period: Period, kind: 'omset' | 'profit
 export async function handleFinanceCommand(text: string): Promise<string | null> {
   const [head, ...rest] = text.trim().split(/\s+/)
   const cmd = head.toLowerCase()
-  const known = ['/lunas', '/belum-lunas', '/belumlunas', '/batal-lunas', '/omset', '/profit', '/piutang', '/rekap', '/keuangan']
+  const known = ['/lunas', '/belum-lunas', '/belumlunas', '/batal-lunas', '/omset', '/profit', '/piutang', '/rekap', '/keuangan', '/panduan', '/help']
   if (!known.includes(cmd)) return null
   const tenantId = String((await getDefaultTenant())._id)
   const arg = rest.join(' ')
 
+  if (cmd === '/panduan' || cmd === '/help') return GUIDE
   if (cmd === '/keuangan') return HELP
   if (cmd === '/batal-lunas') return markPaid(tenantId, rest, false)
   if (cmd === '/lunas' && rest[0] && parseShortId(rest[0].replace(/,$/, '')) !== null) return markPaid(tenantId, rest, true)
