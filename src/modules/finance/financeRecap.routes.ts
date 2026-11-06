@@ -135,7 +135,7 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
     const { rows, total } = invoiceTotals(d)
     for (const r of rows) {
       // Format invoice: Item = "Deskripsi item — Tier" (nama item), Scope of Work = deskripsi item
-      g.items.push({ item: str(r.it.name), sow: str(r.it.description), tier: str(r.it.tier), qty: r.qty, unitFee: r.unitFee, amount: r.amount })
+      g.items.push({ ...splitTier(str(r.it.name), str(r.it.description), str(r.it.tier)), qty: r.qty, unitFee: r.unitFee, amount: r.amount })
     }
     const paid = recap.status === 'paid'
     const dueDate = str(d.dueDate)
@@ -178,6 +178,29 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
       hiddenCount,
     },
   }
+}
+
+// Tier yang biasa ditulis di nama item invoice ("Extrajoss Comment Threads — Buzzer", "Pigeon Oktober Nano")
+const TIER_WORDS = 'nano|micro|macro|mega|buzzer|clipper'
+const TIER_SUFFIX = new RegExp(`^(.*?)(?:\\s+[—–-]\\s+|\\s+)(${TIER_WORDS})$`, 'i')
+const TIER_PREFIX = new RegExp(`^(${TIER_WORDS})\\s+[—–-]\\s+(.*)$`, 'i')
+const titleCase = (t: string) => t[0].toUpperCase() + t.slice(1).toLowerCase()
+
+/** Pisahkan tier dari nama item (akhiran) atau deskripsi (awalan "Buzzer - 1x Comment") ke kolom Tier.
+ * Tier yang diisi di item invoice tetap dipakai; nama yang cuma berisi tier tidak dipotong.
+ * ponytail: daftar kata tier tetap, tambah ke TIER_WORDS kalau ada tier baru. */
+export function splitTier(name: string, description: string, tier: string): { item: string; sow: string; tier: string } {
+  let item = name, sow = description, found = ''
+  const suf = TIER_SUFFIX.exec(item)
+  if (suf && suf[1].trim()) { item = suf[1].trim(); found = suf[2] }
+  const pre = TIER_PREFIX.exec(sow)
+  if (!found && pre) { found = pre[1]; sow = pre[2].trim() } else if (pre && pre[1].toLowerCase() === found.toLowerCase()) sow = pre[2].trim()
+  // Nama "Philips Comment - Buzzer - 1x Comment" (scope ikut di nama, deskripsi kosong)
+  if (!found && !sow) {
+    const mid = new RegExp(`^(.*?)\\s+[—–-]\\s+(${TIER_WORDS})\\s+[—–-]\\s+(.*)$`, 'i').exec(item)
+    if (mid) { item = mid[1].trim(); found = mid[2]; sow = mid[3].trim() }
+  }
+  return { item, sow, tier: tier || (found ? titleCase(found) : '') }
 }
 
 /**
