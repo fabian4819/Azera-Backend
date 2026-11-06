@@ -22,6 +22,7 @@ import financeRecordRouter from './modules/finance/financeRecord.routes'
 import financeRecapRouter from './modules/finance/financeRecap.routes'
 import publicInvoiceRouter from './modules/finance/publicInvoice.routes'
 import importRouter from './modules/imports/import.routes'
+import existingCreatorRouter from './modules/existingCreators/existingCreator.routes'
 import documentRouter from './modules/documents/document.routes'
 import whatsappRouter from './modules/whatsapp/whatsapp.routes'
 import waTemplateRouter from './modules/whatsapp/waTemplate.routes'
@@ -89,6 +90,7 @@ app.use('/api/admin', financeRecordRouter)
 app.use('/api/admin/finance-recap', financeRecapRouter)
 app.use('/api/invoices', publicInvoiceRouter)
 app.use('/api/admin/import', importRouter)
+app.use('/api/admin/existing-creators', existingCreatorRouter)
 
 // Modul 5, Template dokumen: Quotation / Invoice / SPK (AD-34..36)
 app.use('/api/admin/documents', documentRouter)

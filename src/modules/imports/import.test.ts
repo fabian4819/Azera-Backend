@@ -3,56 +3,56 @@
  */
 import assert from 'node:assert'
 import ExcelJS from 'exceljs'
-import { cellToNumber, exactName, parseImportFile, validateRow, checkSingleCampaign } from './import.service'
+import { parseFollowers, normalizePhone, cleanHandle, parseImportFile, validateRow, rowKeys } from './import.service'
+import { mergeCreator } from './import.routes'
 
-// Angka format lokal & US, dan isi aneh jadi NaN (ditandai error), bukan hilang diam-diam
-assert.strictEqual(cellToNumber('Rp 1.500.000'), 1500000)
-assert.strictEqual(cellToNumber('12.345'), 12345)
-assert.strictEqual(cellToNumber('1,500,000'), 1500000)
-assert.strictEqual(cellToNumber('1,5'), 1.5)
-assert.strictEqual(cellToNumber(2500), 2500)
-assert.strictEqual(cellToNumber('-'), undefined)
-assert.strictEqual(cellToNumber(''), undefined)
-assert.ok(Number.isNaN(cellToNumber('N/A')))
+assert.strictEqual(parseFollowers('43.300'), 43300)
+assert.strictEqual(parseFollowers('1,5K'), 1500)
+assert.strictEqual(parseFollowers('12rb'), 12000)
+assert.strictEqual(parseFollowers(5454), 5454)
+assert.strictEqual(parseFollowers(''), undefined)
+assert.strictEqual(normalizePhone('089673141820'), '6289673141820')
+assert.strictEqual(normalizePhone('89673141820'), '6289673141820')
+assert.strictEqual(normalizePhone('+62 812-9488-9389'), '6281294889389')
+assert.strictEqual(cleanHandle('astii.np\r'), 'astii.np')
+assert.strictEqual(cleanHandle('\r\nsitinurulajizah'), 'sitinurulajizah')
+assert.strictEqual(cleanHandle('', 'https://www.tiktok.com/@_ftyaaaaa'), '_ftyaaaaa')
 
-// Regex nama di-escape
-assert.ok(exactName('Brand (ID)').test('brand (id)'))
-assert.ok(!exactName('A.B').test('AxB'))
-
-// Confirm memvalidasi ulang, errors dari client tidak dipercaya
-const base = { campaignName: 'C', brandName: 'B', creatorName: 'K', platform: 'instagram' }
-assert.deepStrictEqual(validateRow(base), [])
-assert.strictEqual(validateRow({ ...base, platform: 'youtube' }).length, 1)
-assert.strictEqual(validateRow({ ...base, views: NaN }).length, 1)
-assert.strictEqual(validateRow({ ...base, postedAt: 'kemarin' }).length, 1)
-
-// 1 file = 1 campaign = 1 brand: beda kapitalisasi boleh, beda nama ditandai
-const mk = (campaignName: string, brandName: string) => ({ rowNumber: 0, campaignName, brandName, creatorName: 'K', platform: 'x', errors: [] as string[] })
-const checked = checkSingleCampaign([mk('Ramadan', 'Brand A'), mk('ramadan ', 'brand a'), mk('Ramadhan', 'Brand A'), mk('Ramadan', 'Brand B')])
-assert.deepStrictEqual(checked.map((r) => r.errors.length), [0, 0, 1, 1])
-
-async function main() {
-  // CSV: nilai harus tetap string mentah, exceljs default mengubah "12.500" jadi 12.5 dan tanggal jadi format US
-  const csv = await parseImportFile(Buffer.from('Nama Campaign,Brand,Nama Creator,Platform,Views,Tanggal Posting\nC,B,K,x,12.500,03-04-2026\n'), 'a.csv')
-  assert.strictEqual(csv.rows[0].views, 12500)
-  assert.strictEqual(csv.rows[0].postedAt, '2026-04-03T00:00:00.000Z')
-
+;(async () => {
+  // Header seperti sheet klien: tab = niche, "Followers" dobel (IG lalu TikTok), Approval bergeser ke kanan
   const wb = new ExcelJS.Workbook()
-  const ws = wb.addWorksheet('Data')
-  ws.addRow(['Nama Campaign', 'Brand', 'Nama Creator', 'Platform', 'Views', 'Tanggal Posting', 'Fee Creator', 'Kolom Aneh'])
-  ws.addRow(['Ramadan', 'Brand (ID)', 'Sari', 'Instagram', '12.345', '17/08/2026', 'Rp 1.500.000', 'x'])
-  ws.addRow(['Ramadan', 'Brand (ID)', 'Sari', 'X', 900, new Date(Date.UTC(2026, 7, 18)), '', ''])
-  const { rows, ignoredHeaders, sheetCount } = await parseImportFile(Buffer.from(await wb.xlsx.writeBuffer()), 'a.xlsx')
-  assert.deepStrictEqual(ignoredHeaders, ['Kolom Aneh'])
-  assert.strictEqual(sheetCount, 1)
-  assert.strictEqual(rows[0].views, 12345)
-  assert.strictEqual(rows[0].feeCreator, 1500000)
-  assert.strictEqual(rows[0].postedAt, '2026-08-17T00:00:00.000Z')
-  assert.strictEqual(rows[1].platform, 'x')
-  assert.strictEqual(rows[1].postedAt, '2026-08-18T00:00:00.000Z')
-  assert.ok(rows.every((r) => r.errors.length === 0), JSON.stringify(rows.map((r) => r.errors)))
-  await assert.rejects(parseImportFile(Buffer.from('Foo,Bar\n1,2\n'), 'b.csv'), /Tidak ada kolom yang dikenali/)
-  await assert.rejects(parseImportFile(Buffer.from('Nama Campaign,Brand\n'), 'c.csv'), /tidak punya baris data/)
+  const beauty = wb.addWorksheet('Beauty')
+  beauty.addRow(['Duplicate Check IG', 'Duplicate Check Tiktok', 'Nama Lengkap', 'Umur', 'Domisili', 'Jenis Kelamin', 'No WA', 'Username IG', 'Link IG', 'Followers', 'Username TIktok', 'Link Tiktok', 'Followers', 'Approval'])
+  beauty.addRow(['1', '1', 'Budi Santoso ', '20', 'Bandung', 'P', '081200001111', 'budi.x\r', 'https://www.instagram.com/budi.x?utm_source=ig', '1.475', 'budi_tt', 'tiktok.com/@budi_tt', '43.300', 'Profil OK'])
+  beauty.addRow(['0', '0', 'Tanpa WA', '22', 'Bogor', 'L', '', '', '', '', '', '', '', ''])
+  beauty.addRow([])
+  const travel = wb.addWorksheet('Travel')
+  travel.addRow(['Duplicate Check IG', 'Duplicate Check Tiktok', 'Nama Lengkap', 'Umur', 'Domisili', 'Jenis Kelamin', 'No WA', 'Username IG', 'Link IG', 'Followers', 'Username TIktok', 'Link Tiktok', 'Approval'])
+  travel.addRow(['1', '0', 'Budi Santoso', '20', 'Bandung', 'P', '81200001111', 'budi.x', 'https://instagram.com/budi.x', '1500', '', '', '', '', 'Profil OK, Engagement OK'])
+  wb.addWorksheet('Catatan').addRow(['catatan bebas'])
+  const buf = Buffer.from(await wb.xlsx.writeBuffer())
+
+  const { rows, tabs } = await parseImportFile(buf, 'kurasi.xlsx')
+  assert.deepStrictEqual(tabs, [{ name: 'Beauty', rows: 2 }, { name: 'Travel', rows: 1 }]) // tab Catatan dilewati
+  const [b, noWa, t] = rows
+  assert.strictEqual(b.name, 'Budi Santoso')
+  assert.strictEqual(b.phone, '6281200001111')
+  assert.strictEqual(b.gender, 'Perempuan')
+  assert.deepStrictEqual(b.instagram, { username: 'budi.x', url: 'https://www.instagram.com/budi.x?utm_source=ig', followers: 1475 })
+  assert.deepStrictEqual(b.tiktok, { username: 'budi_tt', url: 'https://tiktok.com/@budi_tt', followers: 43300 })
+  assert.strictEqual(b.approval, 'Profil OK')
+  assert.deepStrictEqual(noWa.errors, ['No WA & username IG/TikTok kosong semua'])
+  assert.strictEqual(t.approval, 'Profil OK, Engagement OK') // tertulis di kanan header Approval
+  assert.strictEqual(t.tiktok, undefined)
+
+  // Creator yang sama di 2 tab: niche digabung, data lama tidak ditimpa, followers terbaru dipakai
+  const merged = mergeCreator(mergeCreator(undefined, b), t)
+  assert.deepStrictEqual(merged.niches, ['Beauty', 'Travel'])
+  assert.strictEqual(merged.approval, 'Profil OK')
+  assert.strictEqual(merged.instagram?.followers, 1500)
+  assert.strictEqual(merged.tiktok?.username, 'budi_tt')
+  // Tanpa WA tapi punya TikTok: tetap valid, dikenali dari username
+  assert.deepStrictEqual(validateRow({ name: 'X', phone: '', tiktok: { username: 'x_tt' } }), [])
+  assert.deepStrictEqual(rowKeys({ phone: '', tiktok: { username: 'X_TT' } }), ['tt:x_tt'])
   console.log('import.test.ts OK')
-}
-main()
+})()
