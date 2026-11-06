@@ -55,7 +55,7 @@ const todayJakarta = () => new Date().toLocaleDateString('en-CA', { timeZone: 'A
 
 export interface RecapGroup {
   key: string; campaignId: string | null; campaign: string; company: string; contact: string; mastersheetUrl: string
-  runningMonth: string; items: { sow: string; tier: string; qty: number; unitFee: number; amount: number }[]
+  runningMonth: string; items: { item: string; sow: string; tier: string; qty: number; unitFee: number; amount: number }[]
   invoices: { _id: string; shortId?: number; number: string; issueDate: string; dueDate: string; total: number; paid: boolean; paidAt: string; overdue: boolean }[]
   custom: Record<string, string | number>; totalInvoice: number; income: number; receivable: number
   expense: { feeCreator: number; feePic: number; feeMg: number; feeHandle: number; adminInternal: number; reimburse: number; ads: number; opex: number; custom: number; total: number }
@@ -134,7 +134,8 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
 
     const { rows, total } = invoiceTotals(d)
     for (const r of rows) {
-      g.items.push({ sow: [str(r.it.name), str(r.it.description)].filter(Boolean).join(' - '), tier: str(r.it.tier), qty: r.qty, unitFee: r.unitFee, amount: r.amount })
+      // Format invoice: Item = "Deskripsi item — Tier" (nama item), Scope of Work = deskripsi item
+      g.items.push({ item: str(r.it.name), sow: str(r.it.description), tier: str(r.it.tier), qty: r.qty, unitFee: r.unitFee, amount: r.amount })
     }
     const paid = recap.status === 'paid'
     const dueDate = str(d.dueDate)
@@ -186,7 +187,7 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
  */
 export function talentWarning(g: Pick<RecapGroup, 'approvedCreators' | 'items'>): string {
   if (g.approvedCreators === null) return ''
-  const qtys = g.items.filter((i) => !/reimburse/i.test(i.tier) && !/reimburse|beli produk/i.test(i.sow)).map((i) => i.qty)
+  const qtys = g.items.filter((i) => !/reimburse/i.test(i.tier) && !/reimburse|beli produk/i.test(`${i.item} ${i.sow}`)).map((i) => i.qty)
   if (!qtys.length) return ''
   const min = Math.max(...qtys), max = qtys.reduce((a, b) => a + b, 0)
   const n = g.approvedCreators
@@ -222,7 +223,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('Rekap Keuangan')
     const RP = '"Rp"#,##0;-"Rp"#,##0'
-    const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'SOW', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
+    const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Jumlah Talent', 'Fee/Talent', 'Total',
       'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin Internal', 'Reimburse', 'Ads', 'Opex',
       'Uang Keluar', 'Profit', 'Margin (%)', 'Catatan Talent', 'Ket. Gaji Admin']
     ws.addRow([`Rekap Keuangan ${range.from || 'awal'} s/d ${range.to || 'sekarang'}`]).font = { bold: true, size: 13 }
@@ -250,7 +251,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
       const first = ws.rowCount + 1
       items.forEach((it, i) => {
         const row = groupValues.map((v, col) => {
-          if (ITEM_COLS.has(col + 1)) return it ? [it.sow, it.tier, it.qty, it.unitFee, it.amount][col - 5] : ''
+          if (ITEM_COLS.has(col + 1)) return it ? [it.item, it.sow, it.qty, it.unitFee, it.amount][col - 5] : ''
           return i === 0 ? v : null
         })
         const r = ws.addRow(row)
