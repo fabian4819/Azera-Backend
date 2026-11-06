@@ -495,6 +495,31 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: grouped } })
       .catch((err) => console.error('Sheets group format error:', (err as Error).message))
   }
+  const links = tabs.flatMap((t) => {
+    const sheetId = sheetIdOf(t.title)
+    if (sheetId == null || !t.groups) return []
+    // URL ditulis RAW = teks biasa, bukan tautan; tiap URL di sel diberi link supaya bisa diklik
+    // (sel terkunci tetap bisa dibuka linknya, nilai sel tidak berubah jadi sync dua arah aman)
+    return t.values.slice(1).flatMap((row, ri) => row.flatMap((v, c) => {
+      const text = String(v ?? '')
+      const urls = [...text.matchAll(/https?:\/\/\S+/g)]
+      if (!urls.length) return []
+      const textFormatRuns = urls.flatMap((m) => [
+        { startIndex: m.index, format: { link: { uri: m[0] } } },
+        ...(m.index + m[0].length < text.length ? [{ startIndex: m.index + m[0].length, format: {} }] : []),
+      ])
+      if (textFormatRuns[0].startIndex !== 0) textFormatRuns.unshift({ startIndex: 0, format: {} })
+      return [{ updateCells: {
+        range: { sheetId, startRowIndex: ri + 1, endRowIndex: ri + 2, startColumnIndex: c, endColumnIndex: c + 1 },
+        rows: [{ values: [{ userEnteredValue: { stringValue: text }, textFormatRuns }] }],
+        fields: 'userEnteredValue,textFormatRuns',
+      } }]
+    }))
+  })
+  if (links.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: links } })
+      .catch((err) => console.error('Sheets link error:', (err as Error).message))
+  }
   // Kunci kolom & sembunyikan ID dikirim TERPISAH dari tabel: tabel gagal tidak boleh bikin sheet client
   // terbuka bebas diedit.
   const lock = tabs.flatMap((t) => {
