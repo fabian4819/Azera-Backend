@@ -90,6 +90,8 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
     })
   }
   // Kelompok baris per job + kolom yang digabung: semua kecuali ID (unik per baris) & rincian SOW
+  const RUPIAH = '"Rp"#,##0'
+  const MONEY_HEADERS = new Set(['Fee/Talent', 'Total', 'Total Payment', 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit'])
   const SOW_COLS = new Set(['SOW', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total'])
   const grouping = (list: typeof shown, width: number) => {
     let at = 0
@@ -107,6 +109,8 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   const tab = (rows: (string | number)[][], head: string[], editableCols: number[], list: typeof shown): WorkbookTab => ({
     title: TAB, values: [head, ...rows], tableRows: rows.length + 1, hideFirstColumn: true,
     dropdowns: { [statusCol]: STATUS_OPTIONS }, editableColumns: editableCols, ...grouping(list, head.length),
+    numberFormats: Object.fromEntries(head.flatMap((h, i) => (MONEY_HEADERS.has(h) || columns.some((c) => c.label === h && c.type !== 'text') ? [[i, RUPIAH]]
+      : h === 'Jumlah Talent' ? [[i, '#,##0']] : []))),
   })
   const files: [FinanceScope, string, WorkbookTab][] = [
     ['all', mainId, tab(all, headers, editable, shown)],

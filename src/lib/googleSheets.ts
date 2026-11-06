@@ -372,6 +372,8 @@ export interface WorkbookTab {
    * (header berwarna + filter + dropdown) sebagai pengganti Tabel. startRow/endRow = index baris data (0 = baris 2). */
   groups?: { startRow: number; endRow: number }[]
   mergeColumns?: number[]
+  /** index kolom → pola angka Sheets, mis. '"Rp"#,##0' (cuma tab ber-`groups`) */
+  numberFormats?: Record<number, string>
 }
 
 const LOCK_DESCRIPTION = 'azera-lock'
@@ -443,16 +445,35 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
     const all = { sheetId }
     const rowRange = (a: number, b: number) => ({ sheetId, startRowIndex: a, endRowIndex: b, startColumnIndex: 0, endColumnIndex: width })
     const line = { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } }
+    const col = (c: number) => ({ sheetId, startRowIndex: 1, endRowIndex: t.values.length, startColumnIndex: c, endColumnIndex: c + 1 })
+    // Lebar kolom dari isi terpanjang (baris pertama tiap sel), link dipotong rapi (tetap bisa diklik)
+    const isLink = (c: number) => t.values.slice(1).some((r) => String(r[c] ?? '').startsWith('http'))
+    const widths = (t.values[0] || []).map((_, c) => {
+      const len = Math.max(...t.values.map((r) => String(r[c] ?? '').split('\n')[0].length))
+      return Math.round(Math.min(isLink(c) ? 180 : 320, Math.max(90, len * 8 + 28)))
+    })
     return [
       // Reset sisa sync sebelumnya (merge, border, dropdown di posisi baris lama)
       { unmergeCells: { range: all } },
-      { repeatCell: { range: all, cell: { userEnteredFormat: { verticalAlignment: 'MIDDLE', wrapStrategy: 'CLIP' } }, fields: 'userEnteredFormat' } },
+      { repeatCell: {
+        range: all,
+        cell: { userEnteredFormat: { verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP', textFormat: { fontSize: 11 }, padding: { top: 6, bottom: 6, left: 8, right: 8 } } },
+        fields: 'userEnteredFormat',
+      } },
+      ...widths.map((pixelSize, c) => ({ updateDimensionProperties: {
+        range: { sheetId, dimension: 'COLUMNS', startIndex: c, endIndex: c + 1 }, properties: { pixelSize }, fields: 'pixelSize',
+      } })),
+      ...widths.flatMap((_, c) => (isLink(c) ? [{ repeatCell: { range: col(c), cell: { userEnteredFormat: { wrapStrategy: 'CLIP' } }, fields: 'userEnteredFormat.wrapStrategy' } }] : [])),
+      ...Object.entries(t.numberFormats || {}).map(([c, pattern]) => ({ repeatCell: {
+        range: col(Number(c)), cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern } } }, fields: 'userEnteredFormat.numberFormat',
+      } })),
       { setDataValidation: { range: all } },
       { repeatCell: {
         range: rowRange(0, 1),
         cell: { userEnteredFormat: { backgroundColor: { red: 0.24, green: 0.45, blue: 0.36 }, textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }, verticalAlignment: 'MIDDLE' } },
         fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment)',
       } },
+      { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1 } }, fields: 'gridProperties.frozenRowCount' } },
       { setBasicFilter: { filter: { range: rowRange(0, t.values.length) } } },
       ...Object.entries(t.dropdowns || {}).map(([c, options]) => ({ setDataValidation: {
         range: { sheetId, startRowIndex: 1, endRowIndex: t.values.length, startColumnIndex: Number(c), endColumnIndex: Number(c) + 1 },
@@ -465,6 +486,9 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
           range: { sheetId, startRowIndex: g.startRow + 1, endRowIndex: g.endRow + 2, startColumnIndex: c, endColumnIndex: c + 1 },
         } })) : []),
       ]),
+      // Tinggi baris ikut isi (teks dibungkus + padding), header sedikit lebih tinggi
+      { autoResizeDimensions: { dimensions: { sheetId, dimension: 'ROWS', startIndex: 1, endIndex: t.values.length } } },
+      { updateDimensionProperties: { range: { sheetId, dimension: 'ROWS', startIndex: 0, endIndex: 1 }, properties: { pixelSize: 36 }, fields: 'pixelSize' } },
     ]
   })
   if (grouped.length) {
