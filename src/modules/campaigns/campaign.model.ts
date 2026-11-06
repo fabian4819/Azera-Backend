@@ -158,6 +158,10 @@ export interface ICampaign extends Document {
   /** Akses creator ke kolom non-progress di tabel portal (key = columnKey di sheetSync.service.ts).
    * Tidak ada entry = pakai default (lihat DEFAULT_VIEW_COLUMNS). Nilai 'edit' diperlakukan 'view'. */
   columnAccess: Map<string, CreatorAccess>
+  /** Nama kolom Master Sheet yang diganti admin (key kolom → judul), kolom progress pakai label-nya sendiri */
+  columnLabels?: Record<string, string>
+  /** Urutan kolom Master Sheet (daftar key) hasil drag & drop admin; kosong = urutan default */
+  columnOrder?: string[]
   createdAt: Date
   updatedAt: Date
 }
@@ -271,6 +275,8 @@ const CampaignSchema = new Schema<ICampaign>(
     },
     progressColumns: { type: [ProgressColumnSchema], default: [] },
     columnAccess: { type: Map, of: { type: String, enum: ['hidden', 'view', 'edit'] }, default: {} },
+    columnLabels: { type: Schema.Types.Mixed, default: undefined },
+    columnOrder: { type: [String], default: undefined },
   },
   { timestamps: true }
 )

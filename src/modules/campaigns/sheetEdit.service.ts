@@ -7,7 +7,7 @@ import { decideApplication, clientDecideApplication, type Decision } from '../ap
 import { reviewSubmission, writeProgressCell, setPostingLink } from './progress.service'
 import { buildSheetView } from './sheetView.service'
 import { setRecapCreatorCell, setRecapCreatorPaid, setRecapPicCell, setRecapPicPaid, RECAP_CREATOR_KEYS, RECAP_PIC_KEYS } from './recapEdit.service'
-import { paymentStatusLabel } from '../../lib/sheetSync.service'
+import { paymentStatusLabel, campaignColumnLabel } from '../../lib/sheetSync.service'
 import { applyFinanceSheetRow } from '../finance/financeSheet.service'
 import { WORKBOOK_TABS, CLIENT_TABS, ID_HEADER, STATUS_LABEL, REVIEW_LABEL, REVIEW_NOTE_HEADER, RECAP_BY_PIC } from './campaignWorkbook.service'
 
@@ -131,7 +131,7 @@ export async function applySheetRow(spreadsheetId: string, tab: string, row: She
   if (tab === CLIENT_TABS.tracker) {
     const results: string[] = []
     for (const type of ['draft', 'post'] as const) {
-      const wanted = REVIEW_FROM_LABEL[label(REVIEW_HEADER[type])]
+      const wanted = REVIEW_FROM_LABEL[label(campaignColumnLabel(campaign, REVIEW_HEADER[type]))]
       if (wanted !== 'approved' && wanted !== 'revision_requested') continue
       const sub = await Submission.findOne({ tenantId: campaign.tenantId, campaignId: campaign._id, creatorId: application.creatorId, type }).sort({ createdAt: -1 })
       if (!sub) continue

@@ -160,7 +160,7 @@ export interface SheetColumn {
 /** Kolom tab campaign: dasar + PIC/Partner + jawaban custom (AD-50) + Handle By/Email + kolom
  * progress. Kolom baru sengaja ditaruh di belakang supaya kolom lama di Google Sheet tidak bergeser.
  * Dipakai bareng sync ke Sheet, tabel Master admin, dan portal creator, isinya identik. */
-export function campaignSheetColumns(campaign: ICampaign): SheetColumn[] {
+function naturalColumns(campaign: ICampaign): SheetColumn[] {
   return [
     ...CAMPAIGN_HEADERS_BASE.map((h) => ({ key: h, label: h })),
     { key: 'PIC/Partner', label: 'PIC/Partner' },
@@ -169,6 +169,46 @@ export function campaignSheetColumns(campaign: ICampaign): SheetColumn[] {
     { key: 'Email', label: 'Email' },
     ...(campaign.progressColumns || []).map((c) => ({ key: `progress:${c.id}`, label: c.label, progress: c })),
   ]
+}
+
+/** Urutan tersimpan diterapkan ke key yang ada sekarang; key baru (belum ada di urutan) disisipkan
+ * setelah tetangganya di urutan default, key yang sudah tidak ada dibuang (sama dengan applyOrder di client). */
+export function applyOrder(order: string[] | undefined, keys: string[]): string[] {
+  if (!order?.length) return keys
+  const out = order.filter((k, i) => keys.includes(k) && order.indexOf(k) === i)
+  keys.forEach((k, i) => {
+    if (out.includes(k)) return
+    const prev = keys.slice(0, i).reverse().find((p) => out.includes(p))
+    out.splice(prev ? out.indexOf(prev) + 1 : 0, 0, k)
+  })
+  return out
+}
+
+/** Index kolom default per posisi tampil, mengikuti urutan yang diatur admin (campaign.columnOrder). */
+function columnPermutation(campaign: ICampaign, natural: SheetColumn[]): number[] {
+  const keys = natural.map((c) => c.key)
+  return applyOrder(campaign.columnOrder, keys).map((k) => keys.indexOf(k))
+}
+
+/** Kolom Master Sheet sesuai urutan & nama yang diatur admin; dipakai Master Sheet, dashboard
+ * client/PIC/creator, dan Google Sheet campaign. Nama dobel diberi akhiran (2), (3) supaya sync
+ * sheet (baris dipetakan per judul kolom) tidak tertukar. */
+export function campaignSheetColumns(campaign: ICampaign): SheetColumn[] {
+  const natural = naturalColumns(campaign)
+  const labels = campaign.columnLabels || {}
+  const seen = new Map<string, number>()
+  return columnPermutation(campaign, natural).map((i) => {
+    const c = natural[i]
+    const base = (!c.progress && labels[c.key]) || c.label
+    const n = (seen.get(base) || 0) + 1
+    seen.set(base, n)
+    return { ...c, label: n > 1 ? `${base} (${n})` : base }
+  })
+}
+
+/** Judul kolom (setelah diganti nama admin) untuk key kolom bawaan, mis. 'Status Draft'. */
+export function campaignColumnLabel(campaign: ICampaign, key: string): string {
+  return campaignSheetColumns(campaign).find((c) => c.key === key)?.label ?? key
 }
 
 export function campaignSheetHeaders(campaign: ICampaign): string[] {
@@ -245,7 +285,7 @@ export function campaignSheetRow(
 ): (string | number)[] {
   const draft = submissions.find((s) => s.type === 'draft')
   const post = submissions.find((s) => s.type === 'post')
-  return [
+  const values = [
     creator?.name || '',
     creator?.phone || '',
     application.status,
@@ -268,6 +308,7 @@ export function campaignSheetRow(
     creator?.email || '',
     ...(campaign.progressColumns || []).map((c) => progressCell(c, application, submissions)),
   ]
+  return columnPermutation(campaign, naturalColumns(campaign)).map((i) => values[i])
 }
 
 async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {

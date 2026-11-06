@@ -34,6 +34,8 @@ export interface SheetTable {
   rowNotes?: { draft?: string; post?: string }[]
   /** Master: definisi kolom progress mentah, untuk panel Kelola Kolom */
   progressColumns?: IProgressColumn[]
+  /** Master: nama kolom yang diganti admin (key → judul) */
+  columnLabels?: Record<string, string>
   /** Recap Payment: tabel kedua, agregat per PIC (AD-adjustment-6) */
   byPic?: { headers: string[]; rows: Cell[][]; rowIds?: string[]; totals?: Cell[]; columns?: ColumnMeta[] }
 }
@@ -118,6 +120,7 @@ function masterTable(campaign: ICampaign, d: CampaignData): SheetTable {
       return { draft: subs.find((s) => s.type === 'draft')?.revisionNotes, post: subs.find((s) => s.type === 'post')?.revisionNotes }
     }),
     progressColumns: campaign.progressColumns || [],
+    columnLabels: campaign.columnLabels || {},
   }
 }
 

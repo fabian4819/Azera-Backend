@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert'
 import { normalizeCell, CellError, platformFromLink } from './progress.service'
-import { progressCell, creatorAccess, campaignSheetColumns } from '../../lib/sheetSync.service'
+import { progressCell, creatorAccess, campaignSheetColumns, campaignSheetRow } from '../../lib/sheetSync.service'
 import type { ICampaign, IProgressColumn } from './campaign.model'
 import type { IApplication } from '../applications/application.model'
 import type { ISubmission } from '../submissions/submission.model'
@@ -61,5 +61,16 @@ assert.strictEqual(creatorAccess(locked, cols.find((c) => c.key === 'Draft')!), 
 assert.strictEqual(creatorAccess(locked, cols.find((c) => c.key === 'Status Draft')!), 'view')
 assert.strictEqual(access('Status Aplikasi'), 'view')
 assert.strictEqual(access('progress:c'), 'view')
+
+// --- Urutan & nama kolom diatur admin: Draft dipindah ke depan & diganti nama, baris ikut urutan yang sama
+const arranged = { ...campaign, columnOrder: ['Draft', ...cols.map((c) => c.key).filter((k) => k !== 'Draft')], columnLabels: { Draft: 'Feedback Client', Views: 'Creator' } } as unknown as ICampaign
+const aCols = campaignSheetColumns(arranged)
+assert.deepStrictEqual(aCols.slice(0, 3).map((c) => c.label), ['Feedback Client', 'Creator', 'WhatsApp'])
+assert.strictEqual(aCols.find((c) => c.key === 'Views')!.label, 'Creator (2)') // nama dobel diberi akhiran
+assert.strictEqual(aCols.length, cols.length)
+const sampleApp = { status: 'accepted', curationResult: 'recommended', createdAt: new Date(), progress: {} } as unknown as IApplication
+const row = campaignSheetRow(arranged, sampleApp, { name: 'Budi', phone: '62811', email: 'b@x.id' }, [], 'PIC A')
+assert.deepStrictEqual(row.slice(0, 3), ['', 'Budi', '62811'])
+assert.strictEqual(row[aCols.findIndex((c) => c.key === 'PIC/Partner')], 'PIC A')
 
 console.log('progress.test.ts OK')

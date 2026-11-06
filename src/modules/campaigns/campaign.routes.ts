@@ -386,7 +386,7 @@ const EDITABLE_FIELDS = [
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
   'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
   'customFields', 'applyFields', 'progressColumns', 'columnAccess',
-  'feeNote', 'benefits', 'requirements', 'infoLink', 'approvalFlow',
+  'feeNote', 'benefits', 'requirements', 'infoLink', 'approvalFlow', 'columnLabels', 'columnOrder',
 ] as const
 
 function sanitizeApplyFields(a: Record<string, unknown> = {}) {
@@ -438,6 +438,21 @@ function sanitizeColumnAccess(input: unknown): Record<string, 'hidden' | 'view' 
   return out
 }
 
+/** Nama kolom Master Sheet: key → judul (trim, maks 80 huruf); judul kosong = kembali ke nama default */
+function sanitizeColumnLabels(input: unknown): Record<string, string> {
+  const out: Record<string, string> = {}
+  if (input && typeof input === 'object') {
+    for (const [k, v] of Object.entries(input)) {
+      const label = typeof v === 'string' ? v.trim().slice(0, 80) : ''
+      if (k.length <= 64 && label && label !== k) out[k] = label
+    }
+  }
+  return out
+}
+
+const sanitizeColumnOrder = (input: unknown): string[] =>
+  Array.isArray(input) ? [...new Set(input.filter((k): k is string => typeof k === 'string' && k.length <= 64))].slice(0, 300) : []
+
 router.patch('/:id', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
@@ -447,6 +462,8 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     }
     if ('progressColumns' in updates) updates.progressColumns = sanitizeProgressColumns(updates.progressColumns)
     if ('columnAccess' in updates) updates.columnAccess = sanitizeColumnAccess(updates.columnAccess)
+    if ('columnLabels' in updates) updates.columnLabels = sanitizeColumnLabels(updates.columnLabels)
+    if ('columnOrder' in updates) updates.columnOrder = sanitizeColumnOrder(updates.columnOrder)
     if ('applyFields' in updates) updates.applyFields = sanitizeApplyFields((updates.applyFields || {}) as Record<string, unknown>)
     if ('approvalFlow' in updates && !APPROVAL_FLOWS.includes(updates.approvalFlow as never)) { res.status(400).json({ message: 'Skema approval tidak dikenal' }); return }
     const before = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
