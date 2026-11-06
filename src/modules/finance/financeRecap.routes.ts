@@ -223,7 +223,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('Rekap Keuangan')
     const RP = '"Rp"#,##0;-"Rp"#,##0'
-    const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Jumlah Talent', 'Fee/Talent', 'Total',
+    const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
       'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin Internal', 'Reimburse', 'Ads', 'Opex',
       'Uang Keluar', 'Profit', 'Margin (%)', 'Catatan Talent', 'Ket. Gaji Admin']
     ws.addRow([`Rekap Keuangan ${range.from || 'awal'} s/d ${range.to || 'sekarang'}`]).font = { bold: true, size: 13 }
@@ -233,15 +233,15 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     headerRow.eachCell((c) => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00FFFF' } } })
 
     // Kolom per grup (di-merge vertikal) vs per item SOW
-    const ITEM_COLS = new Set([6, 7, 8, 9, 10])
+    const ITEM_COLS = new Set([6, 7, 8, 9, 10, 11])
     // Fee/Talent, Total, Total Payment, kolom tambahan uang, Fee Creator s/d Profit (10 kolom)
-    const moneyCols = [9, 10, 11, ...columns.flatMap((c, i) => (c.type === 'text' ? [] : [15 + i])), ...Array.from({ length: 10 }, (_, i) => 15 + columns.length + i)]
+    const moneyCols = [10, 11, 12, ...columns.flatMap((c, i) => (c.type === 'text' ? [] : [16 + i])), ...Array.from({ length: 10 }, (_, i) => 16 + columns.length + i)]
     for (const g of groups) {
       const items = g.items.length ? g.items : [null]
       const e = g.expense
       const groupValues = [
         g.campaign, g.company, g.contact, g.runningMonth, g.mastersheetUrl,
-        null, null, null, null, null,
+        null, null, null, null, null, null,
         g.totalInvoice, g.invoices.map((i) => i.number).join('\n'),
         g.invoices.map((i) => (i.paid ? `Lunas ${i.paidAt}` : 'Belum Lunas')).join('\n'),
         g.invoices.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '-')).join('\n'),
@@ -251,7 +251,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
       const first = ws.rowCount + 1
       items.forEach((it, i) => {
         const row = groupValues.map((v, col) => {
-          if (ITEM_COLS.has(col + 1)) return it ? [it.item, it.sow, it.qty, it.unitFee, it.amount][col - 5] : ''
+          if (ITEM_COLS.has(col + 1)) return it ? [it.item, it.sow, it.tier, it.qty, it.unitFee, it.amount][col - 5] : ''
           return i === 0 ? v : null
         })
         const r = ws.addRow(row)
@@ -262,7 +262,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
         for (let col = 1; col <= head.length; col++) if (!ITEM_COLS.has(col)) ws.mergeCells(first, col, ws.rowCount, col)
       }
     }
-    ws.columns.forEach((c, i) => { c.width = [22, 20, 20, 12, 28, 30][i] ?? 14 })
+    ws.columns.forEach((c, i) => { c.width = [22, 20, 20, 12, 28, 30, 24][i] ?? 14 })
 
     const name = `rekap-keuangan_${range.from || 'awal'}_${range.to || 'sekarang'}.xlsx`
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

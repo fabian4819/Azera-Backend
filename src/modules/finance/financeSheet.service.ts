@@ -57,7 +57,7 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
     linkOf.set(String(d._id), `${env.clientOrigin}/api/documents/${d._id}?code=${d.accessCode}`)
   }
   const headers = [
-    ID_HEADER, 'ID Invoice', 'Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Jumlah Talent', 'Fee/Talent', 'Total',
+    ID_HEADER, 'ID Invoice', 'Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
     'Total Payment', 'Invoice', 'Link Invoice', 'Status', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
     'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
   ]
@@ -76,7 +76,7 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
         `${inv.map((i) => i._id).join(',')}|${k}`,
         ...[inv.map((i) => (i.shortId ? `#${i.shortId}` : '')).filter(Boolean).join(', '),
           g.campaign, g.company, g.contact, monthLabel(g.runningMonth), g.mastersheetUrl].map(once),
-        it?.item ?? '', it?.sow ?? '', it?.qty ?? '', it?.unitFee ?? '', it?.amount ?? '',
+        it?.item ?? '', it?.sow ?? '', it?.tier ?? '', it?.qty ?? '', it?.unitFee ?? '', it?.amount ?? '',
         ...[g.totalInvoice,
           inv.map((i) => i.number).join('\n'),
           inv.map((i) => linkOf.get(i._id) ?? '').filter(Boolean).join('\n'),
@@ -92,7 +92,7 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   // Kelompok baris per job + kolom yang digabung: semua kecuali ID (unik per baris) & rincian SOW
   const RUPIAH = '"Rp"#,##0'
   const MONEY_HEADERS = new Set(['Fee/Talent', 'Total', 'Total Payment', 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit'])
-  const SOW_COLS = new Set(['Item', 'Scope of Work', 'Jumlah Talent', 'Fee/Talent', 'Total'])
+  const SOW_COLS = new Set(['Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total'])
   const grouping = (list: typeof shown, width: number) => {
     let at = 0
     const ranges = list.map((g) => { const n = Math.max(g.items.length, 1); const r = { startRow: at, endRow: at + n - 1 }; at += n; return r })
