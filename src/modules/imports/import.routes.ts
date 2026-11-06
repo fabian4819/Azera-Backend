@@ -57,16 +57,63 @@ export function mergeCreator(cur: Merged | undefined, row: ImportRow): Merged {
   }
 }
 
+/** Data yang akan ditulis untuk satu creator (dipakai juga untuk cek "ada data baru" di preview) */
+const docOf = (tenantId: Types.ObjectId, m: Merged) => ({
+  tenantId, name: m.name, phone: m.phone, niches: m.niches, age: m.age, domicile: m.domicile, gender: m.gender,
+  approval: m.approval, instagram: m.instagram, tiktok: m.tiktok, handles: rowKeys(m).filter((k) => !k.startsWith('wa:')),
+})
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * Rencana import, sama persis untuk preview & confirm: baris dicocokkan ke data yang sudah ada lewat No WA
+ * ATAU username IG/TikTok, baris di beberapa tab digabung jadi 1 creator. Cuma membaca database.
+ */
+async function planImport(tenantId: Types.ObjectId, valid: ImportRow[]) {
+  const keys = [...new Set(valid.flatMap(rowKeys))]
+  const phones = keys.filter((k) => k.startsWith('wa:')).map((k) => k.slice(3))
+  const handles = keys.filter((k) => !k.startsWith('wa:'))
+  const existing = await ExistingCreator.find({ tenantId, $or: [{ phone: { $in: phones } }, { handles: { $in: handles } }] }).lean()
+  const original = new Map(existing.map((e) => [String(e._id), docOf(tenantId, e as unknown as Merged)]))
+  const index = new Map<string, Merged>()
+  const records = new Set<Merged>()
+  const put = (m: Merged) => { records.add(m); for (const k of rowKeys(m)) index.set(k, m) }
+  existing.forEach((e) => put(e as unknown as Merged))
+  for (const row of valid) {
+    const cur = rowKeys(row).map((k) => index.get(k)).find(Boolean)
+    const next = mergeCreator(cur, row)
+    if (cur) records.delete(cur)
+    put(next)
+  }
+  const all = [...records]
+  const created = all.filter((m) => !m._id)
+  const matched = all.filter((m) => m._id)
+  const changed = matched.filter((m) => !same(original.get(String(m._id)), docOf(tenantId, m)))
+  // Status per baris: creator baru, sudah ada & tidak ada yang berubah, atau sudah ada & dilengkapi
+  const rowStatus = (row: ImportRow): 'new' | 'existing' | 'updated' => {
+    const m = index.get(rowKeys(row)[0])
+    if (!m?._id) return 'new'
+    return changed.includes(m) ? 'updated' : 'existing'
+  }
+  return { all, changed: new Set(changed), created: created.length, unchanged: matched.length - changed.length, updated: changed.length, rowStatus }
+}
+
 router.post('/preview', uploadSpreadsheet.single('file'), async (req: AuthRequest, res: Response) => {
   try {
+    await connectDB()
+    const tenantId = new Types.ObjectId(String(req.auth!.tenantId))
     const { rows, ignoredHeaders, tabs } = await readSource(req)
     const invalid = rows.filter((r) => r.errors.length)
     const valid = rows.filter((r) => !r.errors.length)
+    const plan = await planImport(tenantId, valid)
+    // Baris baru/berubah ditampilkan dulu supaya tambahan data langsung kelihatan, yang sama persis di bawah
+    const ORDER = { new: 0, updated: 1, existing: 2 }
+    const sample = valid.map((r) => ({ ...r, status: plan.rowStatus(r) })).sort((a, b) => ORDER[a.status] - ORDER[b.status])
     res.json({
-      // Baris bermasalah selalu ikut dikirim supaya bisa dicek, sisanya contoh dari atas
-      rows: [...invalid.slice(0, PREVIEW_ROWS), ...valid.slice(0, PREVIEW_ROWS)],
+      // Baris bermasalah selalu ikut dikirim supaya bisa dicek, sisanya contoh
+      rows: [...invalid.slice(0, PREVIEW_ROWS), ...sample.slice(0, PREVIEW_ROWS)],
       total: rows.length, validCount: valid.length, invalidCount: invalid.length,
       noPhone: valid.filter((r) => !r.phone).length, ignoredHeaders, tabs,
+      creators: { new: plan.created, updated: plan.updated, unchanged: plan.unchanged },
     })
   } catch (err) { sendError(res, err, 'Gagal membaca file') }
 })
@@ -79,36 +126,17 @@ router.post('/confirm', uploadSpreadsheet.single('file'), async (req: AuthReques
     const { rows } = await readSource(req)
     const skipped = rows.filter((r) => r.errors.length).map((r) => ({ rowNumber: r.rowNumber, tab: r.tab, reason: r.errors.join('; ') }))
     const valid = rows.filter((r) => !r.errors.length)
+    const plan = await planImport(tenantId, valid)
 
-    // Cocokkan ke data yang sudah ada lewat No WA ATAU username IG/TikTok; baris di beberapa tab = 1 creator
-    const keys = [...new Set(valid.flatMap(rowKeys))]
-    const phones = keys.filter((k) => k.startsWith('wa:')).map((k) => k.slice(3))
-    const handles = keys.filter((k) => !k.startsWith('wa:'))
-    const existing = await ExistingCreator.find({ tenantId, $or: [{ phone: { $in: phones } }, { handles: { $in: handles } }] }).lean()
-    const index = new Map<string, Merged>()
-    const records = new Set<Merged>()
-    const put = (m: Merged) => { records.add(m); for (const k of rowKeys(m)) index.set(k, m) }
-    existing.forEach((e) => put(e as unknown as Merged))
-    for (const row of valid) {
-      const cur = rowKeys(row).map((k) => index.get(k)).find(Boolean)
-      const next = mergeCreator(cur, row)
-      if (cur) records.delete(cur)
-      put(next)
-    }
-
-    const docOf = (m: Merged) => ({
-      tenantId, name: m.name, phone: m.phone, niches: m.niches, age: m.age, domicile: m.domicile, gender: m.gender,
-      approval: m.approval, instagram: m.instagram, tiktok: m.tiktok, handles: rowKeys(m).filter((k) => !k.startsWith('wa:')),
+    // Creator yang sudah ada & tidak berubah tidak ditulis ulang
+    const ops = plan.all.flatMap((m): object[] => {
+      const doc = docOf(tenantId, m)
+      if (!m._id) return [{ insertOne: { document: doc } }]
+      return plan.changed.has(m) ? [{ updateOne: { filter: { _id: m._id }, update: { $set: doc } } }] : []
     })
-    const all = [...records]
-    const ops = all.map((m) => (m._id
-      ? { updateOne: { filter: { _id: m._id }, update: { $set: docOf(m) } } }
-      : { insertOne: { document: docOf(m) } }))
     for (let i = 0; i < ops.length; i += 1000) await ExistingCreator.bulkWrite(ops.slice(i, i + 1000) as never, { ordered: false })
 
-    const created = all.filter((m) => !m._id).length
-    const updated = all.length - created
-    res.json({ created, updated, rows: valid.length, skipped })
+    res.json({ created: plan.created, updated: plan.updated, unchanged: plan.unchanged, rows: valid.length, skipped })
   } catch (err) { sendError(res, err, 'Gagal import data') }
 })
 
