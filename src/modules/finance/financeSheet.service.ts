@@ -62,47 +62,55 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
     'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
   ]
   const shown = groups.filter((g) => !g.hidden)
-  // 1 baris per SOW (sama dengan tabel platform). Angka tingkat campaign (Total Payment, biaya, profit) cuma di
-  // baris pertama tiap campaign supaya penjumlahan kolom di Sheets tidak dobel; teks (campaign, status) di semua
-  // baris supaya filter tetap jalan. ID baris = "<id invoice,...>|<urutan SOW>" (unik per baris).
+  // 1 baris per SOW (sama dengan tabel platform). Data tingkat job (campaign, perusahaan, status, biaya, profit)
+  // cuma di baris pertama, lalu sel-nya digabung per job seperti di platform, jadi batas antar job kelihatan dan
+  // penjumlahan kolom tidak dobel. ID baris = "<id invoice,...>|<urutan SOW>" (unik per baris).
   const toRows = (g: (typeof groups)[number]): (string | number)[][] => {
     const e = g.expense
     const inv = g.invoices
     const items = g.items.length ? g.items : [null]
     return items.map((it, k) => {
       const first = k === 0
-      const money = (v: number | string) => (first ? v : '')
+      const once = (v: number | string) => (first ? v : '')
       return [
         `${inv.map((i) => i._id).join(',')}|${k}`,
-        inv.map((i) => (i.shortId ? `#${i.shortId}` : '')).filter(Boolean).join(', '),
-        g.campaign, g.company, g.contact, monthLabel(g.runningMonth), g.mastersheetUrl,
+        ...[inv.map((i) => (i.shortId ? `#${i.shortId}` : '')).filter(Boolean).join(', '),
+          g.campaign, g.company, g.contact, monthLabel(g.runningMonth), g.mastersheetUrl].map(once),
         it?.sow ?? '', it?.tier ?? '', it?.qty ?? '', it?.unitFee ?? '', it?.amount ?? '',
-        money(g.totalInvoice),
-        inv.map((i) => i.number).join('\n'),
-        inv.map((i) => linkOf.get(i._id) ?? '').filter(Boolean).join('\n'),
-        inv.every((i) => i.paid) ? 'Lunas' : 'Belum Lunas',
-        inv.map((i) => i.paidAt).filter(Boolean).join('\n'),
-        inv.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '')).filter(Boolean).join('\n'),
-        ...columns.map((c) => (c.type === 'text' ? g.custom[c.key] ?? '' : money(g.custom[c.key] ?? ''))),
-        ...[e.feeCreator, e.feePic, e.feeMg, e.feeHandle, e.adminInternal, e.reimburse, e.ads, e.opex, e.total, g.profit].map(money),
-        money(g.margin ?? ''),
+        ...[g.totalInvoice,
+          inv.map((i) => i.number).join('\n'),
+          inv.map((i) => linkOf.get(i._id) ?? '').filter(Boolean).join('\n'),
+          inv.every((i) => i.paid) ? 'Lunas' : 'Belum Lunas',
+          inv.map((i) => i.paidAt).filter(Boolean).join('\n'),
+          inv.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '')).filter(Boolean).join('\n')].map(once),
+        ...columns.map((c) => once(g.custom[c.key] ?? '')),
+        ...[e.feeCreator, e.feePic, e.feeMg, e.feeHandle, e.adminInternal, e.reimburse, e.ads, e.opex, e.total, g.profit].map(once),
+        once(g.margin ?? ''),
       ]
     })
+  }
+  // Kelompok baris per job + kolom yang digabung: semua kecuali ID (unik per baris) & rincian SOW
+  const SOW_COLS = new Set(['SOW', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total'])
+  const grouping = (list: typeof shown, width: number) => {
+    let at = 0
+    const ranges = list.map((g) => { const n = Math.max(g.items.length, 1); const r = { startRow: at, endRow: at + n - 1 }; at += n; return r })
+    return { groups: ranges, mergeColumns: headers.slice(0, width).flatMap((h, i) => (i === 0 || SOW_COLS.has(h) ? [] : [i])) }
   }
   const all = shown.flatMap(toRows)
   // Sheet Pintarnya: tanpa kolom biaya internal (Fee Creator ke kanan: biaya, uang keluar, profit, margin)
   const cut = headers.indexOf('Fee Creator')
-  const pintarnya = shown.filter((g) => isPintarnya(g.company)).flatMap((g) => toRows(g).map((r) => r.slice(0, cut)))
+  const pintarnyaGroups = shown.filter((g) => isPintarnya(g.company))
+  const pintarnya = pintarnyaGroups.flatMap((g) => toRows(g).map((r) => r.slice(0, cut)))
   // Dua tab, kolom sama: semua klien + khusus Pintarnya. Yang bisa diedit cuma Status & biaya.
   const statusCol = headers.indexOf('Status')
   const editable = [statusCol, ...Object.keys(FEE_HEADERS).map((h) => headers.indexOf(h))]
-  const tab = (rows: (string | number)[][], head: string[], editableCols: number[]): WorkbookTab => ({
+  const tab = (rows: (string | number)[][], head: string[], editableCols: number[], list: typeof shown): WorkbookTab => ({
     title: TAB, values: [head, ...rows], tableRows: rows.length + 1, hideFirstColumn: true,
-    dropdowns: { [statusCol]: STATUS_OPTIONS }, editableColumns: editableCols,
+    dropdowns: { [statusCol]: STATUS_OPTIONS }, editableColumns: editableCols, ...grouping(list, head.length),
   })
   const files: [FinanceScope, string, WorkbookTab][] = [
-    ['all', mainId, tab(all, headers, editable)],
-    ['pintarnya', pintarnyaId, tab(pintarnya, headers.slice(0, cut), [statusCol])], // Pintarnya: cuma Status yang bisa diedit
+    ['all', mainId, tab(all, headers, editable, shown)],
+    ['pintarnya', pintarnyaId, tab(pintarnya, headers.slice(0, cut), [statusCol], pintarnyaGroups)], // Pintarnya: cuma Status yang bisa diedit
   ]
   for (const [scope, id, t] of files) {
     await writeWorkbookTabs(id, [t])

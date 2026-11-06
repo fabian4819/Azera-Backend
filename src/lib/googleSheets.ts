@@ -367,6 +367,11 @@ export interface WorkbookTab {
   dropdowns?: Record<number, string[]>
   /** Kalau diisi: seluruh tab dikunci (cuma service account yang bisa edit) KECUALI kolom-kolom ini, baris 2 ke bawah */
   editableColumns?: number[]
+  /** Kelompok baris (mis. 1 invoice/job dengan beberapa SOW): sel kolom `cols` digabung (merge) per kelompok
+   * & diberi garis batas. Google Sheets tidak bisa merge di dalam Tabel, jadi tab ini pakai format biasa
+   * (header berwarna + filter + dropdown) sebagai pengganti Tabel. startRow/endRow = index baris data (0 = baris 2). */
+  groups?: { startRow: number; endRow: number }[]
+  mergeColumns?: number[]
 }
 
 const LOCK_DESCRIPTION = 'azera-lock'
@@ -408,7 +413,7 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
   const tables = tabs.flatMap((t) => {
     const sheetId = sheetIdOf(t.title)
     const headers = t.values[0] || []
-    if (sheetId == null || !headers.length) return []
+    if (sheetId == null || !headers.length || t.groups) return []
     return [
       {
         addTable: {
@@ -430,6 +435,41 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
   if (tables.length) {
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: tables } })
       .catch((err) => console.error('Sheets addTable error:', (err as Error).message))
+  }
+  const grouped = tabs.flatMap((t) => {
+    const sheetId = sheetIdOf(t.title)
+    const width = (t.values[0] || []).length
+    if (sheetId == null || !t.groups || !width) return []
+    const all = { sheetId }
+    const rowRange = (a: number, b: number) => ({ sheetId, startRowIndex: a, endRowIndex: b, startColumnIndex: 0, endColumnIndex: width })
+    const line = { style: 'SOLID_MEDIUM', color: { red: 0.4, green: 0.4, blue: 0.4 } }
+    return [
+      // Reset sisa sync sebelumnya (merge, border, dropdown di posisi baris lama)
+      { unmergeCells: { range: all } },
+      { repeatCell: { range: all, cell: { userEnteredFormat: { verticalAlignment: 'MIDDLE', wrapStrategy: 'CLIP' } }, fields: 'userEnteredFormat' } },
+      { setDataValidation: { range: all } },
+      { repeatCell: {
+        range: rowRange(0, 1),
+        cell: { userEnteredFormat: { backgroundColor: { red: 0.24, green: 0.45, blue: 0.36 }, textFormat: { bold: true, foregroundColor: { red: 1, green: 1, blue: 1 } }, verticalAlignment: 'MIDDLE' } },
+        fields: 'userEnteredFormat(backgroundColor,textFormat,verticalAlignment)',
+      } },
+      { setBasicFilter: { filter: { range: rowRange(0, t.values.length) } } },
+      ...Object.entries(t.dropdowns || {}).map(([c, options]) => ({ setDataValidation: {
+        range: { sheetId, startRowIndex: 1, endRowIndex: t.values.length, startColumnIndex: Number(c), endColumnIndex: Number(c) + 1 },
+        rule: { condition: { type: 'ONE_OF_LIST', values: options.map((userEnteredValue) => ({ userEnteredValue })) }, showCustomUi: true },
+      } })),
+      ...t.groups.flatMap((g) => [
+        { updateBorders: { range: rowRange(g.startRow + 1, g.endRow + 2), bottom: line } },
+        ...(g.endRow > g.startRow ? (t.mergeColumns || []).map((c) => ({ mergeCells: {
+          mergeType: 'MERGE_ALL',
+          range: { sheetId, startRowIndex: g.startRow + 1, endRowIndex: g.endRow + 2, startColumnIndex: c, endColumnIndex: c + 1 },
+        } })) : []),
+      ]),
+    ]
+  })
+  if (grouped.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: grouped } })
+      .catch((err) => console.error('Sheets group format error:', (err as Error).message))
   }
   // Kunci kolom & sembunyikan ID dikirim TERPISAH dari tabel: tabel gagal tidak boleh bikin sheet client
   // terbuka bebas diedit.
