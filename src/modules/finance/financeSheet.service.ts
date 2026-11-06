@@ -57,34 +57,42 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
     linkOf.set(String(d._id), `${env.clientOrigin}/api/documents/${d._id}?code=${d.accessCode}`)
   }
   const headers = [
-    ID_HEADER, 'ID Invoice', 'Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'SOW', 'Jumlah Talent',
+    ID_HEADER, 'ID Invoice', 'Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'SOW', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
     'Total Payment', 'Invoice', 'Link Invoice', 'Status', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
     'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
   ]
   const shown = groups.filter((g) => !g.hidden)
-  const toRow = (g: (typeof groups)[number]) => {
+  // 1 baris per SOW (sama dengan tabel platform). Angka tingkat campaign (Total Payment, biaya, profit) cuma di
+  // baris pertama tiap campaign supaya penjumlahan kolom di Sheets tidak dobel; teks (campaign, status) di semua
+  // baris supaya filter tetap jalan. ID baris = "<id invoice,...>|<urutan SOW>" (unik per baris).
+  const toRows = (g: (typeof groups)[number]): (string | number)[][] => {
     const e = g.expense
     const inv = g.invoices
-    return [
-      inv.map((i) => i._id).join(','),
-      inv.map((i) => (i.shortId ? `#${i.shortId}` : '')).filter(Boolean).join(', '),
-      g.campaign, g.company, g.contact, monthLabel(g.runningMonth), g.mastersheetUrl,
-      g.items.map((it) => `${it.sow}${it.tier ? ` (${it.tier})` : ''} × ${it.qty}`).join('\n'),
-      g.items.reduce((s, it) => s + it.qty, 0),
-      g.totalInvoice,
-      inv.map((i) => i.number).join('\n'),
-      inv.map((i) => linkOf.get(i._id) ?? '').filter(Boolean).join('\n'),
-      inv.every((i) => i.paid) ? 'Lunas' : 'Belum Lunas',
-      inv.map((i) => i.paidAt).filter(Boolean).join('\n'),
-      inv.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '')).filter(Boolean).join('\n'),
-      ...columns.map((c) => g.custom[c.key] ?? ''),
-      e.feeCreator, e.feePic, e.feeMg, e.feeHandle, e.adminInternal, e.reimburse, e.ads, e.opex, e.total, g.profit, g.margin ?? '',
-    ] as (string | number)[]
+    const items = g.items.length ? g.items : [null]
+    return items.map((it, k) => {
+      const first = k === 0
+      const money = (v: number | string) => (first ? v : '')
+      return [
+        `${inv.map((i) => i._id).join(',')}|${k}`,
+        inv.map((i) => (i.shortId ? `#${i.shortId}` : '')).filter(Boolean).join(', '),
+        g.campaign, g.company, g.contact, monthLabel(g.runningMonth), g.mastersheetUrl,
+        it?.sow ?? '', it?.tier ?? '', it?.qty ?? '', it?.unitFee ?? '', it?.amount ?? '',
+        money(g.totalInvoice),
+        inv.map((i) => i.number).join('\n'),
+        inv.map((i) => linkOf.get(i._id) ?? '').filter(Boolean).join('\n'),
+        inv.every((i) => i.paid) ? 'Lunas' : 'Belum Lunas',
+        inv.map((i) => i.paidAt).filter(Boolean).join('\n'),
+        inv.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '')).filter(Boolean).join('\n'),
+        ...columns.map((c) => (c.type === 'text' ? g.custom[c.key] ?? '' : money(g.custom[c.key] ?? ''))),
+        ...[e.feeCreator, e.feePic, e.feeMg, e.feeHandle, e.adminInternal, e.reimburse, e.ads, e.opex, e.total, g.profit].map(money),
+        money(g.margin ?? ''),
+      ]
+    })
   }
-  const all = shown.map(toRow)
+  const all = shown.flatMap(toRows)
   // Sheet Pintarnya: tanpa kolom biaya internal (Fee Creator ke kanan: biaya, uang keluar, profit, margin)
   const cut = headers.indexOf('Fee Creator')
-  const pintarnya = shown.filter((g) => isPintarnya(g.company)).map((g) => toRow(g).slice(0, cut))
+  const pintarnya = shown.filter((g) => isPintarnya(g.company)).flatMap((g) => toRows(g).map((r) => r.slice(0, cut)))
   // Dua tab, kolom sama: semua klien + khusus Pintarnya. Yang bisa diedit cuma Status & biaya.
   const statusCol = headers.indexOf('Status')
   const editable = [statusCol, ...Object.keys(FEE_HEADERS).map((h) => headers.indexOf(h))]
@@ -149,7 +157,7 @@ const num = (v: unknown) => { const t = String(v ?? '').replace(/[^\d-]/g, ''); 
 export async function applyFinanceSheetRow(tenantId: string, spreadsheetId: string, row: Record<string, string | number | undefined>): Promise<string | null> {
   const targets = await financeSheetTargets(tenantId)
   if (!targets.some((t) => t.id === spreadsheetId)) return null
-  const ids = String(row[ID_HEADER] ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  const ids = String(row[ID_HEADER] ?? '').split('|')[0].split(',').map((x) => x.trim()).filter(Boolean)
   if (!ids.length) return 'skip: baris tanpa ID'
   const docs = await DocumentModel.find({ tenantId, type: 'invoice', _id: { $in: ids } })
   if (!docs.length) return 'skip: invoice tidak ditemukan'
