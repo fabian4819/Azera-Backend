@@ -1,4 +1,6 @@
+import crypto from 'crypto'
 import Tenant from '../tenants/tenant.model'
+import { env } from '../../config/env'
 import DocumentModel from '../documents/document.model'
 import { createCampaignWorkbook, writeWorkbookTabs, getWorkbookTabUrl, sharedDriveRootId, deleteWorkbookTab, type WorkbookTab } from '../../lib/googleSheets'
 import { installSheetHook } from '../../lib/sheetHook'
@@ -46,9 +48,17 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   const [mainId, pintarnyaId] = await Promise.all([ensureSpreadsheet(tenantId, 'all'), ensureSpreadsheet(tenantId, 'pintarnya')])
   if (!mainId || !pintarnyaId) return null // Google Sheets belum dikonfigurasi (mis. lokal)
   const { columns, groups } = await buildRecap(tenantId, '', '')
+  // Link halaman invoice publik (sama dengan link preview bot /invoice); invoice tanpa kode akses dibuatkan
+  const invoiceIds = groups.flatMap((g) => g.invoices.map((i) => i._id))
+  const docs = await DocumentModel.find({ tenantId, _id: { $in: invoiceIds } }).select('accessCode')
+  const linkOf = new Map<string, string>()
+  for (const d of docs) {
+    if (!d.accessCode) { d.accessCode = crypto.randomBytes(8).toString('hex'); await d.save() }
+    linkOf.set(String(d._id), `${env.clientOrigin}/api/documents/${d._id}?code=${d.accessCode}`)
+  }
   const headers = [
     ID_HEADER, 'ID Invoice', 'Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'SOW', 'Jumlah Talent',
-    'Total Payment', 'Invoice', 'Status', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
+    'Total Payment', 'Invoice', 'Link Invoice', 'Status', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
     'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
   ]
   const shown = groups.filter((g) => !g.hidden)
@@ -63,6 +73,7 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
       g.items.reduce((s, it) => s + it.qty, 0),
       g.totalInvoice,
       inv.map((i) => i.number).join('\n'),
+      inv.map((i) => linkOf.get(i._id) ?? '').filter(Boolean).join('\n'),
       inv.every((i) => i.paid) ? 'Lunas' : 'Belum Lunas',
       inv.map((i) => i.paidAt).filter(Boolean).join('\n'),
       inv.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '')).filter(Boolean).join('\n'),
@@ -71,15 +82,20 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
     ] as (string | number)[]
   }
   const all = shown.map(toRow)
-  const pintarnya = shown.filter((g) => isPintarnya(g.company)).map(toRow)
+  // Sheet Pintarnya: tanpa kolom biaya internal (Fee Creator ke kanan: biaya, uang keluar, profit, margin)
+  const cut = headers.indexOf('Fee Creator')
+  const pintarnya = shown.filter((g) => isPintarnya(g.company)).map((g) => toRow(g).slice(0, cut))
   // Dua tab, kolom sama: semua klien + khusus Pintarnya. Yang bisa diedit cuma Status & biaya.
   const statusCol = headers.indexOf('Status')
   const editable = [statusCol, ...Object.keys(FEE_HEADERS).map((h) => headers.indexOf(h))]
-  const tab = (title: string, rows: (string | number)[][]): WorkbookTab => ({
-    title, values: [headers, ...rows], tableRows: rows.length + 1, hideFirstColumn: true,
-    dropdowns: { [statusCol]: STATUS_OPTIONS }, editableColumns: editable,
+  const tab = (rows: (string | number)[][], head: string[], editableCols: number[]): WorkbookTab => ({
+    title: TAB, values: [head, ...rows], tableRows: rows.length + 1, hideFirstColumn: true,
+    dropdowns: { [statusCol]: STATUS_OPTIONS }, editableColumns: editableCols,
   })
-  const files: [FinanceScope, string, WorkbookTab][] = [['all', mainId, tab(TAB, all)], ['pintarnya', pintarnyaId, tab(TAB, pintarnya)]]
+  const files: [FinanceScope, string, WorkbookTab][] = [
+    ['all', mainId, tab(all, headers, editable)],
+    ['pintarnya', pintarnyaId, tab(pintarnya, headers.slice(0, cut), [statusCol])], // Pintarnya: cuma Status yang bisa diedit
+  ]
   for (const [scope, id, t] of files) {
     await writeWorkbookTabs(id, [t])
     // Patokan polling cadangan (sel dianggap diedit orang kalau beda dari yang terakhir ditulis server)
@@ -149,6 +165,24 @@ export async function applyFinanceSheetRow(tenantId: string, spreadsheetId: stri
   }
 
   const campaignId = docs.map((d) => String((d.data.recap as InvoiceRecap | undefined)?.campaignId ?? '')).find(Boolean)
+  if (!campaignId && docs.length === 1) {
+    // Invoice tanpa campaign: biaya disimpan di invoice itu sendiri (sama dengan editor Uang Keluar)
+    const { groups } = await buildRecap(tenantId, '', '')
+    const g = groups.find((x) => x.invoices.some((i) => i._id === String(docs[0]._id)))
+    const recap: InvoiceRecap = { ...((docs[0].data.recap || {}) as InvoiceRecap) }
+    const expense = { ...(recap.expense || {}) }
+    const changed: string[] = []
+    for (const [h, field] of Object.entries(FEE_HEADERS)) {
+      const v = num(row[h])
+      if (v !== null && v !== g?.expense[field as keyof typeof g.expense]) { expense[field as keyof typeof expense] = v; changed.push(field) }
+    }
+    if (changed.length) {
+      docs[0].data = { ...docs[0].data, recap: { ...recap, expense } }
+      docs[0].markModified('data')
+      await docs[0].save()
+      done.push(`biaya invoice: ${changed.join(', ')}`)
+    }
+  }
   if (campaignId) {
     const { groups } = await buildRecap(tenantId, '', '')
     const g = groups.find((x) => x.invoices.some((i) => ids.includes(i._id)))

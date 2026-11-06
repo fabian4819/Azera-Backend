@@ -23,6 +23,8 @@ router.use(requireAuth, requireRole('owner'))
 
 type ColumnType = 'text' | 'income' | 'expense'
 interface Column { key: string; label: string; type: ColumnType }
+export const INVOICE_EXPENSE_FIELDS = ['feeCreator', 'feePic', 'feeMg', 'feeHandle', 'adminInternal', 'reimburse', 'ads', 'opex'] as const
+export type InvoiceExpenseField = typeof INVOICE_EXPENSE_FIELDS[number]
 export interface InvoiceRecap {
   status?: 'unpaid' | 'paid'
   paidAt?: string
@@ -33,6 +35,9 @@ export interface InvoiceRecap {
   hidden?: boolean
   /** Biaya internal dari template WA `/invoice` (Total Fee KOL/PIC/Handle by/Gaji Admin) */
   internalCost?: InternalCost
+  /** Biaya diisi langsung di invoice yang TIDAK terhubung ke campaign (override angka invoice WA). Invoice yang
+   * terhubung ke campaign memakai FinanceRecord campaign, field ini diabaikan. */
+  expense?: Partial<Record<InvoiceExpenseField, number>>
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -121,6 +126,10 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
       if (!manual('feeHandle')) g.expense.feeHandle += num(ic.feeHandle)
       if (!manual('adminInternal')) g.expense.adminInternal += num(ic.adminInternal)
       if (ic.adminNote) g.adminNote = [g.adminNote, ic.adminNote].filter(Boolean).join('; ')
+    }
+    // Invoice tanpa campaign: biaya yang diisi langsung di Rekap Keuangan menggantikan angka invoice WA per field
+    if (!cid && recap.expense) {
+      for (const f of INVOICE_EXPENSE_FIELDS) if (typeof recap.expense[f] === 'number') g.expense[f] = recap.expense[f]!
     }
 
     const { rows, total } = invoiceTotals(d)
@@ -304,6 +313,16 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
       const v = str(body.campaignId)
       if (v && !(Types.ObjectId.isValid(v) && (await Campaign.exists({ _id: v, tenantId })))) { res.status(400).json({ message: 'Campaign tidak ditemukan' }); return }
       recap.campaignId = v || undefined
+    }
+    // Biaya invoice tanpa campaign: angka = override, null = kembali ke angka invoice WA / 0
+    if (body.expense && typeof body.expense === 'object') {
+      const expense = { ...(recap.expense || {}) }
+      for (const [k, v] of Object.entries(body.expense as Record<string, unknown>)) {
+        if (!(INVOICE_EXPENSE_FIELDS as readonly string[]).includes(k)) continue
+        if (v === null || v === '') delete expense[k as InvoiceExpenseField]
+        else expense[k as InvoiceExpenseField] = num(v)
+      }
+      recap.expense = Object.keys(expense).length ? expense : undefined
     }
     if (body.custom && typeof body.custom === 'object') {
       const columns = await getColumns(tenantId)
