@@ -1,8 +1,17 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { connectDB } from '../db/connect'
 import Portfolio, { IPortfolio } from '../models/Portfolio'
+import { resolveTopCreatorLinks } from '../lib/threadsLink'
 
 const router = Router()
+
+// Data lama yang masih berisi link share Threads dibetulkan sekali saat dibaca, lalu disimpan
+async function healThreadsLinks(items: IPortfolio[]) {
+  await Promise.all(items.map(async (doc) => {
+    if (await resolveTopCreatorLinks(doc.topCreators)) await doc.save().catch(() => undefined)
+  }))
+  return items
+}
 
 const PUBLISHED = { status: { $ne: 'draft' } }
 
@@ -21,7 +30,7 @@ function toPublic(doc: IPortfolio) {
 router.get('/', async (_req: Request, res: Response) => {
   try {
     await connectDB()
-    const items = await Portfolio.find(PUBLISHED).sort({ createdAt: -1 })
+    const items = await healThreadsLinks(await Portfolio.find(PUBLISHED).sort({ createdAt: -1 }))
     res.json(items.map(toPublic))
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -31,7 +40,7 @@ router.get('/', async (_req: Request, res: Response) => {
 router.get('/featured', async (_req: Request, res: Response) => {
   try {
     await connectDB()
-    const items = await Portfolio.find({ ...PUBLISHED, featured: true }).limit(3).sort({ createdAt: -1 })
+    const items = await healThreadsLinks(await Portfolio.find({ ...PUBLISHED, featured: true }).limit(3).sort({ createdAt: -1 }))
     res.json(items.map(toPublic))
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -45,6 +54,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     await connectDB()
     const item = await Portfolio.findOne({ _id: req.params.id, ...PUBLISHED })
     if (!item) { res.status(404).json({ message: 'Not found' }); return }
+    await healThreadsLinks([item])
     res.json(toPublic(item))
   } catch {
     res.status(500).json({ message: 'Server error' })

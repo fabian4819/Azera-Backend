@@ -5,6 +5,7 @@ import Portfolio, { PORTFOLIO_CATEGORIES } from '../../models/Portfolio'
 import { requireAuth, AuthRequest } from '../../middleware/auth'
 import { uploadMedia } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
+import { resolveTopCreatorLinks } from '../../lib/threadsLink'
 
 const router = Router()
 router.use(requireAuth)
@@ -60,6 +61,7 @@ router.post('/', uploadMedia.fields([
     const data: Record<string, unknown> = parseJsonFields({ ...req.body })
     const invalid = publishError(data)
     if (invalid) { res.status(400).json({ message: invalid }); return }
+    await resolveTopCreatorLinks(data.topCreators as { postLink?: string }[] | undefined)
 
     if (files?.logo?.[0]) {
       data.logo = await uploadToCloudinary(files.logo[0].buffer, 'azera/portfolio/logos')
@@ -85,6 +87,7 @@ router.patch('/:id', uploadMedia.fields([
     const data: Record<string, unknown> = parseJsonFields({ ...req.body })
     const invalid = publishError(data)
     if (invalid) { res.status(400).json({ message: invalid }); return }
+    await resolveTopCreatorLinks(data.topCreators as { postLink?: string }[] | undefined)
 
     if (files?.logo?.[0]) {
       data.logo = await uploadToCloudinary(files.logo[0].buffer, 'azera/portfolio/logos')
