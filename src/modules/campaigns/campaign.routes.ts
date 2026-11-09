@@ -24,7 +24,8 @@ import { requestBankInfoFromPics } from '../pic/picPayment.service'
 import { requestBankInfoFromCreators } from '../applications/creatorPayment.service'
 import { setRecapCreatorCell, setRecapPicCell, setRecapPicPaid } from './recapEdit.service'
 import { parseBriefBlocks, setBrief, uploadKind } from './briefBlocks'
-import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey } from '../../lib/baileys'
+import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey, AZERA_SENDER, isAdminBotId } from '../../lib/baileys'
+import { WA_TRIGGERS } from '../whatsapp/waTemplate.model'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
@@ -386,7 +387,7 @@ const EDITABLE_FIELDS = [
   'type', 'eventDetails', 'picUserId', 'handleByUserId', 'fee',
   'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
   'customFields', 'applyFields', 'progressColumns', 'columnAccess',
-  'feeNote', 'benefits', 'requirements', 'infoLink', 'approvalFlow', 'columnLabels', 'columnOrder',
+  'feeNote', 'benefits', 'requirements', 'infoLink', 'approvalFlow', 'columnLabels', 'columnOrder', 'waSenders',
 ] as const
 
 function sanitizeApplyFields(a: Record<string, unknown> = {}) {
@@ -450,6 +451,19 @@ function sanitizeColumnLabels(input: unknown): Record<string, string> {
   return out
 }
 
+/** Pengirim per tindakan bot: { [trigger]: { primary, backup? } }, nilai 'azera' atau id WA admin */
+function sanitizeWaSenders(input: unknown): Record<string, { primary: string; backup?: string }> {
+  const out: Record<string, { primary: string; backup?: string }> = {}
+  const ok = (v: unknown): v is string => v === AZERA_SENDER || (typeof v === 'string' && isAdminBotId(v))
+  if (input && typeof input === 'object') {
+    for (const [trigger, v] of Object.entries(input as Record<string, { primary?: unknown; backup?: unknown }>)) {
+      if (!(WA_TRIGGERS as readonly string[]).includes(trigger) || !v || !ok(v.primary)) continue
+      out[trigger] = { primary: v.primary, ...(ok(v.backup) && v.backup !== v.primary ? { backup: v.backup } : {}) }
+    }
+  }
+  return out
+}
+
 const sanitizeColumnOrder = (input: unknown): string[] =>
   Array.isArray(input) ? [...new Set(input.filter((k): k is string => typeof k === 'string' && k.length <= 64))].slice(0, 300) : []
 
@@ -464,6 +478,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     if ('columnAccess' in updates) updates.columnAccess = sanitizeColumnAccess(updates.columnAccess)
     if ('columnLabels' in updates) updates.columnLabels = sanitizeColumnLabels(updates.columnLabels)
     if ('columnOrder' in updates) updates.columnOrder = sanitizeColumnOrder(updates.columnOrder)
+    if ('waSenders' in updates) updates.waSenders = sanitizeWaSenders(updates.waSenders)
     if ('applyFields' in updates) updates.applyFields = sanitizeApplyFields((updates.applyFields || {}) as Record<string, unknown>)
     if ('approvalFlow' in updates && !APPROVAL_FLOWS.includes(updates.approvalFlow as never)) { res.status(400).json({ message: 'Skema approval tidak dikenal' }); return }
     const before = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })

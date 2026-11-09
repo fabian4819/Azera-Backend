@@ -1,12 +1,15 @@
 import mongoose, { Schema, Document, Types } from 'mongoose'
 import { withTenant } from '../../db/tenantPlugin'
-import { WA_TRIGGERS, WaTrigger, BOT_IDS, BotId } from './waTemplate.model'
+import { WA_TRIGGERS, WaTrigger } from './waTemplate.model'
 
 export type WaMessageStatus = 'queued' | 'sent' | 'failed' | 'skipped'
 
 export interface IWaMessageLog extends Document {
   tenantId: Types.ObjectId
-  bot: BotId
+  /** partnership | creator | admin-<userId>-primary|backup (WA admin, lihat lib/baileys.ts) */
+  bot: string
+  /** Pengirim cadangan kalau kirim lewat `bot` gagal (pengaturan pengirim per campaign) */
+  fallbackBot?: string
   trigger: WaTrigger
   to: string
   payload: string
@@ -22,7 +25,8 @@ export interface IWaMessageLog extends Document {
 
 const WaMessageLogSchema = new Schema<IWaMessageLog>(
   {
-    bot: { type: String, enum: BOT_IDS, required: true },
+    bot: { type: String, required: true },
+    fallbackBot: String,
     trigger: { type: String, enum: WA_TRIGGERS, required: true },
     to: { type: String, required: true },
     payload: { type: String, required: true },

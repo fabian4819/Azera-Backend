@@ -162,6 +162,8 @@ export interface ICampaign extends Document {
   columnLabels?: Record<string, string>
   /** Urutan kolom Master Sheet (daftar key) hasil drag & drop admin; kosong = urutan default */
   columnOrder?: string[]
+  /** Pengirim pesan bot per trigger: 'azera' (bot bawaan) atau 'admin-<userId>-primary|backup' (WA admin), + backup */
+  waSenders?: Record<string, { primary: string; backup?: string }>
   createdAt: Date
   updatedAt: Date
 }
@@ -277,6 +279,7 @@ const CampaignSchema = new Schema<ICampaign>(
     columnAccess: { type: Map, of: { type: String, enum: ['hidden', 'view', 'edit'] }, default: {} },
     columnLabels: { type: Schema.Types.Mixed, default: undefined },
     columnOrder: { type: [String], default: undefined },
+    waSenders: { type: Schema.Types.Mixed, default: undefined },
   },
   { timestamps: true }
 )

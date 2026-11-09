@@ -52,7 +52,16 @@ export type WaStatus = 'disconnected' | 'connecting' | 'qr' | 'connected'
  * lokal tidak pernah mengirim lewat nomor production atau menulis log ke DB production.
  */
 export const DEV_BOT = 'developer' as const
-export type WaBotKey = BotId | typeof DEV_BOT
+/**
+ * Sesi WA admin (menu WhatsApp Admin): nomor pribadi admin, 2 slot per admin (utama & backup), id
+ * `admin-<userId>-primary|backup`. KIRIM SAJA: chat masuk ke nomor pribadi admin tidak dibaca, tidak masuk
+ * inbox, tidak dibalas bot, riwayat chat tidak disinkron. Dipakai sebagai pengirim pesan bot per campaign.
+ */
+export type AdminSlot = 'primary' | 'backup'
+export type AdminBotId = `admin-${string}-${AdminSlot}`
+export const adminBotId = (userId: string, slot: AdminSlot): AdminBotId => `admin-${userId}-${slot}`
+export const isAdminBotId = (id: string): id is AdminBotId => /^admin-[a-f\d]{24}-(primary|backup)$/.test(id)
+export type WaBotKey = BotId | typeof DEV_BOT | AdminBotId
 export const devBotEnabled = process.env.NODE_ENV !== 'production'
 
 /** Log in-memory bot developer (bentuknya sama dengan WaMessageLog supaya UI bisa pakai tabel yang sama) */
@@ -63,6 +72,8 @@ interface QueueItem {
   to: string
   payload: string
   queuedAt: number
+  /** Pengirim cadangan (pengaturan per campaign): dipakai sekali kalau kirim lewat bot ini gagal */
+  fallback?: WaBotKey
 }
 
 /**
@@ -75,6 +86,8 @@ class WaBot {
   readonly id: WaBotKey
   /** Bot developer, tanpa tulis DB sama sekali (lihat DEV_BOT) */
   readonly ephemeral: boolean
+  /** Sesi WA admin: kirim saja (lihat AdminBotId) */
+  readonly sendOnly: boolean
   readonly memLogs: MemLog[] = []
   private readonly authDir: string
 
@@ -133,7 +146,7 @@ class WaBot {
     if (!key.id) return undefined
     const cached = this.sentContent.get(key.id)
     if (cached) return Date.now() - cached.at < RETRY_WINDOW_MS ? cached.message : undefined
-    if (this.ephemeral) return undefined
+    if (this.ephemeral || this.sendOnly) return undefined
     const text = await findOutgoingText(this.id as BotId, key.id, new Date(Date.now() - RETRY_WINDOW_MS)).catch(() => undefined)
     return text ? { conversation: text } : undefined
   }
@@ -141,6 +154,7 @@ class WaBot {
   constructor(id: WaBotKey) {
     this.id = id
     this.ephemeral = id === DEV_BOT
+    this.sendOnly = isAdminBotId(id)
     this.authDir = path.join(AUTH_ROOT, id)
   }
 
@@ -186,7 +200,7 @@ class WaBot {
       // syncFullHistory: minta riwayat chat lengkap dari WhatsApp saat pairing (default Baileys cuma
       // kirim window singkat), supaya inbox dashboard bisa terisi histori lama, bukan cuma pesan baru.
       const sock = makeWASocket({
-        auth: state, logger, syncFullHistory: !this.ephemeral,
+        auth: state, logger, syncFullHistory: !this.ephemeral && !this.sendOnly,
         getMessage: (key) => this.getMessage(key),
         msgRetryCounterCache: this.retryCache,
         maxMsgRetryCount: 2,
@@ -253,6 +267,7 @@ class WaBot {
         // (Testing / invoice maker) untuk uji bot invoice dari lokal. type 'append' ikut diterima karena
         // pesan yang diketik dari HP nomor ini sendiri bisa datang sebagai append di perangkat tertaut.
         if (this.ephemeral) { this.handleDevInvoiceMessages(messages); return }
+        if (this.sendOnly) return // nomor pribadi admin: chat masuk tidak disentuh
         if (type !== 'notify') return
         for (const msg of messages) {
           const jid = msg.key.remoteJid
@@ -310,7 +325,7 @@ class WaBot {
       // orang, bukan grup).
       sock.ev.on('messaging-history.set', ({ messages, contacts, chats }) => {
         if (myGeneration !== this.generation) return
-        if (this.ephemeral) return
+        if (this.ephemeral || this.sendOnly) return
         const contactNames: Record<string, string> = {}
         const contactPhones: Record<string, string> = {}
         for (const c of contacts) {
@@ -439,7 +454,7 @@ class WaBot {
   }
 
   private recordOut(to: string, text: string, messageId?: string | null) {
-    if (this.ephemeral) return
+    if (this.ephemeral || this.sendOnly) return
     recordOutgoingMessage(this.id as BotId, to, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save outgoing error:`, err))
   }
 
@@ -456,10 +471,10 @@ class WaBot {
     return Object.values(groups).map((g) => ({ jid: g.id, name: g.subject })).sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  enqueue(logId: string, to: string, payload: string, queuedAt = Date.now()) {
+  enqueue(logId: string, to: string, payload: string, queuedAt = Date.now(), fallback?: WaBotKey) {
     if (this.queuedIds.has(logId)) return
     this.queuedIds.add(logId)
-    this.queue.push({ logId, to, payload, queuedAt })
+    this.queue.push({ logId, to, payload, queuedAt, fallback: fallback !== this.id ? fallback : undefined })
     this.processQueue().catch(() => {})
   }
 
@@ -468,9 +483,19 @@ class WaBot {
     if (this.ephemeral) return
     const since = new Date(Date.now() - PACE.staleMs)
     const pending = await WaMessageLog.find({ bot: this.id, status: 'queued', $or: [{ queuedAt: { $gte: since } }, { queuedAt: { $exists: false }, createdAt: { $gte: since } }] })
-      .sort({ createdAt: 1 }).select('to payload queuedAt createdAt')
-    for (const l of pending) this.enqueue(l._id.toString(), l.to, l.payload, (l.queuedAt ?? l.createdAt).getTime())
+      .sort({ createdAt: 1 }).select('to payload queuedAt createdAt fallbackBot')
+    for (const l of pending) this.enqueue(l._id.toString(), l.to, l.payload, (l.queuedAt ?? l.createdAt).getTime(), (l.fallbackBot as WaBotKey | undefined) || undefined)
     if (pending.length) console.log(`WA[${this.id}] lanjutkan ${pending.length} pesan antre`)
+  }
+
+  private async handOffToFallback() {
+    const moving = this.queue.filter((q) => q.fallback && isBotConnected(q.fallback))
+    for (const item of moving) {
+      this.queue.splice(this.queue.indexOf(item), 1)
+      this.queuedIds.delete(item.logId)
+      await this.updateLog(item.logId, { bot: item.fallback, error: `${this.id} tidak tersambung, dialihkan ke ${item.fallback}` } as Partial<MemLog>)
+      getBot(item.fallback!).enqueue(item.logId, item.to, item.payload, item.queuedAt)
+    }
   }
 
   private async processQueue() {
@@ -478,8 +503,9 @@ class WaBot {
     this.processing = true
     try {
       while (this.queue.length) {
-        // Terputus: berhenti (pesan TETAP di antrean), dilanjut otomatis saat connection 'open'
-        if (!this.sock || this.status !== 'connected') return
+        // Terputus: berhenti (pesan TETAP di antrean), dilanjut otomatis saat connection 'open'. Pesan yang
+        // punya pengirim backup yang sedang tersambung dipindah ke sana supaya tidak menunggu.
+        if (!this.sock || this.status !== 'connected') { await this.handOffToFallback(); return }
         const item = this.queue[0]
         if (Date.now() - item.queuedAt > PACE.staleMs) {
           await this.updateLog(item.logId, { status: 'failed', error: 'Kedaluwarsa: antre lebih dari 24 jam' })
@@ -490,9 +516,16 @@ class WaBot {
             await this.updateLog(item.logId, { status: 'sent', sentAt: new Date() })
             this.recordOut(item.to, item.payload, sent?.key.id)
           } catch (err) {
-            // Putus di tengah kirim: biarkan di antrean, coba lagi saat tersambung
-            if (this.status !== 'connected') return
-            await this.updateLog(item.logId, { status: 'failed', error: (err as Error).message })
+            // Putus di tengah kirim: biarkan di antrean, coba lagi saat tersambung (atau langsung ke backup)
+            if (this.status !== 'connected' && !item.fallback) return
+            if (item.fallback) {
+              // Gagal lewat pengirim utama: pindah SEKALI ke pengirim backup (pengaturan per campaign)
+              const note = `Gagal via ${this.id}: ${(err as Error).message}. Dialihkan ke ${item.fallback}`
+              await this.updateLog(item.logId, { bot: item.fallback, error: note } as Partial<MemLog>)
+              getBot(item.fallback).enqueue(item.logId, item.to, item.payload, item.queuedAt)
+            } else {
+              await this.updateLog(item.logId, { status: 'failed', error: (err as Error).message })
+            }
           }
           this.sentInBurst++
         }
@@ -509,10 +542,14 @@ class WaBot {
   }
 }
 
-const bots: Record<WaBotKey, WaBot> = [...BOT_IDS, DEV_BOT].reduce(
-  (acc, id) => ({ ...acc, [id]: new WaBot(id) }),
-  {} as Record<WaBotKey, WaBot>
-)
+const bots = new Map<WaBotKey, WaBot>([...BOT_IDS, DEV_BOT].map((id) => [id, new WaBot(id)]))
+/** Bot tetap (partnership/creator/developer) atau sesi WA admin (dibuat saat pertama dipakai) */
+function getBot(id: WaBotKey): WaBot {
+  let bot = bots.get(id)
+  if (!bot) { bot = new WaBot(id); bots.set(id, bot) }
+  return bot
+}
+export const isBotConnected = (id: WaBotKey) => getBot(id).getStatus().status === 'connected'
 
 /** Bot yang boleh dipakai/tampil di proses ini, bot developer cuma ada di backend lokal */
 export function visibleBots(): WaBotKey[] {
@@ -520,42 +557,47 @@ export function visibleBots(): WaBotKey[] {
 }
 
 export function listGroups(botId: WaBotKey) {
-  return bots[botId].listGroups()
+  return getBot(botId).listGroups()
 }
 
 export function getDevLogs(): MemLog[] {
-  return bots[DEV_BOT].memLogs
+  return getBot(DEV_BOT).memLogs
 }
 
 export function getWaStatus(botId: WaBotKey) {
-  return bots[botId].getStatus()
+  return getBot(botId).getStatus()
 }
 
 export function getWaQr(botId: WaBotKey) {
-  return bots[botId].getQr()
+  return getBot(botId).getQr()
 }
 
 export function connectWhatsApp(botId: WaBotKey): Promise<void> {
-  return bots[botId].connect()
+  return getBot(botId).connect()
 }
 
 export function connectAllBots(): void {
   // Lokal: cuma bot developer, bot production tidak pernah disambung dari backend lokal
   for (const id of devBotEnabled ? [DEV_BOT] : BOT_IDS) {
-    bots[id].connect().catch((err) => console.error(`WA[${id}] connect error:`, err))
+    getBot(id).connect().catch((err) => console.error(`WA[${id}] connect error:`, err))
   }
+  // Sesi WA admin yang pernah di-pairing (folder auth ada) ikut tersambung lagi setelah restart
+  if (devBotEnabled) return
+  fs.readdir(AUTH_ROOT).then((dirs) => {
+    for (const id of dirs.filter(isAdminBotId)) getBot(id).connect().catch((err) => console.error(`WA[${id}] connect error:`, err))
+  }).catch(() => undefined)
 }
 
 export function logoutWhatsApp(botId: WaBotKey): Promise<void> {
-  return bots[botId].logout()
+  return getBot(botId).logout()
 }
 
 export function sendDirectMessage(botId: BotId, to: string, text: string): Promise<void> {
-  return bots[botId].sendDirect(to, text)
+  return getBot(botId).sendDirect(to, text)
 }
 
 export function sendManualReply(botId: BotId, jid: string, text: string): Promise<void> {
-  return bots[botId].sendManual(jid, text)
+  return getBot(botId).sendManual(jid, text)
 }
 
 function extractMessageText(msg: proto.IWebMessageInfo): string | null {
@@ -610,14 +652,25 @@ export async function enqueueWaMessage(opts: {
 }) {
   if (devBotEnabled) {
     // Lokal: tanpa WaMessageLog di DB production, apa pun trigger/bot-nya keluar lewat nomor developer
-    const dev = bots[DEV_BOT]
+    const dev = getBot(DEV_BOT)
     const log: MemLog = { _id: randomUUID(), bot: DEV_BOT, trigger: opts.trigger, to: opts.to, payload: opts.payload, status: 'queued', createdAt: new Date() }
     dev.memLogs.unshift(log)
     dev.memLogs.splice(100)
     dev.enqueue(log._id, opts.to, opts.payload)
     return log
   }
-  const botId = opts.bot ?? audienceToBot[DEFAULT_TEMPLATES[opts.trigger].audience]
+  const audienceBot = audienceToBot[DEFAULT_TEMPLATES[opts.trigger].audience]
+  let botId: WaBotKey = opts.bot ?? audienceBot
+  let fallback: WaBotKey | undefined
+  // Pengirim per tindakan bot diatur di campaign (WA Azera atau WA admin, utama + backup)
+  if (!opts.bot && opts.campaignId) {
+    const route = await campaignSender(opts.campaignId, opts.trigger, audienceBot)
+    if (route) {
+      // Utama sedang tidak tersambung tapi backup tersambung: langsung lewat backup, tidak menunggu
+      if (route.backup && !isBotConnected(route.primary) && isBotConnected(route.backup)) botId = route.backup
+      else { botId = route.primary; fallback = route.backup }
+    }
+  }
   // Test-send (opts.bot) tidak ikut toggle, dipakai cek pairing walau semua automation dimatikan.
   const skipped = !opts.bot && !(await isTriggerEnabled(opts.tenantId, opts.trigger))
   const log = await WaMessageLog.create({
@@ -628,9 +681,26 @@ export async function enqueueWaMessage(opts: {
     payload: opts.payload,
     campaignId: opts.campaignId,
     creatorId: opts.creatorId,
+    fallbackBot: fallback,
     status: skipped ? 'skipped' : 'queued',
     ...(skipped ? { error: 'Automation dimatikan di Template Pesan' } : { queuedAt: new Date() }),
   })
-  if (!skipped) bots[botId].enqueue(log._id.toString(), opts.to, opts.payload)
+  if (!skipped) getBot(botId).enqueue(log._id.toString(), opts.to, opts.payload, Date.now(), fallback)
   return log
+}
+
+/** 'azera' = bot bawaan sesuai audience (creator → WA community/creator, client → partnership) */
+export const AZERA_SENDER = 'azera'
+const senderToBot = (v: unknown, audienceBot: BotId): WaBotKey | undefined =>
+  v === AZERA_SENDER ? audienceBot : typeof v === 'string' && isAdminBotId(v) ? v : undefined
+
+async function campaignSender(campaignId: string, trigger: WaTrigger, audienceBot: BotId): Promise<{ primary: WaBotKey; backup?: WaBotKey } | null> {
+  // Import dinamis: model campaign → ... → baileys (hindari import melingkar saat load)
+  const { default: Campaign } = await import('../modules/campaigns/campaign.model')
+  const c = await Campaign.findById(campaignId).select('waSenders').lean().catch(() => null)
+  const set = (c?.waSenders as Record<string, { primary?: string; backup?: string }> | undefined)?.[trigger]
+  const primary = senderToBot(set?.primary, audienceBot)
+  if (!primary) return null
+  const backup = senderToBot(set?.backup, audienceBot)
+  return { primary, backup: backup && backup !== primary ? backup : undefined }
 }

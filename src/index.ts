@@ -25,6 +25,7 @@ import importRouter from './modules/imports/import.routes'
 import existingCreatorRouter from './modules/existingCreators/existingCreator.routes'
 import documentRouter from './modules/documents/document.routes'
 import whatsappRouter from './modules/whatsapp/whatsapp.routes'
+import whatsappAdminRouter from './modules/whatsapp/whatsappAdmin.routes'
 import waTemplateRouter from './modules/whatsapp/waTemplate.routes'
 import leadBotTemplateRouter from './modules/whatsapp/leadBotTemplate.routes'
 import assetRouter from './modules/assets/asset.routes'
@@ -96,6 +97,7 @@ app.use('/api/admin/existing-creators', existingCreatorRouter)
 app.use('/api/admin/documents', documentRouter)
 
 // Modul 4, WhatsApp Automation (AD-29..31)
+app.use('/api/admin/whatsapp-admin', whatsappAdminRouter)
 app.use('/api/admin/whatsapp', whatsappRouter)
 app.use('/api/admin/wa-templates', waTemplateRouter)
 app.use('/api/admin/lead-bot-templates', leadBotTemplateRouter)
