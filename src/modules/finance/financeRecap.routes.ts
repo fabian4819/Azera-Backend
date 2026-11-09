@@ -38,6 +38,12 @@ export interface InvoiceRecap {
   /** Biaya diisi langsung di invoice yang TIDAK terhubung ke campaign (override angka invoice WA). Invoice yang
    * terhubung ke campaign memakai FinanceRecord campaign, field ini diabaikan. */
   expense?: Partial<Record<InvoiceExpenseField, number>>
+  /** Dana talangan: uang Azera yang dipakai dulu untuk campaign invoice ini (/talang), lepas otomatis saat lunas */
+  advance?: number
+  /** Sudah dibayar klien tapi belum lunas (kurang bayar); sisa = total − paidAmount */
+  paidAmount?: number
+  /** Catatan bebas, mis. "klien transfer kurang 500rb, sisanya minggu depan" */
+  note?: string
 }
 
 const YMD = /^\d{4}-\d{2}-\d{2}$/
@@ -56,7 +62,7 @@ const todayJakarta = () => new Date().toLocaleDateString('en-CA', { timeZone: 'A
 export interface RecapGroup {
   key: string; campaignId: string | null; campaign: string; company: string; contact: string; mastersheetUrl: string
   runningMonth: string; items: { item: string; sow: string; tier: string; qty: number; unitFee: number; amount: number }[]
-  invoices: { _id: string; shortId?: number; number: string; issueDate: string; dueDate: string; total: number; paid: boolean; paidAt: string; overdue: boolean }[]
+  invoices: { _id: string; shortId?: number; number: string; issueDate: string; dueDate: string; total: number; paid: boolean; paidAt: string; overdue: boolean; advance: number; paidAmount: number; shortfall: number; note: string }[]
   custom: Record<string, string | number>; totalInvoice: number; income: number; receivable: number
   expense: { feeCreator: number; feePic: number; feeMg: number; feeHandle: number; adminInternal: number; reimburse: number; ads: number; opex: number; custom: number; total: number }
   /** Keterangan Gaji Admin dari invoice WA */
@@ -139,9 +145,15 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
     }
     const paid = recap.status === 'paid'
     const dueDate = str(d.dueDate)
-    g.invoices.push({ _id: String(doc._id), shortId: doc.shortId, number: str(d.number), issueDate: str(d.issueDate), dueDate, total, paid, paidAt: str(recap.paidAt), overdue: !paid && !!dueDate && dueDate < today })
+    // Bayar sebagian (belum lunas): yang sudah masuk dihitung uang masuk, sisanya tetap piutang
+    const paidAmount = paid ? 0 : Math.min(Math.max(num(recap.paidAmount), 0), total)
+    g.invoices.push({
+      _id: String(doc._id), shortId: doc.shortId, number: str(d.number), issueDate: str(d.issueDate), dueDate, total, paid, paidAt: str(recap.paidAt),
+      overdue: !paid && !!dueDate && dueDate < today,
+      advance: Math.max(num(recap.advance), 0), paidAmount, shortfall: paid || !paidAmount ? 0 : total - paidAmount, note: str(recap.note),
+    })
     g.totalInvoice += total
-    if (paid) g.income += total; else g.receivable += total
+    if (paid) g.income += total; else { g.income += paidAmount; g.receivable += total - paidAmount }
 
     for (const col of columns) {
       const v = recap.custom?.[col.key]
@@ -328,6 +340,18 @@ router.patch('/invoices/:id', async (req: AuthRequest, res: Response) => {
       const v = str(body.dueDate)
       if (v && !YMD.test(v)) { res.status(400).json({ message: 'dueDate harus YYYY-MM-DD' }); return }
       extra.dueDate = v
+    }
+    if ('advance' in body || 'paidAmount' in body) {
+      for (const k of ['advance', 'paidAmount'] as const) {
+        if (!(k in body)) continue
+        const v = body[k] === null || body[k] === '' ? 0 : Number(body[k])
+        if (!Number.isFinite(v) || v < 0) { res.status(400).json({ message: `${k} harus angka ≥ 0` }); return }
+        if (v) recap[k] = Math.round(v); else delete recap[k]
+      }
+    }
+    if ('note' in body) {
+      const v = str(body.note).slice(0, 1000)
+      if (v) recap.note = v; else delete recap.note
     }
     if ('hidden' in body) {
       if (body.hidden) recap.hidden = true

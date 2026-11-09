@@ -58,8 +58,10 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   }
   const headers = [
     ID_HEADER, 'ID Invoice', 'Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
-    'Total Payment', 'Invoice', 'Link Invoice', 'Status', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
+    'Total Payment', 'Invoice', 'Link Invoice', 'Status', 'Sudah Dibayar', 'Kurang Bayar', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
     'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
+    // Internal (tidak masuk sheet Pintarnya): dana talangan Azera & catatan invoice
+    'Dana Talangan', 'Catatan',
   ]
   const shown = groups.filter((g) => !g.hidden)
   // 1 baris per SOW (sama dengan tabel platform). Data tingkat job (campaign, perusahaan, status, biaya, profit)
@@ -81,17 +83,21 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
           inv.map((i) => i.number).join('\n'),
           inv.map((i) => linkOf.get(i._id) ?? '').filter(Boolean).join('\n'),
           inv.every((i) => i.paid) ? 'Lunas' : 'Belum Lunas',
+          inv.reduce((s, i) => s + i.paidAmount, 0) || '',
+          inv.reduce((s, i) => s + i.shortfall, 0) || '',
           inv.map((i) => i.paidAt).filter(Boolean).join('\n'),
           inv.map((i) => (i.dueDate ? `${i.dueDate}${i.overdue ? ' (lewat)' : ''}` : '')).filter(Boolean).join('\n')].map(once),
         ...columns.map((c) => once(g.custom[c.key] ?? '')),
         ...[e.feeCreator, e.feePic, e.feeMg, e.feeHandle, e.adminInternal, e.reimburse, e.ads, e.opex, e.total, g.profit].map(once),
         once(g.margin ?? ''),
+        once(inv.filter((i) => !i.paid).reduce((s, i) => s + i.advance, 0) || ''),
+        once(inv.map((i) => (i.note ? `${i.shortId ? `#${i.shortId}: ` : ''}${i.note}` : '')).filter(Boolean).join('\n')),
       ]
     })
   }
   // Kelompok baris per job + kolom yang digabung: semua kecuali ID (unik per baris) & rincian SOW
   const RUPIAH = '"Rp"#,##0'
-  const MONEY_HEADERS = new Set(['Fee/Talent', 'Total', 'Total Payment', 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit'])
+  const MONEY_HEADERS = new Set(['Fee/Talent', 'Total', 'Total Payment', 'Sudah Dibayar', 'Kurang Bayar', 'Dana Talangan', 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit'])
   const SOW_COLS = new Set(['Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total'])
   const grouping = (list: typeof shown, width: number) => {
     let at = 0
