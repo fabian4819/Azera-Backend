@@ -12,4 +12,7 @@ assert.deepStrictEqual(t('Philips Bandung — Tiktok', '1x VISIT + 1x VT'), { it
 assert.deepStrictEqual(t('KOL Lychee', 'Campaign KOL', 'Micro'), { item: 'KOL Lychee', sow: 'Campaign KOL', tier: 'Micro' })
 assert.deepStrictEqual(t('Buzzer', '1x Comment'), { item: 'Buzzer', sow: '1x Comment', tier: '' })
 assert.deepStrictEqual(t('Reimburse KOL', 'Reimburse'), { item: 'Reimburse KOL', sow: 'Reimburse', tier: '' })
+assert.deepStrictEqual(t('Bejo Bintang 7 BSD — Buzzer KOC', '1x RTP Threads'), { item: 'Bejo Bintang 7 BSD', sow: '1x RTP Threads', tier: 'Buzzer KOC' })
+assert.deepStrictEqual(t('EARTH Threads - KOC', '1x Post'), { item: 'EARTH Threads', sow: '1x Post', tier: 'KOC' })
+assert.deepStrictEqual(t('Lychee — nano kol', ''), { item: 'Lychee', sow: '', tier: 'Nano KOL' })
 console.log('splitTier.test.ts OK')

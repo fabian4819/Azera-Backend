@@ -180,11 +180,16 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
   }
 }
 
-// Tier yang biasa ditulis di nama item invoice ("Extrajoss Comment Threads — Buzzer", "Pigeon Oktober Nano")
+// Tier yang biasa ditulis di nama item invoice ("Extrajoss Comment Threads — Buzzer", "Pigeon Oktober Nano",
+// "Bejo Bintang 7 BSD — Buzzer KOC"). KOC/KOL cuma dianggap tier kalau ditulis setelah tanda pisah, supaya
+// "Reimburse KOL" tidak terpotong.
 const TIER_WORDS = 'nano|micro|macro|mega|buzzer|clipper'
-const TIER_SUFFIX = new RegExp(`^(.*?)(?:\\s+[—–-]\\s+|\\s+)(${TIER_WORDS})$`, 'i')
-const TIER_PREFIX = new RegExp(`^(${TIER_WORDS})\\s+[—–-]\\s+(.*)$`, 'i')
-const titleCase = (t: string) => t[0].toUpperCase() + t.slice(1).toLowerCase()
+const DASH_TIER = `(?:${TIER_WORDS}|koc|kol)(?:\\s+(?:${TIER_WORDS}|koc|kol)){0,2}`
+const DASH = '\\s+[—–-]\\s+'
+const TIER_SUFFIX = new RegExp(`^(.*?)(?:${DASH}(${DASH_TIER})|\\s+(${TIER_WORDS}))$`, 'i')
+const TIER_PREFIX = new RegExp(`^(${DASH_TIER})${DASH}(.*)$`, 'i')
+const TIER_MID = new RegExp(`^(.*?)${DASH}(${DASH_TIER})${DASH}(.*)$`, 'i')
+const titleCase = (t: string) => t.split(/\s+/).map((w) => (/^ko[cl]$/i.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase())).join(' ')
 
 /** Pisahkan tier dari nama item (akhiran) atau deskripsi (awalan "Buzzer - 1x Comment") ke kolom Tier.
  * Tier yang diisi di item invoice tetap dipakai; nama yang cuma berisi tier tidak dipotong.
@@ -192,12 +197,12 @@ const titleCase = (t: string) => t[0].toUpperCase() + t.slice(1).toLowerCase()
 export function splitTier(name: string, description: string, tier: string): { item: string; sow: string; tier: string } {
   let item = name, sow = description, found = ''
   const suf = TIER_SUFFIX.exec(item)
-  if (suf && suf[1].trim()) { item = suf[1].trim(); found = suf[2] }
+  if (suf && suf[1].trim()) { item = suf[1].trim(); found = suf[2] || suf[3] }
   const pre = TIER_PREFIX.exec(sow)
   if (!found && pre) { found = pre[1]; sow = pre[2].trim() } else if (pre && pre[1].toLowerCase() === found.toLowerCase()) sow = pre[2].trim()
   // Nama "Philips Comment - Buzzer - 1x Comment" (scope ikut di nama, deskripsi kosong)
   if (!found && !sow) {
-    const mid = new RegExp(`^(.*?)\\s+[—–-]\\s+(${TIER_WORDS})\\s+[—–-]\\s+(.*)$`, 'i').exec(item)
+    const mid = TIER_MID.exec(item)
     if (mid) { item = mid[1].trim(); found = mid[2]; sow = mid[3].trim() }
   }
   return { item, sow, tier: tier || (found ? titleCase(found) : '') }
