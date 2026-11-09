@@ -401,6 +401,12 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
     ...ours.flatMap((sh) => sh.tables || []).map((t) => ({ deleteTable: { tableId: t.tableId } })),
     ...ours.flatMap((sh) => sh.protectedRanges || []).filter((p) => p.description === LOCK_DESCRIPTION)
       .map((p) => ({ deleteProtectedRange: { protectedRangeId: p.protectedRangeId } })),
+    // Sel gabungan sync sebelumnya WAJIB dilepas sebelum nilai ditulis: kalau baris bergeser (mis. invoice baru
+    // di atas), nilai yang jatuh di sel tertutup gabungan lama dibuang Google Sheets dan job jadi tanpa nama
+    ...tabs.filter((t) => t.groups).flatMap((t) => {
+      const sheetId = sheetIdOf(t.title)
+      return sheetId == null ? [] : [{ unmergeCells: { range: { sheetId } } }]
+    }),
   ]
   if (cleanup.length) {
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: cleanup } })
@@ -453,8 +459,7 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
       return Math.round(Math.min(isLink(c) ? 180 : 320, Math.max(90, len * 8 + 28)))
     })
     return [
-      // Reset sisa sync sebelumnya (merge, border, dropdown di posisi baris lama)
-      { unmergeCells: { range: all } },
+      // Reset sisa sync sebelumnya (border, dropdown di posisi baris lama); merge sudah dilepas sebelum tulis nilai
       { repeatCell: {
         range: all,
         cell: { userEnteredFormat: { verticalAlignment: 'MIDDLE', wrapStrategy: 'WRAP', textFormat: { fontSize: 11 }, padding: { top: 6, bottom: 6, left: 8, right: 8 } } },
