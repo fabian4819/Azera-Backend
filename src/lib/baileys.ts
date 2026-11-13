@@ -468,7 +468,8 @@ class WaBot {
   async listGroups(): Promise<{ jid: string; name: string }[]> {
     if (!this.sock || this.status !== 'connected') return []
     const groups = await this.sock.groupFetchAllParticipating()
-    return Object.values(groups).map((g) => ({ jid: g.id, name: g.subject })).sort((a, b) => a.name.localeCompare(b.name))
+    // Induk Community (isCommunity) namanya sama dengan grup pengumumannya tapi pesan ke situ tidak muncul di mana pun
+    return Object.values(groups).filter((g) => !g.isCommunity).map((g) => ({ jid: g.id, name: g.subject })).sort((a, b) => a.name.localeCompare(b.name))
   }
 
   enqueue(logId: string, to: string, payload: string, queuedAt = Date.now(), fallback?: WaBotKey) {
