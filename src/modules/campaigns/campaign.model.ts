@@ -99,6 +99,8 @@ export interface ICampaign extends Document {
     /** Opsional, kota/kabupaten target (dicocokkan tanpa awalan Kota/Kabupaten) */
     cities?: string[]
     platforms: string[]
+    /** Kolom Avg Views/Likes/Comments (scan ekstensi) di sheet Pendaftar & Listing client; undefined = tampil */
+    avgMetrics?: boolean
   }
   type: 'online' | 'offline'
   eventDetails?: { location: string; date: Date; timeWindow: string }
@@ -218,6 +220,7 @@ const CampaignSchema = new Schema<ICampaign>(
       provinces: [String],
       cities: [String],
       platforms: [String],
+      avgMetrics: Boolean,
     },
     type: { type: String, enum: ['online', 'offline'], default: 'online' },
     eventDetails: {

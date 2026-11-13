@@ -140,14 +140,16 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
   const platforms = campaign.criteria?.platforms || []
   const askDomicile = (campaign.criteria?.provinces?.length || 0) + (campaign.criteria?.cities?.length || 0) > 0
   const PLATFORM_LABEL: Record<string, string> = { instagram: 'Instagram', tiktok: 'TikTok', threads: 'Threads', x: 'X' }
+  // Admin bisa matikan kolom avg views/likes/comments (+ gabungan) per campaign; urutan tetap pakai avg views
+  const avg = campaign.criteria?.avgMetrics !== false
   const headers = [
     'Creator', 'WhatsApp', 'Email', 'Niche', ...(askDomicile ? ['Provinsi', 'Kota'] : []),
     // Per platform: akun + metrik scan ekstensi KOL Lister (12 post terakhir), lalu gabungan avg views
     ...platforms.flatMap((p) => {
       const l = PLATFORM_LABEL[p] ?? p
-      return [`Username ${l}`, `Link Akun ${l}`, `Followers ${l}`, `Avg Views 12 Post Terakhir ${l}`, `Avg Likes ${l}`, `Avg Comments ${l}`]
+      return [`Username ${l}`, `Link Akun ${l}`, `Followers ${l}`, ...(avg ? [`Avg Views 12 Post Terakhir ${l}`, `Avg Likes ${l}`, `Avg Comments ${l}`] : [])]
     }),
-    ...(platforms.length > 1 ? [`Gabungan Avg Views 12 Post Terakhir ${platforms.map((p) => PLATFORM_LABEL[p] ?? p).join(' + ')}`] : []),
+    ...(avg && platforms.length > 1 ? [`Gabungan Avg Views 12 Post Terakhir ${platforms.map((p) => PLATFORM_LABEL[p] ?? p).join(' + ')}`] : []),
     'PIC/Partner', 'Handle By', ...custom.map((f) => f.label), 'Hasil Kurasi', 'Alasan Kurasi', 'Tanggal Daftar',
   ]
   // Gabungan avg views semua platform yang sudah di-scan; kosong kalau belum ada satu pun (bukan #VALUE!)
@@ -178,9 +180,9 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
         const link = snap?.profileUrl || (username ? `https://${PROFILE_PREFIX[p] ?? ''}${username.replace(/^@+/, '')}` : '')
         // Followers: hasil scan ekstensi (lebih akurat) kalau ada, kalau belum isian creator saat daftar
         return [username ? `@${username.replace(/^@+/, '')}` : '', link, snap?.followers ?? acc?.followers ?? '',
-          round2(snap?.avgViews), round2(snap?.avgLikes), round2(snap?.avgComments)]
+          ...(avg ? [round2(snap?.avgViews), round2(snap?.avgLikes), round2(snap?.avgComments)] : [])]
       }),
-      ...(platforms.length > 1 ? [gabungan(a)] : []),
+      ...(avg && platforms.length > 1 ? [gabungan(a)] : []),
       a.picUserId ? d.picById.get(String(a.picUserId)) || '' : '',
       a.handleBy || '',
       ...custom.map((f) => ans(f.id)),
