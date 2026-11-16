@@ -332,6 +332,12 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       res.status(409).json({ message: 'Email ini sudah terdaftar dengan nomor WA lain. Gunakan email lain, atau hubungi tim kami kalau ini email kamu.' })
       return
     }
+    // Satu akun sosmed cuma boleh daftar sekali per campaign, walau pakai nomor WA/email lain
+    const dupe = await findDuplicateSocial(tenant._id, campaign._id, socials, creator?._id)
+    if (dupe) {
+      res.status(409).json({ message: `Akun ${dupe.platform} @${dupe.username} sudah terdaftar di campaign ini.` })
+      return
+    }
     if (!creator) {
       creator = await Creator.create({ tenantId: tenant._id, name, phone, email, source: 'campaign' })
     } else if (!creator.email) {
@@ -386,5 +392,20 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     res.status(500).json({ message: 'Server error', error: (err as Error).message })
   }
 })
+
+const escapeRegex = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Akun (platform + username, tanpa beda besar-kecil huruf) yang sudah dipakai creator LAIN untuk daftar di campaign ini. */
+async function findDuplicateSocial(tenantId: Types.ObjectId, campaignId: Types.ObjectId, socials: { platform: string; username: string }[], selfId?: Types.ObjectId) {
+  for (const s of socials) {
+    const owners = await Creator.find({
+      tenantId,
+      ...(selfId ? { _id: { $ne: selfId } } : {}),
+      socials: { $elemMatch: { platform: s.platform, username: new RegExp(`^@?${escapeRegex(s.username)}$`, 'i') } },
+    }).select('_id')
+    if (owners.length && await Application.exists({ tenantId, campaignId, creatorId: { $in: owners.map((o) => o._id) } })) return s
+  }
+  return null
+}
 
 export default router

@@ -4,7 +4,11 @@ import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import { requireAuth, requireRole, signPicToken, AuthRequest } from '../../middleware/auth'
 import PicUser from './pic.model'
-import Campaign from '../campaigns/campaign.model'
+import { Types } from 'mongoose'
+import Campaign, { shortApplyCode } from '../campaigns/campaign.model'
+import Application from '../applications/application.model'
+import { isFullyApproved } from '../../lib/sheetSync.service'
+import { env } from '../../config/env'
 import { getCampaignDashboardData } from '../campaigns/dashboard.service'
 import { getCampaignTabUrl } from '../../lib/googleSheets'
 import { uploadProof } from '../../middleware/upload'
@@ -88,19 +92,95 @@ picAuthRouter.post('/login', async (req: Request, res: Response) => {
 export const picPortalRouter = Router()
 picPortalRouter.use(requireAuth, requireRole('pic'))
 
+// Daftar campaign PIC + angka yang PIC butuhkan: creator yang dia bawa (lolos admin & client),
+// estimasi fee PIC, status bayar, link daftar untuk disebar. Budget campaign sengaja tidak dikirim.
 picPortalRouter.get('/campaigns', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const picUser = await PicUser.findById(req.auth!.userId).populate({
-      path: 'campaignIds',
-      select: 'name status workflowStage budget timeline brandId',
-      populate: { path: 'brandId', select: 'namaBrand' },
-    })
+    const picUser = await PicUser.findById(req.auth!.userId)
     if (!picUser) {
       res.status(404).json({ message: 'Not found' })
       return
     }
-    res.json(picUser.campaignIds)
+    const campaigns = await Campaign.find({ tenantId: picUser.tenantId, _id: { $in: picUser.campaignIds } })
+      .select('name status workflowStage timeline brandId fee applyOpen applySlug createdAt')
+      .populate('brandId', 'namaBrand')
+      .sort({ createdAt: -1 })
+    const apps = await Application.find({ tenantId: picUser.tenantId, picUserId: picUser._id, campaignId: { $in: picUser.campaignIds } })
+      .select('campaignId status clientApprovalStatus')
+    const paid = new Set(picUser.paidCampaignIds.map(String))
+    res.json(campaigns.map((c) => {
+      const mine = apps.filter((a) => String(a.campaignId) === String(c._id))
+      const creators = mine.filter(isFullyApproved).length
+      const picFee = c.fee?.picFee ?? 0
+      return {
+        _id: c._id, name: c.name, status: c.status, workflowStage: c.workflowStage, timeline: c.timeline,
+        brandId: c.brandId, applyOpen: c.applyOpen,
+        applyUrl: c.applyOpen ? `${env.clientOrigin}/apply/${shortApplyCode(c.applySlug)}` : undefined,
+        registrants: mine.length, creators, picFee, totalFee: picFee * creators, paid: paid.has(String(c._id)),
+      }
+    }))
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// Top PIC bulan ini (jumlah pendaftar yang dibawa, semua campaign), untuk leaderboard di portal PIC
+picPortalRouter.get('/leaderboard', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const now = new Date()
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 7 * 3600_000) // awal bulan WIB
+    const ranks = await Application.aggregate<{ _id: Types.ObjectId; count: number }>([
+      { $match: { tenantId: new Types.ObjectId(req.auth!.tenantId), picUserId: { $exists: true, $ne: null }, createdAt: { $gte: monthStart } } },
+      { $group: { _id: '$picUserId', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ])
+    const names = new Map((await PicUser.find({ tenantId: req.auth!.tenantId, _id: { $in: ranks.slice(0, 10).map((r) => r._id) } }).select('name')).map((p) => [String(p._id), p.name]))
+    const myIndex = ranks.findIndex((r) => String(r._id) === req.auth!.userId)
+    res.json({
+      top: ranks.slice(0, 10).map((r, i) => ({ rank: i + 1, name: names.get(String(r._id)) || '-', count: r.count, me: String(r._id) === req.auth!.userId })),
+      me: myIndex === -1 ? null : { rank: myIndex + 1, count: ranks[myIndex].count },
+    })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+const PROFILE_FIELDS = 'name city ownerName position email phone backupPhone socialMedia portfolio paymentInfo createdAt'
+const EDITABLE_PROFILE = ['city', 'ownerName', 'position', 'phone', 'backupPhone', 'socialMedia', 'portfolio'] as const
+const EDITABLE_PAYMENT = ['methodName', 'accountNumber', 'accountName'] as const
+
+picPortalRouter.get('/me', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const picUser = await PicUser.findById(req.auth!.userId).select(PROFILE_FIELDS)
+    if (!picUser) { res.status(404).json({ message: 'Not found' }); return }
+    res.json(picUser)
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+// PIC ubah data sendiri, termasuk rekening/e-wallet (dulu cuma lewat chat admin). Nama MG & email
+// login tetap lewat admin: nama dipakai sebagai label PIC di form & rekap.
+picPortalRouter.patch('/me', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const picUser = await PicUser.findById(req.auth!.userId)
+    if (!picUser) { res.status(404).json({ message: 'Not found' }); return }
+    const body = req.body as Record<string, unknown>
+    for (const f of EDITABLE_PROFILE) {
+      if (typeof body[f] === 'string') picUser.set(f, (body[f] as string).trim().slice(0, 300) || undefined)
+    }
+    if (!picUser.phone) { res.status(400).json({ message: 'Nomor WhatsApp wajib diisi' }); return }
+    const pay = body.paymentInfo as Record<string, unknown> | undefined
+    if (pay && typeof pay === 'object') {
+      const next = Object.fromEntries(EDITABLE_PAYMENT.map((f) => [f, typeof pay[f] === 'string' ? (pay[f] as string).trim().slice(0, 120) : picUser.paymentInfo?.[f]]))
+      if (EDITABLE_PAYMENT.some((f) => next[f] !== picUser.paymentInfo?.[f])) picUser.paymentInfo = { ...next, updatedAt: new Date() }
+    }
+    await picUser.save()
+    res.json(await PicUser.findById(picUser._id).select(PROFILE_FIELDS))
   } catch {
     res.status(500).json({ message: 'Server error' })
   }

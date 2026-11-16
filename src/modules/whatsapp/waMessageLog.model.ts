@@ -10,6 +10,8 @@ export interface IWaMessageLog extends Document {
   bot: string
   /** Pengirim cadangan kalau kirim lewat `bot` gagal (pengaturan pengirim per campaign) */
   fallbackBot?: string
+  /** Grup: mention semua anggota saat dikirim (tag @all) */
+  mentionAll?: boolean
   trigger: WaTrigger
   to: string
   payload: string
@@ -27,6 +29,7 @@ const WaMessageLogSchema = new Schema<IWaMessageLog>(
   {
     bot: { type: String, required: true },
     fallbackBot: String,
+    mentionAll: Boolean,
     trigger: { type: String, enum: WA_TRIGGERS, required: true },
     to: { type: String, required: true },
     payload: { type: String, required: true },

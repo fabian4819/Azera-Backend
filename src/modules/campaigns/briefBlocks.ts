@@ -38,6 +38,9 @@ export function setBrief(campaign: ICampaign, blocks: BriefBlock[], filledBy: 'a
   campaign.markModified('briefCampaign')
 }
 
+const firstLine = (section: string) => section.trim().split('\n')[0].replace(/[*_~\s]/g, '').toLowerCase()
+const isPicMgFee = (section: string) => /^(fee(pic|mg)|mg\d)/.test(firstLine(section))
+
 /** Teks broadcast (briefContent) untuk halaman apply publik: bagian fee tidak ditampilkan.
  * Format broadcast (client/src/lib/broadcast.ts) = bagian dipisah baris kosong; yang dibuang:
  * bagian "*Benefit:*" (isinya fee creator) & baris fee PIC/MG ("_fee pic 5k, mg 5k_"). */
@@ -45,9 +48,11 @@ export function publicBriefText(text?: string): string {
   if (!text) return ''
   return text
     .split(/\n\s*\n/)
-    .filter((section) => {
-      const first = section.trim().split('\n')[0].replace(/[*_~\s]/g, '').toLowerCase()
-      return !first.startsWith('benefit') && !/^(fee(pic|mg)|mg\d)/.test(first)
-    })
+    .filter((section) => !firstLine(section).startsWith('benefit') && !isPicMgFee(section))
     .join('\n\n')
+}
+
+/** Broadcast ke grup Azera Community: cuma baris fee PIC/MG yang dibuang, fee creator tetap. */
+export function stripPicMgFee(text: string): string {
+  return text.split(/\n\s*\n/).filter((section) => !isPicMgFee(section)).join('\n\n')
 }

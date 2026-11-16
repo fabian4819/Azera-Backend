@@ -571,6 +571,14 @@ export async function readWorkbookTabs(spreadsheetId: string, tabs: string[]): P
   return Object.fromEntries((res.data.valueRanges || []).map((v, i) => [tabs[i], (v.values || []) as string[][]]))
 }
 
+/** Judul semua tab di spreadsheet */
+export async function listWorkbookTabs(spreadsheetId: string): Promise<string[]> {
+  const sheets = getSheetsClient()
+  if (!sheets) return []
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties(title)' })
+  return (meta.data.sheets || []).map((sh) => sh.properties?.title || '').filter(Boolean)
+}
+
 /** Hapus tab kalau ada (mis. tab lama yang dipindah ke spreadsheet lain) */
 export async function deleteWorkbookTab(spreadsheetId: string, title: string): Promise<void> {
   const sheets = getSheetsClient()

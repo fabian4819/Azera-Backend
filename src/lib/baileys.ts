@@ -5,6 +5,7 @@ import makeWASocket, {
   ConnectionState,
   proto,
   CacheStore,
+  jidNormalizedUser,
 } from '@whiskeysockets/baileys'
 import pino from 'pino'
 import path from 'path'
@@ -78,6 +79,8 @@ interface QueueItem {
   queuedAt: number
   /** Pengirim cadangan (pengaturan per campaign): dipakai sekali kalau kirim lewat bot ini gagal */
   fallback?: WaBotKey
+  /** Grup: mention semua anggota tanpa daftar nomor di teks (gaya @all), cuma kalau bot admin grup */
+  mentionAll?: boolean
 }
 
 /**
@@ -518,11 +521,20 @@ class WaBot {
     return Object.values(groups).filter((g) => !g.isCommunity).map((g) => ({ jid: g.id, name: g.subject })).sort((a, b) => a.name.localeCompare(b.name))
   }
 
-  enqueue(logId: string, to: string, payload: string, queuedAt = Date.now(), fallback?: WaBotKey) {
+  enqueue(logId: string, to: string, payload: string, queuedAt = Date.now(), fallback?: WaBotKey, mentionAll?: boolean) {
     if (this.queuedIds.has(logId)) return
     this.queuedIds.add(logId)
-    this.queue.push({ logId, to, payload, queuedAt, fallback: fallback !== this.id ? fallback : undefined })
+    this.queue.push({ logId, to, payload, queuedAt, fallback: fallback !== this.id ? fallback : undefined, mentionAll })
     this.processQueue().catch(() => {})
+  }
+
+  /** Semua anggota grup, atau undefined kalau bot ini bukan admin grup itu (tag @all cuma dipakai di grup yang Azera admin) */
+  private async adminGroupMembers(jid: string): Promise<string[] | undefined> {
+    if (!jid.endsWith('@g.us') || !this.sock?.user) return undefined
+    const { participants } = await this.sock.groupMetadata(jid)
+    const me = [this.sock.user.id, this.sock.user.lid].filter(Boolean).map((j) => jidNormalizedUser(j!))
+    const isAdmin = participants.some((p) => p.admin && [p.id, p.jid, p.lid].some((j) => j && me.includes(jidNormalizedUser(j))))
+    return isAdmin ? participants.map((p) => p.id) : undefined
   }
 
   /** Log berstatus 'queued' milik bot ini di DB (antrean yang hilang saat restart) masuk lagi ke antrean memori. */
@@ -530,8 +542,8 @@ class WaBot {
     if (this.ephemeral) return
     const since = new Date(Date.now() - PACE.staleMs)
     const pending = await WaMessageLog.find({ bot: this.id, status: 'queued', $or: [{ queuedAt: { $gte: since } }, { queuedAt: { $exists: false }, createdAt: { $gte: since } }] })
-      .sort({ createdAt: 1 }).select('to payload queuedAt createdAt fallbackBot')
-    for (const l of pending) this.enqueue(l._id.toString(), l.to, l.payload, (l.queuedAt ?? l.createdAt).getTime(), (l.fallbackBot as WaBotKey | undefined) || undefined)
+      .sort({ createdAt: 1 }).select('to payload queuedAt createdAt fallbackBot mentionAll')
+    for (const l of pending) this.enqueue(l._id.toString(), l.to, l.payload, (l.queuedAt ?? l.createdAt).getTime(), (l.fallbackBot as WaBotKey | undefined) || undefined, l.mentionAll)
     if (pending.length) console.log(`WA[${this.id}] lanjutkan ${pending.length} pesan antre`)
   }
 
@@ -541,7 +553,7 @@ class WaBot {
       this.queue.splice(this.queue.indexOf(item), 1)
       this.queuedIds.delete(item.logId)
       await this.updateLog(item.logId, { bot: item.fallback, error: `${this.id} tidak tersambung, dialihkan ke ${item.fallback}` } as Partial<MemLog>)
-      getBot(item.fallback!).enqueue(item.logId, item.to, item.payload, item.queuedAt)
+      getBot(item.fallback!).enqueue(item.logId, item.to, item.payload, item.queuedAt, undefined, item.mentionAll)
     }
   }
 
@@ -558,7 +570,8 @@ class WaBot {
           await this.updateLog(item.logId, { status: 'failed', error: 'Kedaluwarsa: antre lebih dari 24 jam' })
         } else {
           try {
-            const sent = await this.sock.sendMessage(toJid(item.to), { text: item.payload })
+            const mentions = item.mentionAll ? await this.adminGroupMembers(item.to) : undefined
+            const sent = await this.sock.sendMessage(toJid(item.to), mentions ? { text: `${item.payload}\n\n@all`, mentions } : { text: item.payload })
             this.trackSent(sent)
             await this.updateLog(item.logId, { status: 'sent', sentAt: new Date() })
             this.recordOut(item.to, item.payload, sent?.key.id)
@@ -569,7 +582,7 @@ class WaBot {
               // Gagal lewat pengirim utama: pindah SEKALI ke pengirim backup (pengaturan per campaign)
               const note = `Gagal via ${this.id}: ${(err as Error).message}. Dialihkan ke ${item.fallback}`
               await this.updateLog(item.logId, { bot: item.fallback, error: note } as Partial<MemLog>)
-              getBot(item.fallback).enqueue(item.logId, item.to, item.payload, item.queuedAt)
+              getBot(item.fallback).enqueue(item.logId, item.to, item.payload, item.queuedAt, undefined, item.mentionAll)
             } else {
               await this.updateLog(item.logId, { status: 'failed', error: (err as Error).message })
             }
@@ -696,6 +709,8 @@ export async function enqueueWaMessage(opts: {
   creatorId?: string
   /** Override tujuan bot, hanya dipakai test-send; trigger lain diarahkan otomatis lewat audience template. */
   bot?: WaBotKey
+  /** Tujuan grup: mention semua anggota (lihat QueueItem.mentionAll) */
+  mentionAll?: boolean
 }) {
   if (devBotEnabled) {
     // Lokal: tanpa WaMessageLog di DB production, apa pun trigger/bot-nya keluar lewat nomor developer
@@ -703,7 +718,7 @@ export async function enqueueWaMessage(opts: {
     const log: MemLog = { _id: randomUUID(), bot: DEV_BOT, trigger: opts.trigger, to: opts.to, payload: opts.payload, status: 'queued', createdAt: new Date() }
     dev.memLogs.unshift(log)
     dev.memLogs.splice(100)
-    dev.enqueue(log._id, opts.to, opts.payload)
+    dev.enqueue(log._id, opts.to, opts.payload, Date.now(), undefined, opts.mentionAll)
     return log
   }
   const audienceBot = audienceToBot[DEFAULT_TEMPLATES[opts.trigger].audience]
@@ -729,10 +744,11 @@ export async function enqueueWaMessage(opts: {
     campaignId: opts.campaignId,
     creatorId: opts.creatorId,
     fallbackBot: fallback,
+    mentionAll: opts.mentionAll || undefined,
     status: skipped ? 'skipped' : 'queued',
     ...(skipped ? { error: 'Automation dimatikan di Template Pesan' } : { queuedAt: new Date() }),
   })
-  if (!skipped) getBot(botId).enqueue(log._id.toString(), opts.to, opts.payload, Date.now(), fallback)
+  if (!skipped) getBot(botId).enqueue(log._id.toString(), opts.to, opts.payload, Date.now(), fallback, opts.mentionAll)
   return log
 }
 

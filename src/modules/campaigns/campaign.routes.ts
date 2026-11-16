@@ -5,7 +5,7 @@ import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { env } from '../../config/env'
 import { generateText } from '../../lib/ai'
 import Campaign, { WORKFLOW_STAGES, WorkflowStage, IProgressColumn, PROGRESS_TYPES, SUBMISSION_FIELDS, shortApplyCode, APPROVAL_FLOWS } from './campaign.model'
-import { decideApplication } from '../applications/decision.service'
+import { decideApplication, clientDecideApplication } from '../applications/decision.service'
 import { upload, uploadDraft, uploadAsset } from '../../middleware/upload'
 import { writeProgressCell, appendScreenshots, CellError, ensurePortalToken, portalUrl, setPostingLink, uploadDraftFiles, reviewSubmission, appendPostScreenshots } from './progress.service'
 import { computeCampaignAnalytics, getCampaignCreatorSummaries } from './analytics.service'
@@ -23,15 +23,16 @@ import PicUser from '../pic/pic.model'
 import { requestBankInfoFromPics } from '../pic/picPayment.service'
 import { requestBankInfoFromCreators } from '../applications/creatorPayment.service'
 import { setRecapCreatorCell, setRecapPicCell, setRecapPicPaid } from './recapEdit.service'
-import { parseBriefBlocks, setBrief, uploadKind } from './briefBlocks'
+import { parseBriefBlocks, setBrief, uploadKind, stripPicMgFee } from './briefBlocks'
 import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey, AZERA_SENDER, isAdminBotId } from '../../lib/baileys'
 import { WA_TRIGGERS } from '../whatsapp/waTemplate.model'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
 import WorkflowAudit from './workflowAudit.model'
 import { buildSheetView, SHEET_KINDS, SheetKind } from './sheetView.service'
-import { getCampaignTabUrl } from '../../lib/googleSheets'
-import { scheduleWorkbookSync, workbookTabUrl, releaseSheetHooks } from './campaignWorkbook.service'
+import { getCampaignTabUrl, listWorkbookTabs, readWorkbookTabs } from '../../lib/googleSheets'
+import { scheduleWorkbookSync, workbookTabUrl, releaseSheetHooks, CLIENT_TABS } from './campaignWorkbook.service'
+import { matchClientRows } from './clientSheetMatch'
 import { deleteCampaigns } from './campaignDelete.service'
 import { onCampaignChange } from '../../lib/campaignEvents'
 import { isCreatorEditableBase } from '../../lib/sheetSync.service'
@@ -139,6 +140,31 @@ router.post('/', async (req: AuthRequest, res: Response) => {
       accessCode: generateAccessCode(),
     })
     scheduleWorkbookSync(req.auth!.tenantId, campaign._id)
+    res.status(201).json(hideBudgetIfAdmin(req, campaign.toJSON()))
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: (err as Error).message })
+  }
+})
+
+// Duplikat campaign sebagai template job baru: kriteria, form apply, kolom progress, fee & PIC ikut;
+// broadcast (link apply lama), link grup, status & data pendaftar tidak ikut.
+const SKIP_ON_DUPLICATE = ['name', 'briefContent', 'waGroupLink', 'status', 'applyOpen']
+router.post('/:id/duplicate', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const tenantId = req.auth!.tenantId
+    const src = await Campaign.findOne({ _id: req.params.id, tenantId })
+    if (!src) { res.status(404).json({ message: 'Not found' }); return }
+    const name = `${src.name} (Copy)`.slice(0, 200)
+    const copy = src.toObject() as unknown as Record<string, unknown>
+    const campaign = await Campaign.create({
+      tenantId, brandId: src.brandId, name,
+      ...Object.fromEntries(EDITABLE_FIELDS.filter((f) => !SKIP_ON_DUPLICATE.includes(f) && copy[f] !== undefined).map((f) => [f, copy[f]])),
+      applySlug: slugify(name),
+      accessCode: generateAccessCode(),
+    })
+    await PicUser.updateMany({ tenantId, campaignIds: src._id }, { $addToSet: { campaignIds: campaign._id } })
+    scheduleWorkbookSync(tenantId, campaign._id)
     res.status(201).json(hideBudgetIfAdmin(req, campaign.toJSON()))
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: (err as Error).message })
@@ -781,7 +807,7 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
     const tenantId = req.auth!.tenantId
-    const { message, groupJids = [], creatorIds = [], picIds = [], bot = 'partnership' } = req.body as { message?: string; groupJids?: string[]; creatorIds?: string[]; picIds?: string[]; bot?: WaBotKey }
+    const { message, groupJids = [], creatorIds = [], picIds = [], bot = 'partnership', tagAllJids = [] } = req.body as { message?: string; groupJids?: string[]; creatorIds?: string[]; picIds?: string[]; bot?: WaBotKey; tagAllJids?: string[] }
     if (!visibleBots().includes(bot)) { res.status(400).json({ message: 'Bot tidak dikenal' }); return }
     if (getWaStatus(bot).status !== 'connected') { res.status(400).json({ message: 'WhatsApp pengirim belum terhubung' }); return }
     if (!message?.trim()) { res.status(400).json({ message: 'Teks broadcast kosong' }); return }
@@ -789,8 +815,8 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
 
     // Cuma grup yang memang diikuti nomor pengirim
-    const memberOf = groupJids.length ? new Set((await listGroups(bot)).map((g) => g.jid)) : new Set<string>()
-    const groups = groupJids.filter((jid) => memberOf.has(jid)).map((jid) => ({ jid }))
+    const memberOf = groupJids.length ? new Map((await listGroups(bot)).map((g) => [g.jid, g.name])) : new Map<string, string>()
+    const groups = groupJids.filter((jid) => memberOf.has(jid)).map((jid) => ({ jid, name: memberOf.get(jid) || '' }))
     const creators = creatorIds.length ? await Creator.find({ tenantId, _id: { $in: creatorIds } }, 'phone') : []
     // DM ke akun PIC (nomor WhatsApp saat sign up PIC)
     const pics = picIds.length ? await PicUser.find({ tenantId, _id: { $in: picIds } }, 'phone') : []
@@ -798,7 +824,9 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
     let sent = 0
     const failed: string[] = []
     for (const g of groups) {
-      await enqueueWaMessage({ ...base, to: g.jid })
+      // Grup Azera Community: baris fee PIC/MG dibuang (cuma untuk grup PIC/partner)
+      const payload = /azera\s*commun/i.test(g.name) ? stripPicMgFee(message) : message
+      await enqueueWaMessage({ ...base, payload, to: g.jid, mentionAll: tagAllJids.includes(g.jid) })
       sent++
     }
     for (const c of creators) {
@@ -821,6 +849,62 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
     res.status(201).json({ sent, failed })
   } catch (err) {
     res.status(500).json({ message: 'Gagal share broadcast', error: (err as Error).message })
+  }
+})
+
+// Approve client dari tab manual di spreadsheet Listing (client bikin tab sendiri, mis. "List ok"):
+// tab bawaan platform tidak ditawarkan supaya tidak salah pilih.
+router.get('/:id/client-sheet/tabs', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId }).select('clientSpreadsheetId')
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    if (!campaign.clientSpreadsheetId) { res.json({ tabs: [] }); return }
+    const builtIn: string[] = Object.values(CLIENT_TABS)
+    res.json({ tabs: (await listWorkbookTabs(campaign.clientSpreadsheetId)).filter((t) => !builtIn.includes(t)) })
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal membaca spreadsheet client', error: (err as Error).message })
+  }
+})
+
+// `apply: false` = preview hasil cocok; `apply: true` = approve (tahap client) semua yang cocok & lolos tahap 1
+router.post('/:id/client-sheet/approve', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const tenantId = req.auth!.tenantId
+    const { tab, apply = false } = req.body as { tab?: string; apply?: boolean }
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId }).select('clientSpreadsheetId')
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    if (!campaign.clientSpreadsheetId || !tab) { res.status(400).json({ message: 'Pilih tab spreadsheet client dulu' }); return }
+    const rows = (await readWorkbookTabs(campaign.clientSpreadsheetId, [tab]))[tab] || []
+    const apps = await Application.find({ tenantId, campaignId: campaign._id }).populate('creatorId', 'name phone socials')
+    const byId = new Map(apps.map((a) => [String(a._id), a]))
+    const candidates = apps.flatMap((a) => {
+      const c = a.creatorId as unknown as { name?: string; phone?: string; socials?: { username?: string }[] } | null
+      return c ? [{ id: String(a._id), name: c.name || '', phone: c.phone || '', usernames: (c.socials || []).map((s) => s.username || '').filter(Boolean) }] : []
+    })
+    const results = matchClientRows(rows, candidates)
+    const seen = new Set<string>()
+    const out = results.map((r) => {
+      const a = r.id ? byId.get(r.id) : undefined
+      if (!a) return { row: r.row, label: r.label, status: r.ambiguous ? 'ambiguous' : 'unmatched' }
+      const creator = a.creatorId as unknown as { name?: string } | null
+      const status = seen.has(r.id!) ? 'duplicate' : a.status !== 'accepted' ? 'not_stage1' : a.clientApprovalStatus === 'accepted' ? 'already' : 'match'
+      seen.add(r.id!)
+      return { row: r.row, label: r.label, status, by: r.by, applicationId: r.id, creatorName: creator?.name || '' }
+    })
+    let approved = 0
+    if (apply) {
+      // ponytail: tiap approve memicu sync baris master sheet sendiri (fire-and-forget); ribuan sekaligus bisa kena
+      // rate limit Google Sheets (baris master yang gagal tercatat di log). Batch upsert kalau itu mulai terjadi.
+      for (const r of out) {
+        if (r.status !== 'match') continue
+        if (await clientDecideApplication(tenantId, campaign._id, r.applicationId!, 'accepted')) approved++
+      }
+    }
+    res.json({ rows: out, approved })
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal mencocokkan tab client', error: (err as Error).message })
   }
 })
 
