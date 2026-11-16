@@ -18,6 +18,7 @@ import { handleIncomingMessage } from '../modules/whatsapp/leadBot.service'
 import { handleInvoiceCommand } from '../modules/documents/invoiceBot.service'
 import { recordIncomingMessage, recordOutgoingMessage, backfillHistory, pauseBotForContact, findOutgoingText } from '../modules/whatsapp/waChat.service'
 import { captureIncomingPicReply } from '../modules/pic/picPayment.service'
+import { handleTagCommand, learnParticipant, syncTagGroups, TagBotIO } from '../modules/whatsapp/tagBot.service'
 
 const AUTH_ROOT = path.join(process.cwd(), 'auth_info_baileys')
 const SENT_CACHE_MAX = 2000
@@ -40,6 +41,9 @@ const INVOICE_GROUP_NAME = 'invoice maker'
 // Bot developer (backend lokal) juga boleh di grup "Testing" untuk uji /invoice tanpa ganggu grup asli
 const DEV_INVOICE_GROUP_NAMES = [INVOICE_GROUP_NAME, 'testing']
 const INVOICE_GROUP_JID = process.env.WA_INVOICE_GROUP_JID || ''
+// Bot tag grup (!tagall, !tag, auto-leave 30 hari), dulu repo terpisah bot-tag-whatsapp, sekarang di bot community
+const TAG_BOT: WaBotKey = 'creator'
+const TAG_SYNC_INTERVAL_MS = 3600_000
 
 const logger = pino({ level: 'silent' })
 
@@ -107,6 +111,7 @@ class WaBot {
   private readonly queuedIds = new Set<string>()
   private processing = false
   private sentInBurst = 0
+  private tagSyncTimer: NodeJS.Timeout | null = null
 
   // Nama grup (subject) tidak ikut di setiap event pesan grup, cuma bisa didapat lewat
   // sock.groupMetadata() (panggilan API terpisah), di-cache di memori supaya tidak nge-hit
@@ -231,6 +236,7 @@ class WaBot {
           console.log(`WA[${this.id}] connected as ${this.connectedNumber}`)
           // Lanjutkan antrean: yang tertahan selama terputus + yang tersimpan di DB (mis. setelah restart server)
           this.recoverQueue().catch((err) => console.error(`WA[${this.id}] recover queue error:`, err)).finally(() => { void this.processQueue() })
+          if (this.id === TAG_BOT) this.startTagSync()
         }
 
         if (connection === 'close') {
@@ -241,6 +247,7 @@ class WaBot {
           this.status = 'disconnected'
           this.currentQr = null
           this.sock = null
+          this.stopTagSync()
           if (loggedOut) {
             this.connectedNumber = null
             // WA sendiri yang sudah invalidate sesi ini (mis. device di-unlink dari HP), kalau file
@@ -281,6 +288,7 @@ class WaBot {
             if (messageId && this.sentMessageIds.delete(messageId)) continue // echo dari kiriman kita sendiri (dashboard/bot), sudah dicatat saat dikirim
             if (!this.ephemeral) recordOutgoingMessage(this.id as BotId, jid, text, { messageId: messageId || undefined }).catch((err) => console.error(`WA[${this.id}] save phone-outgoing error:`, err))
             // /invoice diketik dari HP nomor bot itu sendiri (mis. tes lokal: nomor developer = HP admin) tetap diproses
+            if (isGroup && this.id === TAG_BOT && text.startsWith('!')) void handleTagCommand(this.tagIO(), msg, text)
             if (isGroup) {
               this.resolveGroupName(jid)
                 .then((name) => (this.isInvoiceGroup(jid, name) ? this.replyInvoice(jid, text, msg) : undefined))
@@ -291,6 +299,10 @@ class WaBot {
             continue
           }
 
+          if (isGroup && this.id === TAG_BOT) {
+            learnParticipant(msg.key)
+            if (text.startsWith('!')) void handleTagCommand(this.tagIO(), msg, text)
+          }
           if (isGroup) {
             this.resolveGroupName(jid)
               .then(async (name) => {
@@ -317,6 +329,11 @@ class WaBot {
             })
             .catch((err) => console.error(`WA[${this.id}] pic-reply capture error:`, err))
         }
+      })
+
+      // Nomor bot dimasukkan ke grup baru: langsung dicatat untuk auto-leave, tidak menunggu sinkron tiap jam
+      sock.ev.on('groups.upsert', () => {
+        if (myGeneration === this.generation && this.id === TAG_BOT) this.syncTags()
       })
 
       // Sinkron riwayat chat lama yang sudah ada di WhatsApp SEBELUM device ini ditautkan,
@@ -378,6 +395,7 @@ class WaBot {
   }
 
   async logout(): Promise<void> {
+    this.stopTagSync()
     this.generation++ // socket lama (kalau masih ada event close/creds.update yang nyusul) langsung dianggap basi
     if (this.sock) {
       await this.sock.logout().catch((err) => console.error(`WA[${this.id}] logout() error:`, err))
@@ -414,6 +432,34 @@ class WaBot {
     if (this.id !== 'partnership') return false
     if (INVOICE_GROUP_JID) return jid === INVOICE_GROUP_JID
     return name?.trim().toLowerCase() === INVOICE_GROUP_NAME
+  }
+
+  private tagIO(): TagBotIO {
+    return {
+      sock: this.sock!,
+      send: async (jid, text, mentions) => {
+        if (!this.sock || this.status !== 'connected') return
+        const sent = await this.sock.sendMessage(jid, { text, mentions })
+        this.trackSent(sent)
+        this.recordOut(jid, text, sent?.key.id)
+      },
+    }
+  }
+
+  private startTagSync() {
+    this.stopTagSync()
+    this.syncTags()
+    this.tagSyncTimer = setInterval(() => this.syncTags(), TAG_SYNC_INTERVAL_MS)
+  }
+
+  private syncTags() {
+    if (!this.sock || this.status !== 'connected') return
+    syncTagGroups(this.tagIO()).catch((err) => console.error(`WA[${this.id}] tag group sync error:`, err))
+  }
+
+  private stopTagSync() {
+    if (this.tagSyncTimer) clearInterval(this.tagSyncTimer)
+    this.tagSyncTimer = null
   }
 
   /** `/invoice` di grup Invoice Maker → simpan Document invoice di web, balas PDF + link preview (quote pesan asal, seperti bot-cashflow) */
