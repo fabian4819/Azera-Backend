@@ -800,6 +800,9 @@ router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
   }
 })
 
+/** Grup "AZERAKOL.ID | Creator Community" (JID tetap walau grup di-rename) */
+const CREATOR_COMMUNITY_GROUP = '120363411750284295@g.us'
+
 // Share teks broadcast apa adanya (sudah diedit admin) ke grup WA & creator terpilih.
 // Lewat WA yang dipilih admin (default partnership); `bot` eksplisit = kiriman manual, tidak ikut toggle
 // automation broadcast_campaign. Di backend lokal enqueueWaMessage tetap mengalihkan ke bot developer.
@@ -815,8 +818,8 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
     if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
 
     // Cuma grup yang memang diikuti nomor pengirim
-    const memberOf = groupJids.length ? new Map((await listGroups(bot)).map((g) => [g.jid, g.name])) : new Map<string, string>()
-    const groups = groupJids.filter((jid) => memberOf.has(jid)).map((jid) => ({ jid, name: memberOf.get(jid) || '' }))
+    const memberOf = groupJids.length ? new Set((await listGroups(bot)).map((g) => g.jid)) : new Set<string>()
+    const groups = groupJids.filter((jid) => memberOf.has(jid)).map((jid) => ({ jid }))
     const creators = creatorIds.length ? await Creator.find({ tenantId, _id: { $in: creatorIds } }, 'phone') : []
     // DM ke akun PIC (nomor WhatsApp saat sign up PIC)
     const pics = picIds.length ? await PicUser.find({ tenantId, _id: { $in: picIds } }, 'phone') : []
@@ -824,8 +827,8 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
     let sent = 0
     const failed: string[] = []
     for (const g of groups) {
-      // Grup Azera Community: baris fee PIC/MG dibuang (cuma untuk grup PIC/partner)
-      const payload = /azera\s*commun/i.test(g.name) ? stripPicMgFee(message) : message
+      // Grup komunitas creator: baris fee PIC/MG dibuang (cuma untuk grup PIC/partner)
+      const payload = g.jid === CREATOR_COMMUNITY_GROUP ? stripPicMgFee(message) : message
       await enqueueWaMessage({ ...base, payload, to: g.jid, mentionAll: tagAllJids.includes(g.jid) })
       sent++
     }
