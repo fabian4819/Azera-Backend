@@ -101,6 +101,9 @@ export interface ICampaign extends Document {
     platforms: string[]
     /** Kolom Avg Views/Likes/Comments (scan ekstensi) di sheet Pendaftar & Listing client; undefined = tampil */
     avgMetrics?: boolean
+    /** Campaign buzzer: maks akun per platform yang boleh didaftarkan satu creator (ada nilai > 0 = buzzer).
+     * Tiap akun jadi satu Application (baris sendiri di semua sheet), lihat Application.account. */
+    buzzerMax?: Partial<Record<'instagram' | 'tiktok' | 'threads' | 'x', number>>
   }
   type: 'online' | 'offline'
   eventDetails?: { location: string; date: Date; timeWindow: string }
@@ -208,7 +211,7 @@ const CampaignSchema = new Schema<ICampaign>(
     name: { type: String, required: true },
     objective: { type: String, required: true },
     deliverables: [String],
-    budget: { type: Number, required: true },
+    budget: { type: Number, default: 0 },
     timeline: {
       startDate: Date,
       endDate: Date,
@@ -221,6 +224,7 @@ const CampaignSchema = new Schema<ICampaign>(
       cities: [String],
       platforms: [String],
       avgMetrics: Boolean,
+      buzzerMax: { instagram: Number, tiktok: Number, threads: Number, x: Number },
     },
     type: { type: String, enum: ['online', 'offline'], default: 'online' },
     eventDetails: {
@@ -294,6 +298,14 @@ const Campaign = mongoose.model<ICampaign>('Campaign', CampaignSchema)
 export default Campaign
 
 /** Link apply pendek: /apply/<kode> pakai 6 hex terakhir applySlug ("pigeon-maret-4e3742" → "4e3742"). */
+/** Maks akun per platform kalau campaign buzzer (cuma platform yang dicentang di kriteria), selain itu null */
+export function buzzerLimits(campaign: Pick<ICampaign, 'criteria'>): Record<string, number> | null {
+  const max = campaign.criteria?.buzzerMax as Record<string, number | undefined> | undefined
+  const limits = Object.fromEntries((campaign.criteria?.platforms || [])
+    .map((p) => [p, Math.min(20, Math.floor(Number(max?.[p]) || 0))] as const).filter(([, n]) => n > 0))
+  return Object.keys(limits).length ? limits : null
+}
+
 export const shortApplyCode = (applySlug: string) => applySlug.split('-').pop() || applySlug
 
 /** Cari campaign dari link apply: slug lengkap (link lama) atau kode pendek di ujung slug. */

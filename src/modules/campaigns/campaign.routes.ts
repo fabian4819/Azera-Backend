@@ -105,8 +105,8 @@ router.post('/', async (req: AuthRequest, res: Response) => {
     } = req.body
     let brandId = req.body.brandId
     const typedBrand = typeof brandName === 'string' ? brandName.trim() : ''
-    if ((!brandId && !typedBrand) || !name || !objective || budget === undefined) {
-      res.status(400).json({ message: 'brand, name, objective, budget wajib diisi' })
+    if ((!brandId && !typedBrand) || !name || !objective) {
+      res.status(400).json({ message: 'brand, name, objective wajib diisi' })
       return
     }
     // Brand diketik manual (tidak ada di daftar): pakai brand bernama sama kalau ada, kalau belum buat baru
@@ -585,9 +585,11 @@ router.post('/:id/send-brief', async (req: AuthRequest, res: Response) => {
     const applications = await Application.find({ tenantId: req.auth!.tenantId, campaignId: campaign._id, status: 'accepted' }).populate('creatorId')
     const template = await getTemplate(req.auth!.tenantId, 'brief_campaign')
     let sent = 0
+    const briefed = new Set<string>() // campaign buzzer: beberapa baris per creator, brief cukup sekali per orang
     for (const app of applications) {
-      const creator = app.creatorId as unknown as { name: string; phone: string } | null
-      if (!creator?.phone) continue
+      const creator = app.creatorId as unknown as { _id: unknown; name: string; phone: string } | null
+      if (!creator?.phone || briefed.has(String(creator._id))) continue
+      briefed.add(String(creator._id))
       const payload = renderTemplate(template, {
         nama: creator.name, campaign: campaign.name, brief: campaign.briefContent, portal_link: portalUrl(await ensurePortalToken(app)),
       })
@@ -884,7 +886,9 @@ router.post('/:id/client-sheet/approve', async (req: AuthRequest, res: Response)
     const byId = new Map(apps.map((a) => [String(a._id), a]))
     const candidates = apps.flatMap((a) => {
       const c = a.creatorId as unknown as { name?: string; phone?: string; socials?: { username?: string }[] } | null
-      return c ? [{ id: String(a._id), name: c.name || '', phone: c.phone || '', usernames: (c.socials || []).map((s) => s.username || '').filter(Boolean) }] : []
+      // Baris buzzer = satu akun: dicocokkan lewat username akun itu saja (nama/WA sama untuk semua akunnya → ambigu, tidak ditebak)
+      const usernames = a.account?.username ? [a.account.username] : (c?.socials || []).map((s) => s.username || '').filter(Boolean)
+      return c ? [{ id: String(a._id), name: c.name || '', phone: c.phone || '', usernames }] : []
     })
     const results = matchClientRows(rows, candidates)
     const seen = new Set<string>()

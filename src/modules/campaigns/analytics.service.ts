@@ -1,4 +1,5 @@
 import { Types } from 'mongoose'
+import { submissionFilterFor } from '../applications/applicationScope'
 import Submission from '../submissions/submission.model'
 import Application from '../applications/application.model'
 import Campaign from './campaign.model'
@@ -114,7 +115,7 @@ export async function getCampaignCreatorSummaries(
 
   return Promise.all(
     acceptedApplications.map(async (app) => {
-      const subs = await Submission.find({ tenantId, campaignId, creatorId: app.creatorId, type: 'post' })
+      const subs = await Submission.find({ ...submissionFilterFor(app), type: 'post' })
       const views = subs.reduce((sum, s) => sum + (s.parsedInsight?.views || 0), 0)
       const engagement = subs.reduce(
         (sum, s) => sum + (s.parsedInsight?.likes || 0) + (s.parsedInsight?.comments || 0) + (s.parsedInsight?.shares || 0) + (s.parsedInsight?.saves || 0),

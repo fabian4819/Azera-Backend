@@ -14,11 +14,17 @@ import { writeProgressCell, appendScreenshots, CellError, assertCreatorCanEditBa
  */
 const router = Router()
 
-async function resolve(token: string) {
+/** `rowId`: baris lain milik creator yang sama di campaign ini (campaign buzzer: satu baris per akun,
+ * satu link portal untuk semua akunnya). Tanpa rowId = baris pemilik token. */
+async function resolve(token: string, rowId?: unknown) {
   const tenant = await getDefaultTenant()
-  const application = await Application.findOne({ tenantId: tenant._id, portalToken: token, status: 'accepted' })
-  const campaign = application && await Campaign.findOne({ tenantId: tenant._id, _id: application.campaignId }).populate('brandId', 'namaBrand')
-  if (!application || !campaign) throw new CellError('Link tidak valid atau akses sudah dicabut', 404)
+  const owner = await Application.findOne({ tenantId: tenant._id, portalToken: token, status: 'accepted' })
+  const campaign = owner && await Campaign.findOne({ tenantId: tenant._id, _id: owner.campaignId }).populate('brandId', 'namaBrand')
+  if (!owner || !campaign) throw new CellError('Link tidak valid atau akses sudah dicabut', 404)
+  const application = rowId && String(rowId) !== String(owner._id)
+    ? await Application.findOne({ _id: String(rowId), tenantId: tenant._id, campaignId: owner.campaignId, creatorId: owner.creatorId, status: 'accepted' })
+    : owner
+  if (!application) throw new CellError('Baris ini bukan milik kamu', 403)
   return { tenant, application, campaign }
 }
 
@@ -55,7 +61,7 @@ router.get('/:token', async (req: Request, res: Response) => {
 router.patch('/:token/cell', async (req: Request, res: Response) => {
   try {
     await connectDB()
-    const { tenant, application, campaign } = await resolve(req.params.token)
+    const { tenant, application, campaign } = await resolve(req.params.token, req.body.rowId)
     const columnId = String(req.body.columnId)
     const ctx = { tenantId: tenant._id, campaign, application, columnId, actor: 'creator' as const, userId: application.creatorId }
     if (columnId === 'base:post') {
@@ -71,7 +77,7 @@ router.patch('/:token/cell', async (req: Request, res: Response) => {
 router.post('/:token/cell/upload', upload.array('files', 6), async (req: Request, res: Response) => {
   try {
     await connectDB()
-    const { tenant, application, campaign } = await resolve(req.params.token)
+    const { tenant, application, campaign } = await resolve(req.params.token, req.body.rowId)
     const columnId = String(req.body.columnId)
     const ctx = { tenantId: tenant._id, campaign, application, columnId, actor: 'creator' as const, userId: application.creatorId }
     const files = (req.files as Express.Multer.File[]) || []
@@ -89,7 +95,7 @@ router.post('/:token/cell/upload', upload.array('files', 6), async (req: Request
 router.post('/:token/draft/upload', uploadDraft.array('files', 10), async (req: Request, res: Response) => {
   try {
     await connectDB()
-    const { tenant, application, campaign } = await resolve(req.params.token)
+    const { tenant, application, campaign } = await resolve(req.params.token, req.body.rowId)
     assertCreatorCanEditBase(campaign, 'base:draft')
     await uploadDraftFiles(
       { tenantId: tenant._id, campaign, application, actor: 'creator', userId: application.creatorId },

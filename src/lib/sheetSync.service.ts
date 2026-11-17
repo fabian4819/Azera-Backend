@@ -1,4 +1,5 @@
 import { Types } from 'mongoose'
+import { submissionFilterFor, creatorViewFor } from '../modules/applications/applicationScope'
 import { ICreator, SocialPlatform } from '../modules/creators/creator.model'
 import { IApplication } from '../modules/applications/application.model'
 import Application from '../modules/applications/application.model'
@@ -311,7 +312,7 @@ export function campaignSheetRow(
   return columnPermutation(campaign, naturalColumns(campaign)).map((i) => values[i])
 }
 
-async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, creatorId: Types.ObjectId): Promise<void> {
+async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.ObjectId, find: { applicationId?: unknown; creatorId: Types.ObjectId }): Promise<void> {
   // Semua perubahan pendaftaran lewat sini: kabari halaman admin yang sedang membuka campaign ini (realtime)
   emitCampaignChange(campaignId)
   // Spreadsheet campaign (semua tab) ikut di-update tiap perubahan pendaftaran. Import dinamis:
@@ -319,12 +320,12 @@ async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.Objec
   import('../modules/campaigns/campaignWorkbook.service')
     .then((m) => m.scheduleWorkbookSync(tenantId, campaignId))
     .catch((err) => console.error('Sheet sync error (workbook campaign):', (err as Error).message))
-  const application = await Application.findOne({ tenantId, campaignId, creatorId })
+  const application = await Application.findOne(find.applicationId ? { _id: find.applicationId, tenantId } : { tenantId, campaignId, creatorId: find.creatorId })
   if (!application) return
   const [campaign, creator, submissions, picUser] = await Promise.all([
     Campaign.findById(campaignId),
-    Creator.findById(creatorId),
-    Submission.find({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 }),
+    Creator.findById(application.creatorId).then((c) => creatorViewFor(c, application)),
+    Submission.find(submissionFilterFor(application)).sort({ createdAt: -1 }),
     application.picUserId ? PicUser.findById(application.picUserId).select('name') : null,
   ])
   if (!campaign) return
@@ -343,9 +344,9 @@ async function syncCampaignRow(tenantId: Types.ObjectId, campaignId: Types.Objec
 }
 
 export function syncApplicationToSheet(application: IApplication): Promise<void> {
-  return syncCampaignRow(application.tenantId, application.campaignId, application.creatorId)
+  return syncCampaignRow(application.tenantId, application.campaignId, { applicationId: application._id, creatorId: application.creatorId })
 }
 
 export function syncSubmissionToSheet(submission: ISubmission): Promise<void> {
-  return syncCampaignRow(submission.tenantId, submission.campaignId, submission.creatorId)
+  return syncCampaignRow(submission.tenantId, submission.campaignId, { applicationId: submission.applicationId, creatorId: submission.creatorId })
 }

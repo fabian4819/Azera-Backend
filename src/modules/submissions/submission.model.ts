@@ -26,6 +26,8 @@ export interface ISubmission extends Document {
   tenantId: Types.ObjectId
   campaignId: Types.ObjectId
   creatorId: Types.ObjectId
+  /** Baris (Application) pemilik submission ini; data lama tanpa ini dicocokkan lewat creatorId */
+  applicationId?: Types.ObjectId
   type: SubmissionType
   /** Platform post ini, menentukan field insight mana yang berlaku & label parsing AI */
   platform: SocialPlatform
@@ -47,6 +49,7 @@ const SubmissionSchema = new Schema<ISubmission>(
   {
     campaignId: { type: Schema.Types.ObjectId, ref: 'Campaign', required: true },
     creatorId: { type: Schema.Types.ObjectId, ref: 'Creator', required: true },
+    applicationId: { type: Schema.Types.ObjectId, ref: 'Application' },
     type: { type: String, enum: ['draft', 'post'], required: true },
     platform: { type: String, enum: ['instagram', 'tiktok', 'threads', 'x'], required: true },
     link: String,

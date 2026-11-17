@@ -23,14 +23,14 @@ function cellUsernames(cell: string): string[] {
 
 export function matchClientRows(rows: string[][], candidates: MatchCandidate[]): RowMatch[] {
   const byUser = new Map<string, Set<string>>()
-  const byPhone = new Map<string, string>()
+  const byPhone = new Map<string, string[]>()
   const byName = new Map<string, string[]>()
   for (const c of candidates) {
     for (const u of c.usernames) {
       const k = normUser(u)
       if (k) byUser.set(k, (byUser.get(k) || new Set()).add(c.id))
     }
-    if (c.phone) byPhone.set(normPhone(c.phone), c.id)
+    if (c.phone) byPhone.set(normPhone(c.phone), [...(byPhone.get(normPhone(c.phone)) || []), c.id])
     const n = normName(c.name)
     byName.set(n, [...(byName.get(n) || []), c.id])
   }
@@ -39,7 +39,8 @@ export function matchClientRows(rows: string[][], candidates: MatchCandidate[]):
     const values = cells.map((v) => String(v ?? '').trim()).filter(Boolean)
     if (!values.length) return
     const userHits = new Set(values.flatMap(cellUsernames).flatMap((u) => [...(byUser.get(u) || [])]))
-    const phoneHits = new Set(values.filter((v) => /^[+\d][\d\s-]{8,}$/.test(v)).map((v) => byPhone.get(normPhone(v))).filter((x): x is string => Boolean(x)))
+    // Nomor WA yang dipakai beberapa baris (akun buzzer satu orang) tidak ditebak, sama seperti nama dobel
+    const phoneHits = new Set(values.filter((v) => /^[+\d][\d\s-]{8,}$/.test(v)).map((v) => byPhone.get(normPhone(v))).filter((ids): ids is string[] => ids?.length === 1).map((ids) => ids[0]))
     const nameHits = values.map((v) => byName.get(normName(v))).filter((ids): ids is string[] => ids?.length === 1).map((ids) => ids[0])
     const label = values.slice(0, 3).join(' · ')
     const row = i + 1

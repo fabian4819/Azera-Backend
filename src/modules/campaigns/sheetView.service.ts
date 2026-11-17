@@ -1,4 +1,5 @@
 import { Types } from 'mongoose'
+import { submissionBelongsTo, snapshotMatches, creatorViewFor } from '../applications/applicationScope'
 import Campaign, { ICampaign, IProgressColumn } from './campaign.model'
 import Application, { IApplication } from '../applications/application.model'
 import Submission, { ISubmission } from '../submissions/submission.model'
@@ -71,19 +72,24 @@ async function loadCampaignData(tenantId: Types.ObjectId | string, campaign: ICa
   const creatorById = new Map(creators.map((c) => [String(c._id), c]))
   const picById = new Map(pics.map((p) => [String(p._id), p.name]))
   const picFullById = new Map(pics.map((p) => [String(p._id), p]))
-  // submissions urut terbaru dulu → entry pertama per creator = terbaru (sama dgn sync ke Sheet)
+  // Semua map di bawah per BARIS (Application), bukan per creator: campaign buzzer punya beberapa baris per
+  // creator (satu per akun). submissions urut terbaru dulu → entry pertama per baris = terbaru.
   const submissionsByCreator = new Map<string, ISubmission[]>()
-  for (const s of submissions) {
-    const k = String(s.creatorId)
-    submissionsByCreator.set(k, [...(submissionsByCreator.get(k) || []), s])
-  }
-  // Snapshot terbaru per (creator, platform)
+  const subsByCreator = new Map<string, ISubmission[]>()
+  for (const sub of submissions) subsByCreator.set(String(sub.creatorId), [...(subsByCreator.get(String(sub.creatorId)) || []), sub])
+  for (const a of applications) submissionsByCreator.set(String(a._id), (subsByCreator.get(String(a.creatorId)) || []).filter((sub) => submissionBelongsTo(sub, a)))
+  // Snapshot terbaru per (baris, platform); baris buzzer cuma pakai snapshot akun miliknya
+  const snapsByCreator = new Map<string, (typeof snapshots)[number][]>()
+  for (const sn of snapshots) snapsByCreator.set(String(sn.creatorId), [...(snapsByCreator.get(String(sn.creatorId)) || []), sn])
   const snapshotByKey = new Map<string, (typeof snapshots)[number]>()
-  for (const sn of snapshots) {
-    const k = `${sn.creatorId}:${sn.platform}`
-    if (!snapshotByKey.has(k)) snapshotByKey.set(k, sn)
+  for (const a of applications) {
+    for (const sn of snapsByCreator.get(String(a.creatorId)) || []) {
+      const k = `${a._id}:${sn.platform}`
+      if (!snapshotByKey.has(k) && snapshotMatches(sn, a)) snapshotByKey.set(k, sn)
+    }
   }
-  return { applications, creatorById, picById, picFullById, submissions, submissionsByCreator, snapshotByKey }
+  const creatorByApp = new Map(applications.map((a) => [String(a._id), creatorViewFor(creatorById.get(String(a.creatorId)), a) ?? undefined]))
+  return { applications, creatorById, creatorByApp, picById, picFullById, submissions, submissionsByCreator, snapshotByKey }
 }
 
 const PROFILE_PREFIX: Record<string, string> = { instagram: 'instagram.com/', tiktok: 'tiktok.com/@', threads: 'threads.com/@', x: 'x.com/' }
@@ -94,8 +100,8 @@ function masterRow(campaign: ICampaign, d: CampaignData, a: CampaignData['applic
   return campaignSheetRow(
     campaign,
     a,
-    d.creatorById.get(String(a.creatorId)) ?? null,
-    d.submissionsByCreator.get(String(a.creatorId)) ?? [],
+    d.creatorByApp.get(String(a._id)) ?? null,
+    d.submissionsByCreator.get(String(a._id)) ?? [],
     a.picUserId ? d.picById.get(String(a.picUserId)) : undefined
   )
 }
@@ -116,7 +122,7 @@ function masterTable(campaign: ICampaign, d: CampaignData): SheetTable {
     rows: accepted.map((a) => masterRow(campaign, d, a)),
     rowIds: accepted.map((a) => String(a._id)),
     rowNotes: accepted.map((a) => {
-      const subs = d.submissionsByCreator.get(String(a.creatorId)) ?? []
+      const subs = d.submissionsByCreator.get(String(a._id)) ?? []
       return { draft: subs.find((s) => s.type === 'draft')?.revisionNotes, post: subs.find((s) => s.type === 'post')?.revisionNotes }
     }),
     progressColumns: campaign.progressColumns || [],
@@ -154,7 +160,7 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
   ]
   // Gabungan avg views semua platform yang sudah di-scan; kosong kalau belum ada satu pun (bukan #VALUE!)
   const gabungan = (a: CampaignData['applications'][number]): Cell => {
-    const vals = platforms.map((p) => d.snapshotByKey.get(`${a.creatorId}:${p}`)?.avgViews).filter((v): v is number => typeof v === 'number')
+    const vals = platforms.map((p) => d.snapshotByKey.get(`${a._id}:${p}`)?.avgViews).filter((v): v is number => typeof v === 'number')
     return vals.length ? Math.round(vals.reduce((x, y) => x + y, 0)) : ''
   }
   // Urut gabungan avg views terbesar dulu (seperti sheet listing manual); yang belum di-scan di bawah, urut tanggal daftar
@@ -164,7 +170,7 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
   }
   applications.sort((x, y) => score(y) - score(x) || +x.createdAt - +y.createdAt)
   const rows: Cell[][] = applications.map((a) => {
-    const c = d.creatorById.get(String(a.creatorId))
+    const c = d.creatorByApp.get(String(a._id))
     const ans = (id: string) => {
       const v = a.customAnswers?.[id]
       return Array.isArray(v) ? v.join(', ') : v || ''
@@ -175,7 +181,7 @@ function applicantsTable(campaign: ICampaign, d: CampaignData, opts?: { onlyStag
       ...(askDomicile ? [c?.domicile?.province || '', c?.domicile?.city || ''] : []),
       ...platforms.flatMap((p) => {
         const acc = c?.socials?.find((x) => x.platform === p)
-        const snap = d.snapshotByKey.get(`${a.creatorId}:${p}`)
+        const snap = d.snapshotByKey.get(`${a._id}:${p}`)
         const username = acc?.username || snap?.username || ''
         const link = snap?.profileUrl || (username ? `https://${PROFILE_PREFIX[p] ?? ''}${username.replace(/^@+/, '')}` : '')
         // Followers: hasil scan ekstensi (lebih akurat) kalau ada, kalau belum isian creator saat daftar
@@ -240,7 +246,7 @@ function recapTable(campaign: ICampaign, d: CampaignData): SheetTable {
   const fee = campaign.fee?.creatorFee ?? 0
   const accepted = d.applications.filter(isFullyApproved)
   const rows: Cell[][] = accepted.map((a) => {
-    const c = d.creatorById.get(String(a.creatorId)) as ICreator | undefined
+    const c = d.creatorByApp.get(String(a._id)) as ICreator | undefined
     return [
       c?.name || '', c?.phone || '',
       a.picUserId ? d.picById.get(String(a.picUserId)) || '' : '',
@@ -349,10 +355,12 @@ export async function buildPortalView(tenantId: Types.ObjectId | string, campaig
     .filter((x) => x.access !== 'hidden')
     // Campaign Tracker client = Master Sheet tanpa data internal (WA, email, PIC, handle by), apa pun aturan akses kolomnya
     .filter((x) => viewer.role !== 'client' || !CLIENT_HIDDEN_COLUMNS.has(x.c.key))
-  const mineId = viewer.role === 'creator' ? String(viewer.mine._id) : null
+  // Semua baris creator yang sama = miliknya (campaign buzzer: satu baris per akun)
+  const mineCreator = viewer.role === 'creator' ? String(viewer.mine.creatorId) : null
+  const isMineRow = (a: { creatorId: unknown }) => mineCreator !== null && String(a.creatorId) === mineCreator
   // Baris sendiri paling atas supaya creator langsung ketemu
   const accepted = data.applications.filter(isFullyApproved)
-    .sort((a, b) => Number(String(b._id) === mineId) - Number(String(a._id) === mineId))
+    .sort((a, b) => Number(isMineRow(b)) - Number(isMineRow(a)))
   return {
     headers: visible.map((x) => x.c.label),
     columns: visible.map((x) => ({
@@ -365,8 +373,8 @@ export async function buildPortalView(tenantId: Types.ObjectId | string, campaig
     })),
     rows: accepted.map((a) => {
       const full = masterRow(campaign, data, a)
-      const isMine = String(a._id) === mineId
-      const subs = data.submissionsByCreator.get(String(a.creatorId)) ?? []
+      const isMine = isMineRow(a)
+      const subs = data.submissionsByCreator.get(String(a._id)) ?? []
       return {
         id: String(a._id),
         mine: isMine,

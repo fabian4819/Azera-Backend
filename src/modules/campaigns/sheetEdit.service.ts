@@ -1,4 +1,5 @@
 import { Types } from 'mongoose'
+import { submissionFilterFor } from '../applications/applicationScope'
 import Campaign from './campaign.model'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import Application from '../applications/application.model'
@@ -133,7 +134,7 @@ export async function applySheetRow(spreadsheetId: string, tab: string, row: She
     for (const type of ['draft', 'post'] as const) {
       const wanted = REVIEW_FROM_LABEL[label(campaignColumnLabel(campaign, REVIEW_HEADER[type]))]
       if (wanted !== 'approved' && wanted !== 'revision_requested') continue
-      const sub = await Submission.findOne({ tenantId: campaign.tenantId, campaignId: campaign._id, creatorId: application.creatorId, type }).sort({ createdAt: -1 })
+      const sub = await Submission.findOne({ ...submissionFilterFor(application), type }).sort({ createdAt: -1 })
       if (!sub) continue
       const note = String(row[REVIEW_NOTE_HEADER[type]] ?? '').trim()
       const sameStatus = sub.status === wanted

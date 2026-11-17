@@ -1,4 +1,6 @@
+import { Types } from 'mongoose'
 import { Router, Response } from 'express'
+import { submissionFilterFor, submissionBelongsTo } from './applicationScope'
 import { connectDB } from '../../db/connect'
 import { requireAuth, requireRole, AuthRequest } from '../../middleware/auth'
 import { setCreatorPaymentStatus } from './creatorPayment.service'
@@ -19,8 +21,12 @@ router.use(requireAuth, requireRole('owner', 'admin', 'ce'))
 // Dipakai di tiap endpoint yang me-return satu application buat REPLACE baris di tabel Pendaftar
 // (CampaignDetail.tsx), kalau latestSubmission gak ikut, kolom submission di baris itu kosong
 // sesaat sampai reload (sama kelasnya dengan bug creatorId/picUserId yang kemarin ketemu pas testing).
-async function findLatestSubmission(tenantId: unknown, campaignId: unknown, creatorId: unknown) {
-  return Submission.findOne({ tenantId, campaignId, creatorId }).sort({ createdAt: -1 })
+// creatorId sering sudah di-populate di endpoint ini, jadi id creator dioper terpisah
+const appRef = (a: { _id: unknown; tenantId: Types.ObjectId; campaignId: Types.ObjectId }, creatorId: unknown) =>
+  ({ _id: a._id, tenantId: a.tenantId, campaignId: a.campaignId, creatorId })
+
+async function findLatestSubmission(application: Parameters<typeof submissionFilterFor>[0]) {
+  return Submission.findOne(submissionFilterFor(application)).sort({ createdAt: -1 })
 }
 
 // AD-19/20: daftar pendaftar per campaign, buat keputusan akhir admin
@@ -39,18 +45,13 @@ router.get('/campaign/:campaignId', async (req: AuthRequest, res: Response) => {
     // supaya tabel Pendaftar di website nunjukin data yang SAMA PERSIS dengan mastersheet campaign
     // (bukan cuma tombol redirect ke Sheet, website tetap jadi display utama, Sheet cuma penunjang).
     const submissions = await Submission.find({ tenantId: req.auth!.tenantId, campaignId: campaign._id }).sort({ createdAt: -1 })
-    const latestByCreator = new Map<string, (typeof submissions)[number]>()
-    for (const s of submissions) {
-      const key = String(s.creatorId)
-      if (!latestByCreator.has(key)) latestByCreator.set(key, s)
-    }
     const withSubmissions = applications.map((a) => {
       // creatorId sudah di-populate jadi dokumen Creator penuh di atas, _id-nya yang dipakai buat
       // cocokin ke submission map, bukan `a.creatorId` mentah (itu sekarang objek, bukan ObjectId).
       // Optional chaining: creator bisa saja sudah dihapus (referensi yatim), populate() jadi null,
       // bukan objek, dan akses `._id` langsung bikin 500 di seluruh endpoint (bukan cuma baris ini).
       const creatorId = (a.creatorId as unknown as { _id: unknown } | null)?._id
-      return { ...a.toJSON(), latestSubmission: latestByCreator.get(String(creatorId)) || null }
+      return { ...a.toJSON(), latestSubmission: submissions.find((s) => submissionBelongsTo(s, appRef(a, creatorId))) || null }
     })
 
     res.json(withSubmissions)
@@ -84,7 +85,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     if (!result) { res.status(404).json({ message: 'Not found' }); return }
     const { application, generatedPassword } = result
     const creator = application.creatorId as unknown as { _id: string } | null
-    const latestSubmission = await findLatestSubmission(req.auth!.tenantId, application.campaignId, creator?._id)
+    const latestSubmission = await findLatestSubmission(appRef(application, creator?._id))
     res.json({ application: { ...application.toJSON(), latestSubmission }, generatedPassword })
   } catch {
     res.status(500).json({ message: 'Server error' })
@@ -136,7 +137,7 @@ router.patch('/:id/pic', async (req: AuthRequest, res: Response) => {
     // nama/WA/domisili/skor creator-nya (jadi "Creator dihapus" walau creator-nya masih ada).
     await application.populate('creatorId')
     await application.populate('picUserId', 'name email')
-    const latestSubmission = await findLatestSubmission(req.auth!.tenantId, application.campaignId, application.creatorId)
+    const latestSubmission = await findLatestSubmission(appRef(application, (application.creatorId as unknown as { _id: unknown })?._id ?? application.creatorId))
     res.json({ ...application.toJSON(), latestSubmission })
   } catch {
     res.status(500).json({ message: 'Server error' })

@@ -34,6 +34,12 @@ export interface IApplication extends Document {
   progress: Record<string, string | number>
   /** Magic link portal creator untuk campaign ini (/portal/:token), dibuat saat accepted */
   portalToken?: string
+  /** Campaign buzzer: akun yang diwakili baris ini (satu creator bisa punya beberapa Application per campaign) */
+  account?: { platform: string; username: string; followers?: number }
+  /** '' untuk campaign biasa, `platform:username` untuk buzzer, bagian dari unique index */
+  accountKey: string
+  /** Kapan creator dikabari lolos (WA/email), supaya akun-akun buzzer dikabari sekali dalam satu pesan */
+  acceptedNotifiedAt?: Date
   /** AD-25: pelacakan pembayaran ke creator, follow-up manual via admin, tanpa otomasi */
   creatorPaymentStatus: 'unpaid' | 'paid'
   createdAt: Date
@@ -65,13 +71,18 @@ const ApplicationSchema = new Schema<IApplication>(
     handleBy: String,
     progress: { type: Schema.Types.Mixed, default: {} },
     portalToken: String,
+    account: { platform: String, username: String, followers: Number },
+    accountKey: { type: String, default: '' },
+    acceptedNotifiedAt: Date,
     creatorPaymentStatus: { type: String, enum: ['unpaid', 'paid'], default: 'unpaid' },
   },
   { timestamps: true }
 )
 
 withTenant(ApplicationSchema)
-ApplicationSchema.index({ tenantId: 1, campaignId: 1, creatorId: 1 }, { unique: true })
+// accountKey: campaign buzzer boleh beberapa Application per creator (satu per akun). Index lama
+// tenantId_1_campaignId_1_creatorId_1 di-drop manual di DB saat deploy fitur buzzer.
+ApplicationSchema.index({ tenantId: 1, campaignId: 1, creatorId: 1, accountKey: 1 }, { unique: true })
 ApplicationSchema.index({ portalToken: 1 }, { unique: true, partialFilterExpression: { portalToken: { $type: 'string' } } })
 
 export default mongoose.model<IApplication>('Application', ApplicationSchema)

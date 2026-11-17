@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { submissionFilterFor } from '../applications/applicationScope'
 import { Types } from 'mongoose'
 import { ICampaign, IProgressColumn } from './campaign.model'
 import { IApplication } from '../applications/application.model'
@@ -77,12 +78,10 @@ export function normalizeCell(kind: CellKind, raw: unknown, metric: boolean): st
 
 async function findOrCreateSubmission(ctx: CellContext, col: IProgressColumn, create: boolean): Promise<ISubmission | null> {
   const b = col.submission!
-  const existing = await Submission.findOne({
-    tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type: b.type, platform: b.platform,
-  }).sort({ createdAt: -1 })
+  const existing = await Submission.findOne({ ...submissionFilterFor(ctx.application), type: b.type, platform: b.platform }).sort({ createdAt: -1 })
   if (existing || !create) return existing
   return new Submission({
-    tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type: b.type, platform: b.platform, insightScreenshotUrls: [],
+    tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, applicationId: ctx.application._id, type: b.type, platform: b.platform, insightScreenshotUrls: [],
   })
 }
 
@@ -158,7 +157,7 @@ function defaultPlatform(ctx: SubmissionCtx, link?: string): Platform {
 
 /** Submission terbaru tipe ini (platform apa pun), sama dengan yang ditampilkan di kolom bawaan. */
 function latestOfType(ctx: SubmissionCtx, type: 'draft' | 'post') {
-  return Submission.findOne({ tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type }).sort({ createdAt: -1 })
+  return Submission.findOne({ ...submissionFilterFor(ctx.application), type }).sort({ createdAt: -1 })
 }
 
 /** Portal: kolom bawaan (base:draft/post/insight) hanya bisa diisi creator kalau aksesnya 'edit'. */
@@ -184,7 +183,7 @@ export async function setPostingLink(ctx: SubmissionCtx, raw: unknown): Promise<
   if (!sub) {
     if (!link) return
     sub = new Submission({
-      tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type: 'post', platform: defaultPlatform(ctx, link), insightScreenshotUrls: [],
+      tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, applicationId: ctx.application._id, type: 'post', platform: defaultPlatform(ctx, link), insightScreenshotUrls: [],
     })
   }
   if (link && link !== sub.link) resubmit(sub, ctx.actor)
@@ -199,7 +198,7 @@ export async function uploadDraftFiles(ctx: SubmissionCtx, files: Express.Multer
   if (files.length === 0) throw new CellError('Pilih minimal 1 file foto/video')
   const urls = await Promise.all(files.map((f) => uploadFile(f, `drafts/${ctx.campaign._id}`)))
   const sub = (await latestOfType(ctx, 'draft')) ?? new Submission({
-    tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, type: 'draft', platform: defaultPlatform(ctx), insightScreenshotUrls: [],
+    tenantId: ctx.tenantId, campaignId: ctx.campaign._id, creatorId: ctx.application.creatorId, applicationId: ctx.application._id, type: 'draft', platform: defaultPlatform(ctx), insightScreenshotUrls: [],
   })
   if (!sub.isNew) resubmit(sub, ctx.actor)
   sub.mediaUrls = urls

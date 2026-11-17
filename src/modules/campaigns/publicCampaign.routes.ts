@@ -3,7 +3,8 @@ import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import crypto from 'crypto'
 import { Types } from 'mongoose'
-import Campaign, { ICampaign, findCampaignBySlug } from './campaign.model'
+import Campaign, { ICampaign, findCampaignBySlug, buzzerLimits } from './campaign.model'
+import { creatorViewFor } from '../applications/applicationScope'
 import Creator, { type SocialPlatform } from '../creators/creator.model'
 import Application from '../applications/application.model'
 import PicUser from '../pic/pic.model'
@@ -270,11 +271,18 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     const city = String(req.body.city ?? '').trim().slice(0, 80)
     const socialsIn: { platform?: string; username?: string; followers?: unknown }[] = Array.isArray(req.body.socials) ? req.body.socials : []
     const campaignPlatforms = (campaign.criteria?.platforms || []) as SocialPlatform[]
-    const socials = campaignPlatforms.map((platform) => {
-      const s = socialsIn.find((x) => x.platform === platform)
+    const cleanSocial = (platform: SocialPlatform, s?: { username?: string; followers?: unknown }) => {
       const followers = Number(s?.followers)
       return { platform, username: String(s?.username ?? '').trim().replace(/^@+/, '').slice(0, 100), followers: Number.isFinite(followers) && followers >= 0 ? Math.floor(followers) : NaN }
-    })
+    }
+    // Campaign buzzer: tiap platform boleh 1..maks akun (diatur admin), tiap akun jadi satu baris pendaftaran
+    const limits = buzzerLimits(campaign)
+    const buzzerAccounts = limits
+      ? campaignPlatforms.filter((p) => limits[p]).flatMap((p) => socialsIn.filter((x) => x.platform === p).map((x) => cleanSocial(p, x)))
+      : []
+    const socials = limits
+      ? campaignPlatforms.filter((p) => limits[p]).map((p) => buzzerAccounts.find((a) => a.platform === p) ?? cleanSocial(p))
+      : campaignPlatforms.map((platform) => cleanSocial(platform, socialsIn.find((x) => x.platform === platform)))
     // Provinsi & kota cuma ditanya (dan wajib) kalau campaign punya kriteria provinsi/kota
     const askDomicile = (campaign.criteria?.provinces?.length || 0) + (campaign.criteria?.cities?.length || 0) > 0
     if (!niches.length) {
@@ -285,10 +293,22 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       res.status(400).json({ message: 'Provinsi dan kota wajib diisi' })
       return
     }
-    const badSocial = socials.find((s) => !s.username || Number.isNaN(s.followers))
+    const badSocial = [...socials, ...buzzerAccounts].find((s) => !s.username || Number.isNaN(s.followers))
     if (badSocial) {
       res.status(400).json({ message: `Username & jumlah followers ${badSocial.platform} wajib diisi` })
       return
+    }
+    if (limits) {
+      const over = Object.entries(limits).find(([p, max]) => buzzerAccounts.filter((a) => a.platform === p).length > max)
+      if (over) {
+        res.status(400).json({ message: `Maksimal ${over[1]} akun ${over[0]}` })
+        return
+      }
+      const keys = buzzerAccounts.map((a) => accountKeyOf(a))
+      if (new Set(keys).size !== keys.length) {
+        res.status(400).json({ message: 'Ada akun yang diisi lebih dari sekali' })
+        return
+      }
     }
 
     // AD-47: validasi pertanyaan custom yang wajib diisi
@@ -333,9 +353,14 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       return
     }
     // Satu akun sosmed cuma boleh daftar sekali per campaign, walau pakai nomor WA/email lain
-    const dupe = await findDuplicateSocial(tenant._id, campaign._id, socials, creator?._id)
+    const dupe = await findDuplicateSocial(tenant._id, campaign._id, limits ? buzzerAccounts : socials, creator?._id)
     if (dupe) {
       res.status(409).json({ message: `Akun ${dupe.platform} @${dupe.username} sudah terdaftar di campaign ini.` })
+      return
+    }
+    // Cek sebelum profil diubah: pendaftaran ulang yang ditolak tidak boleh menimpa data akun creator
+    if (creator && await Application.exists({ tenantId: tenant._id, campaignId: campaign._id, creatorId: creator._id })) {
+      res.status(409).json({ message: 'Kamu sudah terdaftar di campaign ini' })
       return
     }
     if (!creator) {
@@ -352,34 +377,33 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     creator.socials = [...(creator.socials || []).filter((s) => !campaignPlatforms.includes(s.platform)), ...socials]
     await creator.save()
 
-    const existingApplication = await Application.findOne({
-      tenantId: tenant._id,
-      campaignId: campaign._id,
-      creatorId: creator._id,
-    })
-    if (existingApplication) {
-      res.status(409).json({ message: 'Kamu sudah terdaftar di campaign ini' })
-      return
+    // Biasa: satu pendaftaran. Buzzer: satu pendaftaran per akun, kurasi per akun (min. followers dicek per akun).
+    const accounts = limits ? buzzerAccounts : [undefined]
+    const created = []
+    for (const account of accounts) {
+      const view = account ? creatorViewFor(creator, { _id: null, tenantId: tenant._id, campaignId: campaign._id, creatorId: creator._id, account }) : creator
+      const curation = await runSmartCuration(campaign, view as typeof creator, tenant._id)
+      const application = await Application.create({
+        tenantId: tenant._id,
+        campaignId: campaign._id,
+        creatorId: creator._id,
+        ...(account ? { account, accountKey: accountKeyOf(account) } : {}),
+        customAnswers: customAnswers || {},
+        picUserId: validatedPicUserId,
+        handleBy: applyFields.handleBy ? handleBy || undefined : undefined,
+        curationResult: curation.result,
+        curationReason: curation.reason,
+        // Skema client_only: kurasi tidak menolak otomatis, client yang memutuskan
+        status: curation.autoRejected && campaign.approvalFlow !== 'client_only' ? 'rejected' : 'pending',
+        decidedAt: curation.autoRejected && campaign.approvalFlow !== 'client_only' ? new Date() : undefined,
+      })
+      created.push({ application, curation })
+      // Skema "langsung ke client": tahap 1 otomatis lolos (lewat jalur yang sama dgn approve admin: magic link,
+      // akun portal, sync sheet), jadi pendaftar langsung muncul di Listing client. Kurasi tetap sebagai bahan.
+      if (campaign.approvalFlow === 'client_only') await decideApplication(tenant._id, String(application._id), 'accepted')
+      else syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
     }
-
-    const curation = await runSmartCuration(campaign, creator, tenant._id)
-    const application = await Application.create({
-      tenantId: tenant._id,
-      campaignId: campaign._id,
-      creatorId: creator._id,
-      customAnswers: customAnswers || {},
-      picUserId: validatedPicUserId,
-      handleBy: applyFields.handleBy ? handleBy || undefined : undefined,
-      curationResult: curation.result,
-      curationReason: curation.reason,
-      // Skema client_only: kurasi tidak menolak otomatis, client yang memutuskan
-      status: curation.autoRejected && campaign.approvalFlow !== 'client_only' ? 'rejected' : 'pending',
-      decidedAt: curation.autoRejected && campaign.approvalFlow !== 'client_only' ? new Date() : undefined,
-    })
-    // Skema "langsung ke client": tahap 1 otomatis lolos (lewat jalur yang sama dgn approve admin: magic link,
-    // akun portal, sync sheet), jadi pendaftar langsung muncul di Listing client. Kurasi tetap sebagai bahan.
-    if (campaign.approvalFlow === 'client_only') await decideApplication(tenant._id, String(application._id), 'accepted')
-    else syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (application):', err))
+    const { application, curation } = created[0]
 
     res.status(201).json({
       message: curation.autoRejected && campaign.approvalFlow !== 'client_only'
@@ -393,11 +417,15 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
   }
 })
 
+const accountKeyOf = (a: { platform: string; username: string }) => `${a.platform}:${a.username.replace(/^@+/, '').toLowerCase()}`
+
 const escapeRegex = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 /** Akun (platform + username, tanpa beda besar-kecil huruf) yang sudah dipakai creator LAIN untuk daftar di campaign ini. */
 async function findDuplicateSocial(tenantId: Types.ObjectId, campaignId: Types.ObjectId, socials: { platform: string; username: string }[], selfId?: Types.ObjectId) {
   for (const s of socials) {
+    // Akun buzzer (baris per akun) tersimpan di Application.account, tidak selalu ada di profil creator
+    if (await Application.exists({ tenantId, campaignId, accountKey: accountKeyOf(s) })) return s
     const owners = await Creator.find({
       tenantId,
       ...(selfId ? { _id: { $ne: selfId } } : {}),
