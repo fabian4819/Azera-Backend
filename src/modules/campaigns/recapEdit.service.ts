@@ -1,4 +1,5 @@
 import { Types } from 'mongoose'
+import type { WaBotKey } from '../../lib/baileys'
 import { ICampaign } from './campaign.model'
 import Creator from '../creators/creator.model'
 import PicUser from '../pic/pic.model'
@@ -50,14 +51,14 @@ export async function setRecapPicCell(tenantId: Id, campaign: ICampaign, picUser
 
 /** Rekap per PIC: fee campaign ini sudah/belum dibayar ke PIC. Lunas → creator di bawahnya ikut Lunas
  * (batal Lunas tidak menarik balik status creator, bisa saja sudah dibayar terpisah). */
-export async function setRecapPicPaid(tenantId: Id, campaign: ICampaign, picUserId: Id, paid: boolean): Promise<number> {
+export async function setRecapPicPaid(tenantId: Id, campaign: ICampaign, picUserId: Id, paid: boolean, sender?: WaBotKey): Promise<number> {
   const pic = await PicUser.findOneAndUpdate(
     { _id: picUserId, tenantId },
     paid ? { $addToSet: { paidCampaignIds: campaign._id } } : { $pull: { paidCampaignIds: campaign._id } },
     { new: true },
   )
   if (!pic) throw new CellError('PIC tidak ditemukan', 404)
-  const creatorsMarkedPaid = paid ? await markPicCreatorsPaid(tenantId, campaign._id, pic._id) : 0
+  const creatorsMarkedPaid = paid ? await markPicCreatorsPaid(tenantId, campaign._id, pic._id, sender) : 0
   scheduleWorkbookSync(tenantId, campaign._id)
   return creatorsMarkedPaid
 }

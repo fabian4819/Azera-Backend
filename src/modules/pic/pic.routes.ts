@@ -4,6 +4,7 @@ import { connectDB } from '../../db/connect'
 import { getDefaultTenant } from '../tenants/defaultTenant'
 import { requireAuth, requireRole, signPicToken, AuthRequest } from '../../middleware/auth'
 import PicUser from './pic.model'
+import Tenant from '../tenants/tenant.model'
 import { Types } from 'mongoose'
 import Campaign, { shortApplyCode } from '../campaigns/campaign.model'
 import Application from '../applications/application.model'
@@ -154,9 +155,9 @@ const EDITABLE_PAYMENT = ['methodName', 'accountNumber', 'accountName'] as const
 picPortalRouter.get('/me', async (req: AuthRequest, res: Response) => {
   try {
     await connectDB()
-    const picUser = await PicUser.findById(req.auth!.userId).select(PROFILE_FIELDS)
+    const [picUser, tenant] = await Promise.all([PicUser.findById(req.auth!.userId).select(PROFILE_FIELDS), Tenant.findById(req.auth!.tenantId).select('settings.picGroupLink')])
     if (!picUser) { res.status(404).json({ message: 'Not found' }); return }
-    res.json(picUser)
+    res.json({ ...picUser.toJSON(), picGroupLink: tenant?.settings?.picGroupLink || '' })
   } catch {
     res.status(500).json({ message: 'Server error' })
   }
@@ -214,6 +215,29 @@ picPortalRouter.get('/campaigns/:id/dashboard', async (req: AuthRequest, res: Re
 // Daftar akun PIC/Handle-by untuk menu admin, dipakai buat cari email saat assign ke campaign.
 export const picAdminRouter = Router()
 picAdminRouter.use(requireAuth, requireRole('owner', 'admin', 'ce'))
+
+// Link grup WA PIC (tampil di portal PIC setelah daftar)
+picAdminRouter.get('/settings', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const tenant = await Tenant.findById(req.auth!.tenantId).select('settings.picGroupLink')
+    res.json({ picGroupLink: tenant?.settings?.picGroupLink || '' })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
+picAdminRouter.put('/settings', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const link = String(req.body.picGroupLink ?? '').trim()
+    if (link && !/^https:\/\/chat\.whatsapp\.com\/\S+$/.test(link)) { res.status(400).json({ message: 'Link harus link undangan grup WhatsApp (https://chat.whatsapp.com/...)' }); return }
+    await Tenant.updateOne({ _id: req.auth!.tenantId }, { 'settings.picGroupLink': link || undefined })
+    res.json({ picGroupLink: link })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
 
 picAdminRouter.get('/', async (req: AuthRequest, res: Response) => {
   try {

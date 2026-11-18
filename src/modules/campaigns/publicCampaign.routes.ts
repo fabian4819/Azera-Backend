@@ -283,12 +283,13 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     const socials = limits
       ? campaignPlatforms.filter((p) => limits[p]).map((p) => buzzerAccounts.find((a) => a.platform === p) ?? cleanSocial(p))
       : campaignPlatforms.map((platform) => cleanSocial(platform, socialsIn.find((x) => x.platform === platform)))
-    // Provinsi & kota cuma ditanya (dan wajib) kalau campaign punya kriteria provinsi/kota
-    const askDomicile = (campaign.criteria?.provinces?.length || 0) + (campaign.criteria?.cities?.length || 0) > 0
-    if (!niches.length) {
+    // Niche: default wajib; admin bisa menghapus field-nya dari form atau menjadikannya opsional
+    if (applyFields.niches !== false && applyFields.nichesRequired !== false && !niches.length) {
       res.status(400).json({ message: 'Niche wajib diisi' })
       return
     }
+    // Provinsi & kota cuma ditanya (dan wajib) kalau campaign punya kriteria provinsi/kota
+    const askDomicile = (campaign.criteria?.provinces?.length || 0) + (campaign.criteria?.cities?.length || 0) > 0
     if (askDomicile && (!province || !city)) {
       res.status(400).json({ message: 'Provinsi dan kota wajib diisi' })
       return
@@ -372,7 +373,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
       creator.name = name.slice(0, 120)
     }
     // Data terbaru dari form menimpa profil: niche & domisili, akun per platform diganti (platform lain dibiarkan)
-    creator.niches = niches
+    if (niches.length) creator.niches = niches
     if (askDomicile) creator.domicile = { ...(creator.domicile || {}), province, city }
     creator.socials = [...(creator.socials || []).filter((s) => !campaignPlatforms.includes(s.platform)), ...socials]
     await creator.save()

@@ -5,6 +5,8 @@ export interface ITenant extends Document {
   slug: string
   settings: {
     waNumber?: string
+    /** Link undangan grup WA PIC (grup minta izin bergabung, admin approve di WA), tampil di portal PIC */
+    picGroupLink?: string
     contactEmail?: string
     /** Toggle bot balasan otomatis (leadBot) per bot, undefined dianggap aktif */
     autoReply?: { partnership?: boolean; creator?: boolean }
@@ -28,6 +30,7 @@ const TenantSchema = new Schema<ITenant>(
     slug: { type: String, required: true, unique: true },
     settings: {
       waNumber: String,
+      picGroupLink: String,
       contactEmail: String,
       autoReply: { partnership: Boolean, creator: Boolean },
       financeRecapColumns: [{ _id: false, key: String, label: String, type: { type: String, enum: ['text', 'income', 'expense'] } }],

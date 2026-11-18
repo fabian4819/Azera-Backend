@@ -48,7 +48,8 @@ router.get('/stats', async (req: AuthRequest, res: Response) => {
     const dailyCampaigns = Object.entries(dayCounts).map(([date, count]) => ({ date, count }))
 
     const [recentBrands, recentCreators] = await Promise.all([
-      Brand.find().sort({ createdAt: -1 }).limit(5).select('namaBrand namaPIC createdAt status'),
+      // Pengajuan brand cuma untuk owner (menu Brands disembunyikan dari admin/CE)
+      effectiveRole(req.auth!.role) === 'owner' ? Brand.find().sort({ createdAt: -1 }).limit(5).select('namaBrand namaPIC createdAt status') : [],
       Creator.find({ tenantId }).sort({ createdAt: -1 }).limit(5).select('name createdAt status'),
     ])
     const recentActivity = [

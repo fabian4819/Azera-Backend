@@ -24,8 +24,12 @@ router.use(requireAuth, requireRole('owner', 'admin', 'finance'))
 
 const KINDS = Object.keys(RENDERERS) as DocKind[]
 const isKind = (v: unknown): v is DocKind => KINDS.includes(v as DocKind)
-/** Invoice = data keuangan, khusus owner (+ developer); admin/finance tetap bisa Quotation & SPK. */
-const allowedKinds = (req: AuthRequest) => (effectiveRole(req.auth!.role) === 'owner' ? KINDS : KINDS.filter((k) => k !== 'invoice'))
+/** Invoice = data keuangan, khusus owner (+ developer); Quotation: owner & finance; admin cuma SPK. */
+const allowedKinds = (req: AuthRequest) => {
+  const role = effectiveRole(req.auth!.role)
+  if (role === 'owner') return KINDS
+  return KINDS.filter((k) => k !== 'invoice' && (k !== 'quotation' || role === 'finance'))
+}
 const canUse = (req: AuthRequest, type: DocKind) => allowedKinds(req).includes(type)
 const MAX_DATA_BYTES = 100 * 1024
 

@@ -24,7 +24,9 @@ import { requestBankInfoFromPics } from '../pic/picPayment.service'
 import { requestBankInfoFromCreators } from '../applications/creatorPayment.service'
 import { setRecapCreatorCell, setRecapPicCell, setRecapPicPaid } from './recapEdit.service'
 import { parseBriefBlocks, setBrief, uploadKind, stripPicMgFee } from './briefBlocks'
-import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey, AZERA_SENDER, isAdminBotId } from '../../lib/baileys'
+import { enqueueWaMessage, visibleBots, listGroups, getWaStatus, WaBotKey, AZERA_SENDER, isAdminBotId, parseSender, defaultSender } from '../../lib/baileys'
+import { DEFAULT_TEMPLATES } from '../whatsapp/defaultTemplates'
+import type { WaTrigger } from '../whatsapp/waTemplate.model'
 import { WA_TRIGGERS } from '../whatsapp/waTemplate.model'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { transitionWorkflow, WorkflowTransitionError } from './workflow.service'
@@ -205,6 +207,19 @@ router.get('/wa-senders', (_req: AuthRequest, res: Response) => {
   res.json(visibleBots().map((id) => ({ id, ...getWaStatus(id) })))
 })
 
+// Default pengirim untuk modal konfirmasi WA (pengaturan pengirim campaign, atau bot sesuai audience template)
+router.get('/wa-sender-default', async (req: AuthRequest, res: Response) => {
+  const trigger = req.query.trigger as WaTrigger
+  if (!trigger || !(trigger in DEFAULT_TEMPLATES)) { res.status(400).json({ message: 'trigger tidak dikenal' }); return }
+  try {
+    await connectDB()
+    const campaignId = typeof req.query.campaignId === 'string' && await Campaign.exists({ _id: req.query.campaignId, tenantId: req.auth!.tenantId }) ? req.query.campaignId : undefined
+    res.json({ sender: await defaultSender(trigger, campaignId) })
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 router.get('/wa-groups', async (req: AuthRequest, res: Response) => {
   const bot = (req.query.bot as WaBotKey) || 'partnership'
   if (!visibleBots().includes(bot)) { res.status(400).json({ message: 'Bot tidak dikenal' }); return }
@@ -339,7 +354,7 @@ router.patch('/:id/sheet/recap-pic-paid', async (req: AuthRequest, res: Response
     const { picUserId, paid } = req.body as { picUserId: string; paid: boolean }
     const campaign = await Campaign.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!campaign) { res.status(404).json({ message: 'Campaign tidak ditemukan' }); return }
-    const creatorsMarkedPaid = await setRecapPicPaid(req.auth!.tenantId!, campaign, picUserId, Boolean(paid))
+    const creatorsMarkedPaid = await setRecapPicPaid(req.auth!.tenantId!, campaign, picUserId, Boolean(paid), parseSender(req.body.waSender))
     res.json({ ok: true, creatorsMarkedPaid })
   } catch (err) {
     sendCellError(res, err)
@@ -352,7 +367,7 @@ router.post('/:id/recap/request-creator-bank-info', async (req: AuthRequest, res
   try {
     await connectDB()
     const applicationId = typeof req.body?.applicationId === 'string' && req.body.applicationId ? req.body.applicationId : undefined
-    const count = await requestBankInfoFromCreators(req.auth!.tenantId as string, req.params.id, applicationId)
+    const count = await requestBankInfoFromCreators(req.auth!.tenantId as string, req.params.id, applicationId, parseSender(req.body.waSender))
     res.json({ ok: true, count })
   } catch (err) {
     res.status(400).json({ message: err instanceof Error ? err.message : 'Server error' })
@@ -364,7 +379,7 @@ router.post('/:id/recap/request-bank-info', async (req: AuthRequest, res: Respon
     await connectDB()
     // Body { picUserId } = kirim ke satu PIC saja; kosong = semua PIC campaign ini
     const picUserId = typeof req.body?.picUserId === 'string' && req.body.picUserId ? req.body.picUserId : undefined
-    const count = await requestBankInfoFromPics(req.auth!.tenantId as string, req.params.id, picUserId)
+    const count = await requestBankInfoFromPics(req.auth!.tenantId as string, req.params.id, picUserId, parseSender(req.body.waSender))
     res.json({ ok: true, count })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Server error'
@@ -414,6 +429,7 @@ const EDITABLE_FIELDS = [
   'briefContent', 'waGroupLink', 'targetKpi', 'status', 'applyOpen',
   'customFields', 'applyFields', 'progressColumns', 'columnAccess',
   'feeNote', 'benefits', 'requirements', 'infoLink', 'approvalFlow', 'columnLabels', 'columnOrder', 'waSenders',
+  'clientHiddenColumns',
 ] as const
 
 function sanitizeApplyFields(a: Record<string, unknown> = {}) {
@@ -426,6 +442,7 @@ function sanitizeApplyFields(a: Record<string, unknown> = {}) {
   )
   return {
     pic: a.pic !== false, handleBy: a.handleBy !== false, handleByRequired: a.handleByRequired === true,
+    niches: a.niches !== false, nichesRequired: a.nichesRequired !== false,
     ...(order?.length ? { order } : {}), ...(Object.keys(descriptions).length ? { descriptions } : {}),
   }
 }
@@ -906,7 +923,7 @@ router.post('/:id/client-sheet/approve', async (req: AuthRequest, res: Response)
       // rate limit Google Sheets (baris master yang gagal tercatat di log). Batch upsert kalau itu mulai terjadi.
       for (const r of out) {
         if (r.status !== 'match') continue
-        if (await clientDecideApplication(tenantId, campaign._id, r.applicationId!, 'accepted')) approved++
+        if (await clientDecideApplication(tenantId, campaign._id, r.applicationId!, 'accepted', parseSender(req.body.waSender))) approved++
       }
     }
     res.json({ rows: out, approved })

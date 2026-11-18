@@ -711,6 +711,8 @@ export async function enqueueWaMessage(opts: {
   bot?: WaBotKey
   /** Tujuan grup: mention semua anggota (lihat QueueItem.mentionAll) */
   mentionAll?: boolean
+  /** Pengirim dipilih admin di modal konfirmasi (menggantikan pengaturan pengirim campaign); toggle automation tetap berlaku */
+  sender?: WaBotKey
 }) {
   if (devBotEnabled) {
     // Lokal: tanpa WaMessageLog di DB production, apa pun trigger/bot-nya keluar lewat nomor developer
@@ -722,10 +724,10 @@ export async function enqueueWaMessage(opts: {
     return log
   }
   const audienceBot = audienceToBot[DEFAULT_TEMPLATES[opts.trigger].audience]
-  let botId: WaBotKey = opts.bot ?? audienceBot
+  let botId: WaBotKey = opts.bot ?? opts.sender ?? audienceBot
   let fallback: WaBotKey | undefined
   // Pengirim per tindakan bot diatur di campaign (WA Azera atau WA admin, utama + backup)
-  if (!opts.bot && opts.campaignId) {
+  if (!opts.bot && !opts.sender && opts.campaignId) {
     const route = await campaignSender(opts.campaignId, opts.trigger, audienceBot)
     if (route) {
       // Utama sedang tidak tersambung tapi backup tersambung: langsung lewat backup, tidak menunggu
@@ -751,6 +753,17 @@ export async function enqueueWaMessage(opts: {
   if (!skipped) getBot(botId).enqueue(log._id.toString(), opts.to, opts.payload, Date.now(), fallback, opts.mentionAll)
   return log
 }
+
+/** Pengirim yang dipakai untuk trigger ini kalau admin tidak memilih lain (default modal konfirmasi) */
+export async function defaultSender(trigger: WaTrigger, campaignId?: string): Promise<WaBotKey> {
+  const audienceBot = audienceToBot[DEFAULT_TEMPLATES[trigger].audience]
+  const route = campaignId ? await campaignSender(campaignId, trigger, audienceBot) : null
+  return route?.primary ?? audienceBot
+}
+
+/** Pengirim dari body request (modal konfirmasi): cuma bot yang memang tampil di daftar pengirim */
+export const parseSender = (v: unknown): WaBotKey | undefined =>
+  typeof v === 'string' && (visibleBots() as string[]).includes(v) ? (v as WaBotKey) : undefined
 
 /** 'azera' = bot bawaan sesuai audience (creator → WA community/creator, client → partnership) */
 export const AZERA_SENDER = 'azera'

@@ -3,7 +3,7 @@ import Creator from '../creators/creator.model'
 import Application from '../applications/application.model'
 import Campaign from '../campaigns/campaign.model'
 import { getDefaultTenant } from '../tenants/defaultTenant'
-import { enqueueWaMessage } from '../../lib/baileys'
+import { enqueueWaMessage, type WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { isFullyApproved } from '../../lib/sheetSync.service'
 
@@ -11,7 +11,7 @@ const normPhone = (p: string) => p.replace(/\D/g, '').replace(/^0/, '62')
 
 /** AD-adjustment-6: admin klik tombol di Recap Payment, minta info bank/e-wallet ke tiap PIC
  * yang pegang creator fully-approved di campaign ini, atau ke satu PIC saja (picUserId). */
-export async function requestBankInfoFromPics(tenantId: string, campaignId: string, picUserId?: string): Promise<number> {
+export async function requestBankInfoFromPics(tenantId: string, campaignId: string, picUserId?: string, sender?: WaBotKey): Promise<number> {
   const campaign = await Campaign.findOne({ _id: campaignId, tenantId })
   if (!campaign) throw new Error('Campaign tidak ditemukan')
   const applications = (await Application.find({ tenantId, campaignId })).filter(isFullyApproved)
@@ -28,7 +28,7 @@ export async function requestBankInfoFromPics(tenantId: string, campaignId: stri
     const payload = renderTemplate(template, {
       nama: pic.name, campaign: campaign.name, jumlah_creator: count, fee: `Rp${(picFee * count).toLocaleString('id-ID')}`,
     })
-    await enqueueWaMessage({ tenantId, trigger: 'pic_bank_info_request', to: pic.phone, payload, campaignId })
+    await enqueueWaMessage({ tenantId, trigger: 'pic_bank_info_request', to: pic.phone, payload, campaignId, sender })
     pic.paymentInfoRequestedAt = new Date()
     pic.pendingPaymentReply = undefined
     await pic.save()

@@ -8,7 +8,7 @@ import SocialSnapshot from '../extension/socialSnapshot.model'
 import { computePerformanceScore } from './performanceScore.service'
 import { syncCreatorToSheet } from '../../lib/sheetSync.service'
 import { getCreatorsTabUrl } from '../../lib/googleSheets'
-import { enqueueWaMessage } from '../../lib/baileys'
+import { enqueueWaMessage, parseSender, type WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { sendEmail } from '../../lib/email'
 import { creatorProfileApprovedEmail, creatorProfileRejectedEmail, CREATOR_COMMUNITY_LINK } from '../../lib/emailTemplates'
@@ -120,12 +120,12 @@ const EDITABLE_FIELDS = [
 
 /** Menu Creator: kabari keputusan kurasi profil lewat WA (template, bisa diedit/dimatikan) + email.
  * Disetujui = ajakan join Komunitas WhatsApp; ditolak = dikabari kalau ada campaign yang cocok. */
-async function notifyCreatorDecision(tenantId: string, creator: { _id: unknown; name: string; phone?: string; email?: string; status: string }) {
+async function notifyCreatorDecision(tenantId: string, creator: { _id: unknown; name: string; phone?: string; email?: string; status: string }, sender?: WaBotKey) {
   const approved = creator.status === 'approved'
   if (creator.phone) {
     const trigger = approved ? 'creator_profile_approved' : 'creator_profile_rejected'
     const payload = renderTemplate(await getTemplate(tenantId, trigger), { nama: creator.name, community_link: CREATOR_COMMUNITY_LINK })
-    await enqueueWaMessage({ tenantId, trigger, to: creator.phone, payload, creatorId: String(creator._id) })
+    await enqueueWaMessage({ tenantId, trigger, to: creator.phone, payload, creatorId: String(creator._id), sender })
   }
   if (creator.email) {
     const mail = approved ? creatorProfileApprovedEmail(creator.name) : creatorProfileRejectedEmail(creator.name)
@@ -150,7 +150,7 @@ router.patch('/:id', async (req: AuthRequest, res: Response) => {
     const creator = (await Creator.findById(before._id))!
     syncCreatorToSheet(creator).catch((err) => console.error('Sheet sync error (creator):', err))
     if (before.status !== creator.status && (creator.status === 'approved' || creator.status === 'rejected')) {
-      notifyCreatorDecision(String(req.auth!.tenantId), creator)
+      notifyCreatorDecision(String(req.auth!.tenantId), creator, parseSender(req.body.waSender))
         .catch((err) => console.error('Creator decision notify error:', err))
     }
     res.json(creator)

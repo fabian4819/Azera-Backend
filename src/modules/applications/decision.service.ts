@@ -6,6 +6,7 @@ import Creator from '../creators/creator.model'
 import { syncApplicationToSheet } from '../../lib/sheetSync.service'
 import { ensurePortalToken } from '../campaigns/progress.service'
 import { notifyCreatorAccepted } from './acceptedNotify.service'
+import type { WaBotKey } from '../../lib/baileys'
 
 export type Decision = 'accepted' | 'rejected' | 'pending'
 
@@ -37,7 +38,7 @@ export async function decideApplication(
 /** Tahap 2 (client), dari tab Listing portal client ATAU sheet external. Hanya untuk yang lolos tahap 1.
  * Pertama kali jadi 'accepted' = creator dikabari (WA + email), sekali saja. */
 export async function clientDecideApplication(
-  tenantId: Types.ObjectId | string, campaignId: Types.ObjectId | string, applicationId: string, status: Decision,
+  tenantId: Types.ObjectId | string, campaignId: Types.ObjectId | string, applicationId: string, status: Decision, sender?: WaBotKey,
 ): Promise<IApplication | null> {
   // `new: false` = sebelum update, supaya notif lolos cuma terkirim sekali (bukan tiap klik approve ulang)
   const before = await Application.findOneAndUpdate(
@@ -49,7 +50,7 @@ export async function clientDecideApplication(
   const application = (await Application.findById(before._id))!
   syncApplicationToSheet(application).catch((err) => console.error('Sheet sync error (client approval):', err))
   if (status === 'accepted' && before.clientApprovalStatus !== 'accepted') {
-    notifyCreatorAccepted(application).catch((err) => console.error('Accepted notify error:', err))
+    notifyCreatorAccepted(application, sender).catch((err) => console.error('Accepted notify error:', err))
   }
   return application
 }

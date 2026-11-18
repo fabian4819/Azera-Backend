@@ -378,11 +378,38 @@ export interface WorkbookTab {
 
 const LOCK_DESCRIPTION = 'azera-lock'
 
+const rgb = (hex: string) => ({ red: parseInt(hex.slice(1, 3), 16) / 255, green: parseInt(hex.slice(3, 5), 16) / 255, blue: parseInt(hex.slice(5, 7), 16) / 255 })
+/** Warna status sama dengan badge di website. Urutan penting: aturan pertama yang cocok yang dipakai
+ * ("Belum Lunas" harus merah, bukan hijau karena mengandung "Lunas"). */
+const STATUS_COLORS: { words: string[]; bg: string; fg: string }[] = [
+  { words: ['Rejected', 'Revisi', 'Belum'], bg: '#ffdad6', fg: '#ba1a1a' },
+  { words: ['Approved', 'Lunas', 'Sudah'], bg: '#d1fae5', fg: '#065F46' },
+  { words: ['Pending', 'Menunggu'], bg: '#fef3c7', fg: '#92400E' },
+]
+
+/** Kolom dropdown & kolom berjudul "Status ..." diwarnai sesuai isinya */
+export function statusColorRules(tabs: WorkbookTab[], sheetIdOf: (title: string) => number | null | undefined) {
+  return tabs.flatMap((t) => {
+    const sheetId = sheetIdOf(t.title)
+    const headers = (t.values[0] || []).map(String)
+    if (sheetId == null) return []
+    const cols = headers.map((h, c) => (t.dropdowns?.[c] || /^status/i.test(h) ? c : -1)).filter((c) => c >= 0)
+    if (!cols.length) return []
+    const ranges = cols.map((c) => ({ sheetId, startRowIndex: 1, endRowIndex: Math.max(t.tableRows, 2), startColumnIndex: c, endColumnIndex: c + 1 }))
+    return STATUS_COLORS.flatMap(({ words, bg, fg }) => words.map((word) => ({ word, bg, fg }))).map(({ word, bg, fg }, index) => ({
+      addConditionalFormatRule: {
+        rule: { ranges, booleanRule: { condition: { type: 'TEXT_CONTAINS', values: [{ userEnteredValue: word }] }, format: { backgroundColor: rgb(bg), textFormat: { foregroundColor: rgb(fg), bold: true } } } },
+        index,
+      },
+    }))
+  })
+}
+
 export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab[]): Promise<void> {
   const sheets = getSheetsClient()
   if (!sheets) return
   const sheetMeta = async () => (await sheets.spreadsheets.get({
-    spreadsheetId, fields: 'sheets(properties(title,sheetId),tables(tableId),protectedRanges(protectedRangeId,description))',
+    spreadsheetId, fields: 'sheets(properties(title,sheetId),tables(tableId),protectedRanges(protectedRangeId,description),conditionalFormats(ranges(sheetId)))',
   })).data.sheets || []
   let meta = await sheetMeta()
   const missing = tabs.filter((t) => !meta.some((sh) => sh.properties?.title === t.title))
@@ -401,6 +428,8 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
     ...ours.flatMap((sh) => sh.tables || []).map((t) => ({ deleteTable: { tableId: t.tableId } })),
     ...ours.flatMap((sh) => sh.protectedRanges || []).filter((p) => p.description === LOCK_DESCRIPTION)
       .map((p) => ({ deleteProtectedRange: { protectedRangeId: p.protectedRangeId } })),
+    // Warna status dibuat ulang tiap sync (kolom bisa bergeser); index 0 dihapus berulang = semua aturan tab ini
+    ...ours.flatMap((sh) => (sh.conditionalFormats || []).map(() => ({ deleteConditionalFormatRule: { sheetId: sh.properties?.sheetId, index: 0 } }))),
     // Sel gabungan sync sebelumnya WAJIB dilepas sebelum nilai ditulis: kalau baris bergeser (mis. invoice baru
     // di atas), nilai yang jatuh di sel tertutup gabungan lama dibuang Google Sheets dan job jadi tanpa nama
     ...tabs.filter((t) => t.groups).flatMap((t) => {
@@ -443,6 +472,11 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
   if (tables.length) {
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: tables } })
       .catch((err) => console.error('Sheets addTable error:', (err as Error).message))
+  }
+  const colors = statusColorRules(tabs, sheetIdOf)
+  if (colors.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: colors } })
+      .catch((err) => console.error('Sheets status color error:', (err as Error).message))
   }
   const grouped = tabs.flatMap((t) => {
     const sheetId = sheetIdOf(t.title)

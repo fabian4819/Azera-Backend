@@ -48,6 +48,8 @@ export interface ColumnMeta {
   kind?: CellKind
   /** Aturan akses creator (portal magic link), ditampilkan & diatur di admin */
   access: 'hidden' | 'view' | 'edit'
+  /** Disembunyikan dari client (dashboard & sheet client), lihat clientHiddenSet */
+  clientHidden?: boolean
   /** Kolom bawaan Draft / Link Posting / status-nya (bukan kolom progress), diisi & di-review admin */
   submission?: { type: 'draft' | 'post'; review?: true }
 }
@@ -117,6 +119,7 @@ function masterTable(campaign: ICampaign, d: CampaignData): SheetTable {
       progressId: c.progress?.id,
       kind: columnKind(c),
       access: creatorAccess(campaign, c),
+      clientHidden: clientHiddenSet(campaign).has(c.key),
       submission: c.progress ? undefined : BASE_SUBMISSION_COLUMNS[c.key] && { type: BASE_SUBMISSION_COLUMNS[c.key].type, review: BASE_SUBMISSION_COLUMNS[c.key].review },
     })),
     rows: accepted.map((a) => masterRow(campaign, d, a)),
@@ -314,19 +317,21 @@ export async function buildSheetView(tenantId: Types.ObjectId | string, campaign
     : kind === 'report' ? reportTable(data)
     : { ...recapTable(campaign, data), byPic: recapByPicTable(campaign, data) }
   const brand = campaign.brandId as unknown as { namaBrand?: string } | null
-  return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null, approvalFlow: campaign.approvalFlow ?? 'two_step' }, ...table }
+  return { campaign: { _id: campaign._id, name: campaign.name, brandName: brand?.namaBrand ?? null, approvalFlow: campaign.approvalFlow ?? 'two_step', waGroupLink: campaign.waGroupLink || '' }, ...table }
 }
 
-/** Kolom data internal AZERA (kontak creator & orang internal) yang tidak boleh terlihat oleh client:
- * dashboard client = versi "eksternal" dari sheet internal. */
-const CLIENT_HIDDEN_COLUMNS = new Set(['WhatsApp', 'Email', 'PIC/Partner', 'Handle By'])
+/** Kolom yang disembunyikan dari client (dashboard & sheet client). Diatur admin per kolom di header Master
+ * Sheet (Campaign.clientHiddenColumns); default cuma data internal AZERA: WA creator, PIC, Handle by. */
+export const DEFAULT_CLIENT_HIDDEN = ['WhatsApp', 'PIC/Partner', 'Handle By']
+export const clientHiddenSet = (campaign: ICampaign) => new Set(campaign.clientHiddenColumns ?? DEFAULT_CLIENT_HIDDEN)
 
 /** Tab "Listing" di dashboard client (stage 2): kandidat yang sudah lolos stage 1 (admin), badge &
  * approve-reject = keputusan client. Kolom sama dengan tab Pendaftar admin minus data internal. */
 export async function buildClientApplicantsView(tenantId: Types.ObjectId | string, campaign: ICampaign) {
   const data = await loadCampaignData(tenantId, campaign)
   const table = applicantsTable(campaign, data, { onlyStage1Accepted: true, statusField: 'clientApprovalStatus' })
-  const keep = table.headers.map((h, i) => (CLIENT_HIDDEN_COLUMNS.has(h) ? -1 : i)).filter((i) => i >= 0)
+  const hidden = clientHiddenSet(campaign)
+  const keep = table.headers.map((h, i) => (hidden.has(h) ? -1 : i)).filter((i) => i >= 0)
   // rowLinks (magic link portal creator) sengaja dibuang: client tidak boleh bisa masuk dashboard creator
   const { rowLinks: _drop, ...rest } = table
   return { ...rest, headers: keep.map((i) => table.headers[i]), rows: table.rows.map((r) => keep.map((i) => r[i])) }
@@ -351,10 +356,10 @@ export type BoardViewer = { role: 'creator'; mine: IApplication } | { role: 'pic
 export async function buildPortalView(tenantId: Types.ObjectId | string, campaign: ICampaign, viewer: BoardViewer) {
   const data = await loadCampaignData(tenantId, campaign)
   const cols = campaignSheetColumns(campaign)
+  // Client: semua kolom Master Sheet kecuali yang disembunyikan admin untuk client (terpisah dari akses creator)
+  const hidden = clientHiddenSet(campaign)
   const visible = cols.map((c, i) => ({ c, i, access: creatorAccess(campaign, c) }))
-    .filter((x) => x.access !== 'hidden')
-    // Campaign Tracker client = Master Sheet tanpa data internal (WA, email, PIC, handle by), apa pun aturan akses kolomnya
-    .filter((x) => viewer.role !== 'client' || !CLIENT_HIDDEN_COLUMNS.has(x.c.key))
+    .filter((x) => (viewer.role === 'client' ? !hidden.has(x.c.key) : x.access !== 'hidden'))
   // Semua baris creator yang sama = miliknya (campaign buzzer: satu baris per akun)
   const mineCreator = viewer.role === 'creator' ? String(viewer.mine.creatorId) : null
   const isMineRow = (a: { creatorId: unknown }) => mineCreator !== null && String(a.creatorId) === mineCreator

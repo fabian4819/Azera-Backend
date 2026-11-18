@@ -51,6 +51,9 @@ export interface IApplyFields {
   pic: boolean
   handleBy: boolean
   handleByRequired: boolean
+  /** Field Niche: default ada & wajib, admin bisa hapus dari form atau jadikan opsional */
+  niches?: boolean
+  nichesRequired?: boolean
   /** Urutan field form apply hasil drag admin: key default (name, phone, email, niches, domicile,
    * social:<platform>, pic, handleBy) + id custom field. Kosong = urutan default. */
   order?: string[]
@@ -163,6 +166,8 @@ export interface ICampaign extends Document {
   /** Akses creator ke kolom non-progress di tabel portal (key = columnKey di sheetSync.service.ts).
    * Tidak ada entry = pakai default (lihat DEFAULT_VIEW_COLUMNS). Nilai 'edit' diperlakukan 'view'. */
   columnAccess: Map<string, CreatorAccess>
+  /** Kolom Master Sheet yang disembunyikan dari client; undefined = default (WhatsApp, PIC/Partner, Handle By) */
+  clientHiddenColumns?: string[]
   /** Nama kolom Master Sheet yang diganti admin (key kolom → judul), kolom progress pakai label-nya sendiri */
   columnLabels?: Record<string, string>
   /** Urutan kolom Master Sheet (daftar key) hasil drag & drop admin; kosong = urutan default */
@@ -279,11 +284,14 @@ const CampaignSchema = new Schema<ICampaign>(
       pic: { type: Boolean, default: true },
       handleBy: { type: Boolean, default: true },
       handleByRequired: { type: Boolean, default: false },
+      niches: { type: Boolean, default: true },
+      nichesRequired: { type: Boolean, default: true },
       order: { type: [String], default: undefined },
       descriptions: { type: Schema.Types.Mixed, default: undefined },
     },
     progressColumns: { type: [ProgressColumnSchema], default: [] },
     columnAccess: { type: Map, of: { type: String, enum: ['hidden', 'view', 'edit'] }, default: {} },
+    clientHiddenColumns: { type: [String], default: undefined },
     columnLabels: { type: Schema.Types.Mixed, default: undefined },
     columnOrder: { type: [String], default: undefined },
     waSenders: { type: Schema.Types.Mixed, default: undefined },

@@ -10,7 +10,7 @@ import Creator from '../creators/creator.model'
 import Campaign from '../campaigns/campaign.model'
 import PicUser from '../pic/pic.model'
 import Submission from '../submissions/submission.model'
-import { enqueueWaMessage } from '../../lib/baileys'
+import { enqueueWaMessage, parseSender } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { WaTrigger } from '../whatsapp/waTemplate.model'
 import { ensurePortalToken, portalUrl } from '../campaigns/progress.service'
@@ -104,7 +104,7 @@ router.patch('/:id/payment', async (req: AuthRequest, res: Response) => {
     const existing = await Application.findOne({ _id: req.params.id, tenantId: req.auth!.tenantId })
     if (!existing) { res.status(404).json({ message: 'Not found' }); return }
     // AD-30: payment_completed (ke creator) saat ditandai paid + sync sheet, lihat creatorPayment.service.ts
-    await setCreatorPaymentStatus(req.auth!.tenantId!, [existing], creatorPaymentStatus)
+    await setCreatorPaymentStatus(req.auth!.tenantId!, [existing], creatorPaymentStatus, parseSender(req.body.waSender))
     const application = await Application.findById(existing._id).populate('creatorId', 'name phone')
     res.json(application)
   } catch {

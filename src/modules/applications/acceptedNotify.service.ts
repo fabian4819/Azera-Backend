@@ -1,7 +1,7 @@
 import Creator from '../creators/creator.model'
 import Campaign from '../campaigns/campaign.model'
 import Application, { IApplication } from './application.model'
-import { enqueueWaMessage } from '../../lib/baileys'
+import { enqueueWaMessage, type WaBotKey } from '../../lib/baileys'
 import { getTemplate, renderTemplate } from '../whatsapp/template.service'
 import { sendEmail } from '../../lib/email'
 import { creatorAcceptedEmail } from '../../lib/emailTemplates'
@@ -17,8 +17,8 @@ const pending = new Map<string, NodeJS.Timeout>()
  * creator_accepted + email berisi link dashboard campaign & link grup WA campaign. Lolos tahap 1
  * saja tidak dikirimi apa-apa. Campaign buzzer: akun-akun yang lolos dalam 60 detik digabung jadi
  * satu pesan per orang (approve massal tidak mengirim satu pesan per akun). */
-export async function notifyCreatorAccepted(application: IApplication): Promise<void> {
-  if (!application.accountKey) return sendAccepted([application])
+export async function notifyCreatorAccepted(application: IApplication, sender?: WaBotKey): Promise<void> {
+  if (!application.accountKey) return sendAccepted([application], sender)
   const key = `${application.campaignId}:${application.creatorId}`
   if (pending.has(key)) return
   pending.set(key, setTimeout(() => {
@@ -28,12 +28,12 @@ export async function notifyCreatorAccepted(application: IApplication): Promise<
         tenantId: application.tenantId, campaignId: application.campaignId, creatorId: application.creatorId,
         status: 'accepted', clientApprovalStatus: 'accepted', acceptedNotifiedAt: { $exists: false },
       }).sort({ createdAt: 1 })
-      if (apps.length) await sendAccepted(apps)
+      if (apps.length) await sendAccepted(apps, sender)
     })().catch((err) => console.error('Accepted notify error (buzzer):', err))
   }, BATCH_MS))
 }
 
-async function sendAccepted(apps: IApplication[]): Promise<void> {
+async function sendAccepted(apps: IApplication[], sender?: WaBotKey): Promise<void> {
   const first = apps[0]
   const [creator, campaign] = await Promise.all([
     Creator.findOne({ _id: first.creatorId, tenantId: first.tenantId }).select('name phone email'),
@@ -50,7 +50,7 @@ async function sendAccepted(apps: IApplication[]): Promise<void> {
     // Template lama (sudah di-seed/diedit sebelum ada {{portal_link}}) tetap harus bawa link-nya
     if (!template.includes('portal_link')) payload += `\n\nUpdate progress campaign kamu di sini: ${portalLink}`
     if (accounts.length) payload += `\n\nAkun yang lolos:\n${accounts.join('\n')}`
-    await enqueueWaMessage({ tenantId: String(first.tenantId), trigger: 'creator_accepted', to: creator.phone, payload, campaignId: String(campaign._id), creatorId: String(creator._id) })
+    await enqueueWaMessage({ tenantId: String(first.tenantId), trigger: 'creator_accepted', to: creator.phone, payload, campaignId: String(campaign._id), creatorId: String(creator._id), sender })
   }
   if (creator.email) {
     const mail = creatorAcceptedEmail(creator.name, campaign.name, portalLink, campaign.waGroupLink)

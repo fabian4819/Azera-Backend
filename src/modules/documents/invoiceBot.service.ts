@@ -47,7 +47,7 @@ export interface InternalCost { feeKol?: number; feePic?: number; feeHandle?: nu
 const COST_SECTIONS = {
   feeKol: /^total\s+fee\s+kol\s*:/i,
   feePic: /^total\s+fee\s+pic\s*:/i,
-  feeHandle: /^total\s+fee\s+handle(\s+by)?\s*:/i,
+  feeHandle: /^total\s+fee\s+(handle(\s+by)?|finance)\s*:/i,
   adminInternal: /^total\s+gaji\s+admin[^:]*:/i,
 } as const
 
@@ -251,7 +251,7 @@ async function invoiceHelp(): Promise<string> {
     ``,
     `Total Fee KOL: [nominal]  (opsional, internal)`,
     `Total Fee PIC: [nominal]  (opsional, internal)`,
-    `Total Fee Handle by: [nominal]  (opsional, internal)`,
+    `Total Fee Finance: [nominal]  (opsional, internal; kosong = otomatis dari jumlah talent)`,
     `Total Gaji Admin Campaign Internal Azera: [nominal] ([keterangan])  (opsional, internal)`,
     `Mastersheet: [link Google Sheets]  (opsional, boleh lebih dari 1 link, satu per baris)`,
     '```',
@@ -275,7 +275,7 @@ async function invoiceHelp(): Promise<string> {
     ``,
     `Total Fee KOL: 2.000.000`,
     `Total Fee PIC: 300rb`,
-    `Total Fee Handle by: 400rb`,
+    `Total Fee Finance: 40rb`,
     `Total Gaji Admin Campaign Internal Azera: 350.000 (Fee Handle 300.000; Fee Listing 50.000)`,
     `Mastersheet: https://docs.google.com/spreadsheets/d/xxxxxxxx/edit`,
     '```',

@@ -1,4 +1,5 @@
 import { Router, Response } from 'express'
+import { financeFeeFor, isTalentItem } from './financeTier'
 import crypto from 'crypto'
 import ExcelJS from 'exceljs'
 import { Types } from 'mongoose'
@@ -70,6 +71,8 @@ export interface RecapGroup {
   profit: number; margin: number | null
   /** Creator fully-approved di campaign vs talent di invoice; talentWarning terisi kalau tidak cocok */
   approvedCreators: number | null; talentWarning: string
+  /** Jumlah talent di invoice (dasar tarif Fee Finance); feeFinanceAuto = feeHandle dari tarif, belum diisi manual / invoice WA */
+  talentCount: number; feeFinanceAuto: boolean
   hidden: boolean
 }
 
@@ -116,6 +119,7 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
         },
         adminNote: '', profit: 0, margin: null,
         approvedCreators: fin ? fin.auto.acceptedCount : null, talentWarning: '',
+        talentCount: 0, feeFinanceAuto: !fin?.feeManual?.includes('feeHandle'),
         hidden: !!recap.hidden,
       }
       groups.set(key, g)
@@ -130,12 +134,14 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
       if (!fin?.feeCreator && !manual('feeCreator')) g.expense.feeCreator += num(ic.feeKol)
       if (!fin?.feePic && !manual('feePic')) g.expense.feePic += num(ic.feePic)
       if (!manual('feeHandle')) g.expense.feeHandle += num(ic.feeHandle)
+      if (num(ic.feeHandle)) g.feeFinanceAuto = false
       if (!manual('adminInternal')) g.expense.adminInternal += num(ic.adminInternal)
       if (ic.adminNote) g.adminNote = [g.adminNote, ic.adminNote].filter(Boolean).join('; ')
     }
     // Invoice tanpa campaign: biaya yang diisi langsung di Rekap Keuangan menggantikan angka invoice WA per field
     if (!cid && recap.expense) {
       for (const f of INVOICE_EXPENSE_FIELDS) if (typeof recap.expense[f] === 'number') g.expense[f] = recap.expense[f]!
+      if (typeof recap.expense.feeHandle === 'number') g.feeFinanceAuto = false
     }
 
     const { rows, total } = invoiceTotals(d)
@@ -168,6 +174,9 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
 
   const list = [...groups.values()].map((g) => {
     const e = g.expense
+    // Fee Finance belum diisi (manual / invoice WA): tarif dari jumlah talent di invoice
+    g.talentCount = g.items.filter(isTalentItem).reduce((a, i) => a + i.qty, 0)
+    if (g.feeFinanceAuto) e.feeHandle = financeFeeFor(g.talentCount)
     e.total = e.feeCreator + e.feePic + e.feeMg + e.feeHandle + e.adminInternal + e.reimburse + e.ads + e.opex + e.custom
     g.profit = g.income - e.total
     g.margin = g.income > 0 ? Math.round((g.profit / g.income) * 1000) / 10 : null
@@ -227,7 +236,7 @@ export function splitTier(name: string, description: string, tier: string): { it
  */
 export function talentWarning(g: Pick<RecapGroup, 'approvedCreators' | 'items'>): string {
   if (g.approvedCreators === null) return ''
-  const qtys = g.items.filter((i) => !/reimburse/i.test(i.tier) && !/reimburse|beli produk/i.test(`${i.item} ${i.sow}`)).map((i) => i.qty)
+  const qtys = g.items.filter(isTalentItem).map((i) => i.qty)
   if (!qtys.length) return ''
   const min = Math.max(...qtys), max = qtys.reduce((a, b) => a + b, 0)
   const n = g.approvedCreators
@@ -264,7 +273,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     const ws = wb.addWorksheet('Rekap Keuangan')
     const RP = '"Rp"#,##0;-"Rp"#,##0'
     const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
-      'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Handle by', 'Gaji Admin Internal', 'Reimburse', 'Ads', 'Opex',
+      'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Finance', 'Gaji Admin Internal', 'Reimburse', 'Ads', 'Opex',
       'Uang Keluar', 'Profit', 'Margin (%)', 'Catatan Talent', 'Ket. Gaji Admin']
     ws.addRow([`Rekap Keuangan ${range.from || 'awal'} s/d ${range.to || 'sekarang'}`]).font = { bold: true, size: 13 }
     ws.addRow([`Uang Masuk ${totals.income} · Uang Keluar ${totals.expense} · Profit ${totals.profit} · Piutang ${totals.receivable}`])
