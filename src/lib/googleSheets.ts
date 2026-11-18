@@ -514,7 +514,7 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
       } },
       { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1 } }, fields: 'gridProperties.frozenRowCount' } },
       { setBasicFilter: { filter: { range: rowRange(0, t.values.length) } } },
-      ...Object.entries(t.dropdowns || {}).map(([c, options]) => ({ setDataValidation: {
+      ...Object.entries(t.dropdowns || {}).filter(([c]) => Number(c) >= 0).map(([c, options]) => ({ setDataValidation: {
         range: { sheetId, startRowIndex: 1, endRowIndex: t.values.length, startColumnIndex: Number(c), endColumnIndex: Number(c) + 1 },
         rule: { condition: { type: 'ONE_OF_LIST', values: options.map((userEnteredValue) => ({ userEnteredValue })) }, showCustomUi: true },
       } })),
@@ -576,7 +576,8 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
             range: { sheetId },
             description: LOCK_DESCRIPTION,
             warningOnly: false,
-            unprotectedRanges: t.editableColumns.map((c) => ({ sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 })),
+            // Kolom yang dicari lewat judul bisa tidak ada (-1, mis. alias judul lama); Sheets menolak SELURUH request kalau ada index < 0
+            unprotectedRanges: t.editableColumns.filter((c) => c >= 0).map((c) => ({ sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 })),
             editors: { users: [serviceEmail] },
           },
         },
