@@ -6,6 +6,7 @@ export const BRAND_JASA_OPTIONS = [
   { key: 'koc_campaign', label: 'KOC Campaign' },
   { key: 'affiliate_creator_campaign', label: 'Affiliate Creator Campaign' },
   { key: 'event_creator_activation', label: 'Event Creator Activation' },
+  { key: 'clippers_campaign', label: 'Clippers Campaign' },
 ] as const
 
 export type BrandJasa = (typeof BRAND_JASA_OPTIONS)[number]['key']

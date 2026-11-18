@@ -29,7 +29,7 @@ const isPintarnya = isPintarnyaClient // termasuk "PDS Digital Agency"
 const STATUS_OPTIONS = ['Lunas', 'Belum Lunas']
 /** Kolom biaya yang bisa diedit dari sheet (baris yang terhubung ke campaign) → field FinanceRecord */
 const FEE_HEADERS: Record<string, FeeField> = {
-  'Fee Creator': 'feeCreator', 'Fee PIC': 'feePic', 'Fee MG': 'feeMg', 'Fee Finance': 'feeHandle', 'Fee Handle by': 'feeHandle',
+  'Fee Creator': 'feeCreator', 'Fee PIC': 'feePic', 'Fee MG (Handle by)': 'feeMg', 'Fee MG': 'feeMg', 'Fee Finance': 'feeHandle', 'Fee Handle by': 'feeHandle',
   'Gaji Admin': 'adminInternal', Reimburse: 'reimburse', Ads: 'ads', Opex: 'opex',
 }
 const monthLabel = (ym: string) => (ym ? new Date(`${ym}-01T00:00:00`).toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : '')
@@ -59,7 +59,7 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   const headers = [
     ID_HEADER, 'ID Invoice', 'Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
     'Total Payment', 'Invoice', 'Link Invoice', 'Status', 'Sudah Dibayar', 'Kurang Bayar', 'Tanggal Lunas', 'Jatuh Tempo', ...columns.map((c) => c.label),
-    'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Finance', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
+    'Fee Creator', 'Fee PIC', 'Fee MG (Handle by)', 'Fee Finance', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit', 'Margin (%)',
     // Internal (tidak masuk sheet Pintarnya): dana talangan Azera & catatan invoice
     'Dana Talangan', 'Catatan',
   ]
@@ -97,7 +97,7 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   }
   // Kelompok baris per job + kolom yang digabung: semua kecuali ID (unik per baris) & rincian SOW
   const RUPIAH = '"Rp"#,##0'
-  const MONEY_HEADERS = new Set(['Fee/Talent', 'Total', 'Total Payment', 'Sudah Dibayar', 'Kurang Bayar', 'Dana Talangan', 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Finance', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit'])
+  const MONEY_HEADERS = new Set(['Fee/Talent', 'Total', 'Total Payment', 'Sudah Dibayar', 'Kurang Bayar', 'Dana Talangan', 'Fee Creator', 'Fee PIC', 'Fee MG (Handle by)', 'Fee Finance', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit'])
   const SOW_COLS = new Set(['Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total'])
   const grouping = (list: typeof shown, width: number) => {
     let at = 0

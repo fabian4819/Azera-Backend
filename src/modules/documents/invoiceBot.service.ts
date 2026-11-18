@@ -41,12 +41,14 @@ export interface ParsedInvoice {
 }
 
 /** Biaya internal hanya disimpan (Rekap Keuangan), tidak ditampilkan di balasan grup WA */
-export interface InternalCost { feeKol?: number; feePic?: number; feeHandle?: number; adminInternal?: number; adminNote?: string }
+export interface InternalCost { feeKol?: number; feePic?: number; feeMg?: number; feeHandle?: number; adminInternal?: number; adminNote?: string }
 
 /** Baris biaya internal template invoice (Okt 2026). Label "Gaji Admin" boleh diikuti "(Keterangan)" sebelum titik dua. */
 const COST_SECTIONS = {
   feeKol: /^total\s+fee\s+kol\s*:/i,
   feePic: /^total\s+fee\s+pic\s*:/i,
+  // Fee MG (Handle by) = fee management; beda dari "Total Fee Handle by" (lama) yang dipakai untuk Fee Finance
+  feeMg: /^total\s+fee\s+mg\b[^:]*:/i,
   feeHandle: /^total\s+fee\s+(handle(\s+by)?|finance)\s*:/i,
   adminInternal: /^total\s+gaji\s+admin[^:]*:/i,
 } as const
@@ -251,6 +253,7 @@ async function invoiceHelp(): Promise<string> {
     ``,
     `Total Fee KOL: [nominal]  (opsional, internal)`,
     `Total Fee PIC: [nominal]  (opsional, internal)`,
+    `Total Fee MG (Handle by): [nominal]  (opsional, internal)`,
     `Total Fee Finance: [nominal]  (opsional, internal; kosong = otomatis dari jumlah talent)`,
     `Total Gaji Admin Campaign Internal Azera: [nominal] ([keterangan])  (opsional, internal)`,
     `Mastersheet: [link Google Sheets]  (opsional, boleh lebih dari 1 link, satu per baris)`,

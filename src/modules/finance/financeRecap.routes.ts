@@ -130,9 +130,10 @@ export async function buildRecap(tenantId: string, from: string, to: string, sho
     const ic = recap.internalCost
     if (ic) {
       const fin = cid ? finances.get(cid) : undefined
-      const manual = (k: 'feeCreator' | 'feePic' | 'feeHandle' | 'adminInternal') => !!fin?.feeManual?.includes(k)
+      const manual = (k: 'feeCreator' | 'feePic' | 'feeMg' | 'feeHandle' | 'adminInternal') => !!fin?.feeManual?.includes(k)
       if (!fin?.feeCreator && !manual('feeCreator')) g.expense.feeCreator += num(ic.feeKol)
       if (!fin?.feePic && !manual('feePic')) g.expense.feePic += num(ic.feePic)
+      if (!fin?.feeMg && !manual('feeMg')) g.expense.feeMg += num(ic.feeMg)
       if (!manual('feeHandle')) g.expense.feeHandle += num(ic.feeHandle)
       if (num(ic.feeHandle)) g.feeFinanceAuto = false
       if (!manual('adminInternal')) g.expense.adminInternal += num(ic.adminInternal)
@@ -273,7 +274,7 @@ router.get('/export', async (req: AuthRequest, res: Response) => {
     const ws = wb.addWorksheet('Rekap Keuangan')
     const RP = '"Rp"#,##0;-"Rp"#,##0'
     const head = ['Campaign', 'Perusahaan', 'Contact', 'Bulan Running', 'Master Sheet', 'Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total',
-      'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG', 'Fee Finance', 'Gaji Admin Internal', 'Reimburse', 'Ads', 'Opex',
+      'Total Payment', 'Invoice', 'Status', 'Jatuh Tempo', ...columns.map((c) => c.label), 'Fee Creator', 'Fee PIC', 'Fee MG (Handle by)', 'Fee Finance', 'Gaji Admin Internal', 'Reimburse', 'Ads', 'Opex',
       'Uang Keluar', 'Profit', 'Margin (%)', 'Catatan Talent', 'Ket. Gaji Admin']
     ws.addRow([`Rekap Keuangan ${range.from || 'awal'} s/d ${range.to || 'sekarang'}`]).font = { bold: true, size: 13 }
     ws.addRow([`Uang Masuk ${totals.income} · Uang Keluar ${totals.expense} · Profit ${totals.profit} · Piutang ${totals.receivable}`])

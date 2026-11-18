@@ -116,4 +116,9 @@ assert.ok(typeof twoInline !== 'string' && twoInline.mastersheetUrl === `${sheet
 assert.match(String(parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nMastersheet:\n${sheet}\nhttps://evil.example/x`)), /Mastersheet tidak valid/)
 assert.match(String(parseInvoiceMessage(`/invoice\nBill To: A\nCampaign: X\nMastersheet\n${sheet}\nItem: a | b | 1 | 1rb`)), /cuma boleh link/)
 
+// "Fee MG (Handle by)" = Fee MG; "Fee Handle by" (template lama) tetap Fee Finance
+const mg = parseInvoiceMessage('/invoice\nBill To: A\nCampaign: X\nItem: a | b | 1 | 1rb\nTotal FEE MG (Handle by): 250.000\nTotal Fee Handle by: 40.000')
+assert.ok(typeof mg !== 'string', String(mg))
+assert.deepEqual(mg.internalCost, { feeMg: 250_000, feeHandle: 40_000 })
+
 console.log('invoiceBot selfcheck OK')
