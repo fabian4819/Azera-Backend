@@ -428,8 +428,6 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
     ...ours.flatMap((sh) => sh.tables || []).map((t) => ({ deleteTable: { tableId: t.tableId } })),
     ...ours.flatMap((sh) => sh.protectedRanges || []).filter((p) => p.description === LOCK_DESCRIPTION)
       .map((p) => ({ deleteProtectedRange: { protectedRangeId: p.protectedRangeId } })),
-    // Warna status dibuat ulang tiap sync (kolom bisa bergeser); index 0 dihapus berulang = semua aturan tab ini
-    ...ours.flatMap((sh) => (sh.conditionalFormats || []).map(() => ({ deleteConditionalFormatRule: { sheetId: sh.properties?.sheetId, index: 0 } }))),
     // Sel gabungan sync sebelumnya WAJIB dilepas sebelum nilai ditulis: kalau baris bergeser (mis. invoice baru
     // di atas), nilai yang jatuh di sel tertutup gabungan lama dibuang Google Sheets dan job jadi tanpa nama
     ...tabs.filter((t) => t.groups).flatMap((t) => {
@@ -437,6 +435,14 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
       return sheetId == null ? [] : [{ unmergeCells: { range: { sheetId } } }]
     }),
   ]
+  // Warna status dibuat ulang tiap sync (kolom bisa bergeser). Batch SENDIRI & sebelum hapus tabel: hapus tabel ikut
+  // membuang aturan di dalamnya, jadi kalau digabung, "hapus aturan" gagal dan Sheets membatalkan SELURUH batch
+  // (tabel & kunci lama tidak terhapus, sync berhenti di addProtectedRange).
+  const colorCleanup = ours.flatMap((sh) => (sh.conditionalFormats || []).map(() => ({ deleteConditionalFormatRule: { sheetId: sh.properties?.sheetId, index: 0 } })))
+  if (colorCleanup.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: colorCleanup } })
+      .catch((err) => console.error('Sheets status color cleanup error:', (err as Error).message))
+  }
   if (cleanup.length) {
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: cleanup } })
       .catch((err) => console.error('Sheets cleanup error:', (err as Error).message))
