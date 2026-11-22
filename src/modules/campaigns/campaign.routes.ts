@@ -819,8 +819,11 @@ router.post('/:id/broadcast', async (req: AuthRequest, res: Response) => {
   }
 })
 
-/** Grup "AZERAKOL.ID | Creator Community" (JID tetap walau grup di-rename) */
-const CREATOR_COMMUNITY_GROUP = '120363411750284295@g.us'
+/** Grup creator (bukan grup PIC/partner): baris fee PIC/MG (Handle by) dibuang saat share. JID tetap walau grup di-rename. */
+const NO_PIC_FEE_GROUPS = new Set([
+  '120363411750284295@g.us', // AZERAKOL.ID | Creator Community
+  '120363169756707683@g.us', // Azera Management | Info Job Freelancer
+])
 
 // Share teks broadcast apa adanya (sudah diedit admin) ke grup WA & creator terpilih.
 // Lewat WA yang dipilih admin (default partnership); `bot` eksplisit = kiriman manual, tidak ikut toggle
@@ -846,8 +849,8 @@ router.post('/:id/share', async (req: AuthRequest, res: Response) => {
     let sent = 0
     const failed: string[] = []
     for (const g of groups) {
-      // Grup komunitas creator: baris fee PIC/MG dibuang (cuma untuk grup PIC/partner)
-      const payload = g.jid === CREATOR_COMMUNITY_GROUP ? stripPicMgFee(message) : message
+      // Grup creator: baris fee PIC/MG dibuang (cuma untuk grup PIC/partner)
+      const payload = NO_PIC_FEE_GROUPS.has(g.jid) ? stripPicMgFee(message) : message
       await enqueueWaMessage({ ...base, payload, to: g.jid, mentionAll: tagAllJids.includes(g.jid) })
       sent++
     }

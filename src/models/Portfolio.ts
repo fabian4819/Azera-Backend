@@ -17,6 +17,8 @@ export interface ITopCreator {
   likes?: string
   comments?: string
   shares?: string
+  /** Cover video (Cloudinary), dipakai kolase hero halaman layanan, lihat lib/tiktokCover.ts */
+  thumb?: string
 }
 
 /** Satu baris "Platform dan Hasil". Angka opsional disimpan null bila kosong,
@@ -85,6 +87,7 @@ const TopCreatorSchema = new Schema<ITopCreator>(
     likes: String,
     comments: String,
     shares: String,
+    thumb: String,
   },
   { _id: false }
 )

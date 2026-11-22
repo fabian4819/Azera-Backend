@@ -266,7 +266,7 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
 
     // Field default wajib untuk Smart Curation: niche, provinsi, dan akun (username + followers) untuk
     // TIAP platform yang dicentang admin di kriteria campaign. Disimpan ke profil Creator di bawah.
-    const niches = Array.isArray(req.body.niches) ? req.body.niches.map((n: unknown) => String(n).trim()).filter(Boolean).slice(0, 20) : []
+    const niches = Array.isArray(req.body.niches) ? req.body.niches.map((n: unknown) => String(n).trim().slice(0, 60)).filter(Boolean).slice(0, 20) : []
     const province = String(req.body.province ?? '').trim().slice(0, 80)
     const city = String(req.body.city ?? '').trim().slice(0, 80)
     const socialsIn: { platform?: string; username?: string; followers?: unknown }[] = Array.isArray(req.body.socials) ? req.body.socials : []
@@ -283,6 +283,11 @@ router.post('/:slug/apply', async (req: Request, res: Response) => {
     const socials = limits
       ? campaignPlatforms.filter((p) => limits[p]).map((p) => buzzerAccounts.find((a) => a.platform === p) ?? cleanSocial(p))
       : campaignPlatforms.map((platform) => cleanSocial(platform, socialsIn.find((x) => x.platform === platform)))
+    // "Lainnya" wajib diganti teks isian creator (kecuali admin memang memasang "Lainnya" sebagai opsi niche campaign)
+    if (niches.includes('Lainnya') && !(campaign.criteria?.niches || []).includes('Lainnya')) {
+      res.status(400).json({ message: 'Tulis niche kamu di kolom Lainnya' })
+      return
+    }
     // Niche: default wajib; admin bisa menghapus field-nya dari form atau menjadikannya opsional
     if (applyFields.niches !== false && applyFields.nichesRequired !== false && !niches.length) {
       res.status(400).json({ message: 'Niche wajib diisi' })

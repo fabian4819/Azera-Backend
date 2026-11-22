@@ -6,6 +6,13 @@ import { requireAuth, AuthRequest } from '../../middleware/auth'
 import { uploadMedia } from '../../middleware/upload'
 import { uploadToCloudinary } from '../../lib/cloudinary'
 import { resolveTopCreatorLinks } from '../../lib/threadsLink'
+import { fillCreatorThumbs } from '../../lib/tiktokCover'
+import type { IPortfolio } from '../../models/Portfolio'
+
+/** Lengkapi cover top creator di belakang layar (tidak menahan respons simpan) */
+const fillThumbsLater = (item: IPortfolio) => {
+  fillCreatorThumbs(item.topCreators).then(async (changed) => { if (changed) await item.save() }).catch((err) => console.error('Portfolio thumb error:', err))
+}
 
 const router = Router()
 router.use(requireAuth)
@@ -74,6 +81,7 @@ router.post('/', uploadMedia.fields([
 
     const item = await Portfolio.create(data)
     res.status(201).json(item)
+    fillThumbsLater(item)
   } catch (e) { saveError(res, e) }
 })
 
@@ -98,9 +106,17 @@ router.patch('/:id', uploadMedia.fields([
       )
     }
 
+    // Form admin tidak mengirim `thumb`: pertahankan cover yang sudah ada untuk link postingan yang sama
+    const prev = await Portfolio.findById(req.params.id).select('topCreators')
+    if (Array.isArray(data.topCreators)) {
+      for (const c of data.topCreators as { postLink?: string; thumb?: string }[]) {
+        c.thumb ||= prev?.topCreators?.find((p) => p.postLink && p.postLink === c.postLink)?.thumb
+      }
+    }
     const item = await Portfolio.findByIdAndUpdate(req.params.id, data, { new: true, runValidators: true })
     if (!item) { res.status(404).json({ message: 'Not found' }); return }
     res.json(item)
+    fillThumbsLater(item)
   } catch (e) { saveError(res, e) }
 })
 

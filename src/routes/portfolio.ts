@@ -47,6 +47,23 @@ router.get('/featured', async (_req: Request, res: Response) => {
   }
 })
 
+// Kolase hero halaman layanan: cover video top creator (thumb, lihat lib/tiktokCover.ts) + foto konten
+// yang di-upload admin, dari portfolio publik kategori layanan itu.
+router.get('/service-media', async (req: Request, res: Response) => {
+  try {
+    await connectDB()
+    const category = String(req.query.category ?? '').slice(0, 80)
+    const docs = await Portfolio.find({ ...PUBLISHED, category }).sort({ createdAt: -1 }).select('topCreators contents')
+    const images = docs.flatMap((d) => [
+      ...(d.topCreators || []).map((c) => c.thumb).filter((u): u is string => Boolean(u)),
+      ...(d.contents || []).filter((u) => /\/image\/upload\//.test(u)),
+    ])
+    res.json([...new Set(images)].slice(0, 24))
+  } catch {
+    res.status(500).json({ message: 'Server error' })
+  }
+})
+
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   // regex, bukan isValidObjectId: string 12 karakter spt 'case-studies' dianggap ObjectId valid
   if (!/^[a-f\d]{24}$/i.test(req.params.id)) return next()
