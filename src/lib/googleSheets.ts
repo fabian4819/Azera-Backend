@@ -374,6 +374,8 @@ export interface WorkbookTab {
   mergeColumns?: number[]
   /** index kolom → pola angka Sheets, mis. '"Rp"#,##0' (cuma tab ber-`groups`) */
   numberFormats?: Record<number, string>
+  /** Nama tampilan filter (Filter view) siap pakai untuk tab ini: tetap bisa dipakai walau range dikunci */
+  filterView?: string
 }
 
 const LOCK_DESCRIPTION = 'azera-lock'
@@ -409,7 +411,7 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
   const sheets = getSheetsClient()
   if (!sheets) return
   const sheetMeta = async () => (await sheets.spreadsheets.get({
-    spreadsheetId, fields: 'sheets(properties(title,sheetId),tables(tableId),protectedRanges(protectedRangeId,description),conditionalFormats(ranges(sheetId)))',
+    spreadsheetId, fields: 'sheets(properties(title,sheetId),tables(tableId),protectedRanges(protectedRangeId,description),conditionalFormats(ranges(sheetId)),filterViews(filterViewId,title))',
   })).data.sheets || []
   let meta = await sheetMeta()
   const missing = tabs.filter((t) => !meta.some((sh) => sh.properties?.title === t.title))
@@ -478,6 +480,21 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
   if (tables.length) {
     await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: tables } })
       .catch((err) => console.error('Sheets addTable error:', (err as Error).message))
+  }
+  // Tampilan filter siap pakai, dibuat ulang tiap sync supaya ikut ukuran data (filter biasa tidak bisa di range terkunci)
+  const views = tabs.flatMap((t) => {
+    const sheetId = sheetIdOf(t.title)
+    const width = (t.values[0] || []).length
+    if (sheetId == null || !t.filterView || !width) return []
+    const old = (meta.find((sh) => sh.properties?.sheetId === sheetId)?.filterViews || []).filter((v) => v.title === t.filterView)
+    return [
+      ...old.map((v) => ({ deleteFilterView: { filterId: v.filterViewId } })),
+      { addFilterView: { filter: { title: t.filterView, range: { sheetId, startRowIndex: 0, endRowIndex: Math.max(t.values.length, 2), startColumnIndex: 0, endColumnIndex: width } } } },
+    ]
+  })
+  if (views.length) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: views } })
+      .catch((err) => console.error('Sheets filter view error:', (err as Error).message))
   }
   const colors = statusColorRules(tabs, sheetIdOf)
   if (colors.length) {
