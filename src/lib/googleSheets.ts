@@ -375,6 +375,9 @@ export interface WorkbookTab {
   /** index kolom → pola angka Sheets, mis. '"Rp"#,##0' (cuma tab ber-`groups`) */
   numberFormats?: Record<number, string>
   /** Nama tampilan filter (Filter view) siap pakai untuk tab ini: tetap bisa dipakai walau range dikunci */
+  /** Kunci versi "peringatan saja": orang tetap bisa filter/urutkan (termasuk dari aplikasi Sheets di HP);
+   * edit kolom terkunci cuma diberi peringatan, isinya ditimpa ulang sync berikutnya. */
+  lockWarningOnly?: boolean
   filterView?: string
 }
 
@@ -598,10 +601,11 @@ export async function writeWorkbookTabs(spreadsheetId: string, tabs: WorkbookTab
           protectedRange: {
             range: { sheetId },
             description: LOCK_DESCRIPTION,
-            warningOnly: false,
+            warningOnly: Boolean(t.lockWarningOnly),
             // Kolom yang dicari lewat judul bisa tidak ada (-1, mis. alias judul lama); Sheets menolak SELURUH request kalau ada index < 0
             unprotectedRanges: t.editableColumns.filter((c) => c >= 0).map((c) => ({ sheetId, startRowIndex: 1, startColumnIndex: c, endColumnIndex: c + 1 })),
-            editors: { users: [serviceEmail] },
+            // Versi peringatan tidak punya daftar editor (semua bisa edit setelah konfirmasi)
+            ...(t.lockWarningOnly ? {} : { editors: { users: [serviceEmail] } }),
           },
         },
       }] : []),

@@ -75,11 +75,11 @@ async function clientTabs(tenantId: string, campaignId: string): Promise<Workboo
   }))
   const trackerTab = withIds(headers, rows, board.rows.map((r) => r.id))
   return [
-    { title: CLIENT_TABS.listing, ...listingTab, hideFirstColumn: true, dropdowns: { [listingStatusCol]: STATUS_OPTIONS }, editableColumns: [listingStatusCol], filterView: 'Filter Listing' },
+    { title: CLIENT_TABS.listing, ...listingTab, hideFirstColumn: true, dropdowns: { [listingStatusCol]: STATUS_OPTIONS }, editableColumns: [listingStatusCol], filterView: 'Filter Listing', lockWarningOnly: true },
     {
       title: CLIENT_TABS.tracker, ...trackerTab, hideFirstColumn: true,
       dropdowns: Object.fromEntries(reviewCols.map((c) => [c, REVIEW_OPTIONS])), editableColumns: [...reviewCols, ...noteCols],
-      filterView: 'Filter Campaign Tracker',
+      filterView: 'Filter Campaign Tracker', lockWarningOnly: true,
     },
   ]
 }
