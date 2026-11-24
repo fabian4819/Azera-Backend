@@ -19,6 +19,9 @@ export interface ITenant extends Document {
     /** Spreadsheet terpisah khusus klien Pintarnya + status pemicunya */
     financeRecapPintarnyaSpreadsheetId?: string
     financeRecapPintarnyaHooked?: boolean
+    /** Spreadsheet Rekap Keuangan ringkas (semua klien, kolom s.d. Total Payment, read-only) */
+    financeRecapPaymentSpreadsheetId?: string
+    financeRecapPaymentHooked?: boolean
   }
   createdAt: Date
   updatedAt: Date
@@ -38,6 +41,8 @@ const TenantSchema = new Schema<ITenant>(
       financeRecapHooked: Boolean,
       financeRecapPintarnyaSpreadsheetId: String,
       financeRecapPintarnyaHooked: Boolean,
+      financeRecapPaymentSpreadsheetId: String,
+      financeRecapPaymentHooked: Boolean,
     },
   },
   { timestamps: true }

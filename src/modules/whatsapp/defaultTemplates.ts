@@ -50,6 +50,10 @@ export const DEFAULT_TEMPLATES: Record<WaTrigger, { audience: WaAudience; body: 
     audience: 'creator',
     body: "Halo Kak {{nama}}! 🎉\n\nFee campaign *{{campaign}}* sudah kami transfer ya, Kak. Silakan dicek 😊\n\nTerima kasih banyak atas kontribusi dan karya kerennya. Sampai jumpa di campaign berikutnya! 💜",
   },
+  payment_due_info: {
+    audience: 'creator',
+    body: "📢 *Info Pembayaran Campaign {{campaign}}*\n\nHalo semuanya! Insight campaign ini sudah dinyatakan *selesai (done insight)* pada {{tanggal_insight}}.\n\nSesuai ketentuan Azera, pembayaran fee dilakukan maksimal H+14 setelah done insight, yaitu paling lambat *{{batas_payment}}* 🗓️\n\nTerima kasih atas kerja samanya, Kak! 💜",
+  },
   invoice_new: {
     audience: 'client',
     body: "Halo Bapak/Ibu {{bill_to}} 👋\n\nTerima kasih atas kepercayaannya bekerja sama dengan AzeraKOL. Berikut invoice untuk campaign *{{campaign}}*:\n\n🧾 No. Invoice: {{invoice_number}}\n💰 Total: {{total}}\n📎 Invoice (PDF): {{pdf_url}}\n\nPembayaran dan konfirmasi dapat dilakukan melalui link berikut:\n{{payment_link}}\n\nJika ada pertanyaan, silakan hubungi kami kapan saja. Terima kasih! 🙏",

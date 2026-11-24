@@ -140,6 +140,11 @@ export interface ICampaign extends Document {
   }
   /** Link grup WA campaign, dikirim ke creator saat diterima (AD-30, trigger creator_accepted) */
   waGroupLink?: string
+  /** Grup WA campaign (JID) yang dipilih admin saat kirim info payment */
+  waGroupJid?: string
+  /** Admin menandai insight selesai; batas pembayaran fee = H+14 hari kalender (paymentDueAt) */
+  doneInsightAt?: Date
+  paymentDueAt?: Date
   /** Target KPI campaign (AD-23/24), opsional, dipakai buat hitung % pencapaian di analytics/insight */
   targetKpi?: { views?: number; engagementRate?: number }
   /** AD-24: analisis AI setelah campaign selesai, jadi input untuk Auto Report (AD-26) */
@@ -265,6 +270,9 @@ const CampaignSchema = new Schema<ICampaign>(
       updatedAt: Date,
     },
     waGroupLink: String,
+    waGroupJid: String,
+    doneInsightAt: Date,
+    paymentDueAt: Date,
     targetKpi: {
       views: Number,
       engagementRate: Number,

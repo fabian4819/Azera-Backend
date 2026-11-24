@@ -20,10 +20,12 @@ import { isPintarnyaClient } from './clientName'
 const TAB = 'Rekap Keuangan'
 // Tab lama "Pintarnya" di spreadsheet utama, dipindah jadi spreadsheet sendiri → dihapus
 const OLD_PINTARNYA_TAB = 'Pintarnya'
-export type FinanceScope = 'all' | 'pintarnya'
-const SCOPES: Record<FinanceScope, { idKey: 'financeRecapSpreadsheetId' | 'financeRecapPintarnyaSpreadsheetId'; hookKey: 'financeRecapHooked' | 'financeRecapPintarnyaHooked'; title: string }> = {
+export type FinanceScope = 'all' | 'pintarnya' | 'payment'
+const SCOPES: Record<FinanceScope, { idKey: 'financeRecapSpreadsheetId' | 'financeRecapPintarnyaSpreadsheetId' | 'financeRecapPaymentSpreadsheetId'; hookKey: 'financeRecapHooked' | 'financeRecapPintarnyaHooked' | 'financeRecapPaymentHooked'; title: string; readOnly?: boolean }> = {
   all: { idKey: 'financeRecapSpreadsheetId', hookKey: 'financeRecapHooked', title: 'Rekap Keuangan | AZERA' },
   pintarnya: { idKey: 'financeRecapPintarnyaSpreadsheetId', hookKey: 'financeRecapPintarnyaHooked', title: 'Rekap Keuangan Pintarnya | AZERA' },
+  // Ringkas: semua klien, kolom cuma sampai Total Payment, tidak ada yang bisa diedit (tanpa Apps Script/polling)
+  payment: { idKey: 'financeRecapPaymentSpreadsheetId', hookKey: 'financeRecapPaymentHooked', title: 'Rekap Keuangan s.d. Total Payment | AZERA', readOnly: true },
 }
 const isPintarnya = isPintarnyaClient // termasuk "PDS Digital Agency"
 const STATUS_OPTIONS = ['Lunas', 'Belum Lunas']
@@ -45,8 +47,8 @@ async function ensureSpreadsheet(tenantId: string, scope: FinanceScope): Promise
 }
 
 async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, string> | null> {
-  const [mainId, pintarnyaId] = await Promise.all([ensureSpreadsheet(tenantId, 'all'), ensureSpreadsheet(tenantId, 'pintarnya')])
-  if (!mainId || !pintarnyaId) return null // Google Sheets belum dikonfigurasi (mis. lokal)
+  const [mainId, pintarnyaId, paymentId] = await Promise.all([ensureSpreadsheet(tenantId, 'all'), ensureSpreadsheet(tenantId, 'pintarnya'), ensureSpreadsheet(tenantId, 'payment')])
+  if (!mainId || !pintarnyaId || !paymentId) return null // Google Sheets belum dikonfigurasi (mis. lokal)
   const { columns, groups } = await buildRecap(tenantId, '', '')
   // Link halaman invoice publik (sama dengan link preview bot /invoice); invoice tanpa kode akses dibuatkan
   const invoiceIds = groups.flatMap((g) => g.invoices.map((i) => i._id))
@@ -99,14 +101,17 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   const RUPIAH = '"Rp"#,##0'
   const MONEY_HEADERS = new Set(['Fee/Talent', 'Total', 'Total Payment', 'Sudah Dibayar', 'Kurang Bayar', 'Dana Talangan', 'Fee Creator', 'Fee PIC', 'Fee MG (Handle by)', 'Fee Finance', 'Gaji Admin', 'Reimburse', 'Ads', 'Opex', 'Uang Keluar', 'Profit'])
   const SOW_COLS = new Set(['Item', 'Scope of Work', 'Tier', 'Jumlah Talent', 'Fee/Talent', 'Total'])
-  const grouping = (list: typeof shown, width: number) => {
+  const grouping = (list: typeof shown, head: string[]) => {
     let at = 0
     const ranges = list.map((g) => { const n = Math.max(g.items.length, 1); const r = { startRow: at, endRow: at + n - 1 }; at += n; return r })
-    return { groups: ranges, mergeColumns: headers.slice(0, width).flatMap((h, i) => (i === 0 || SOW_COLS.has(h) ? [] : [i])) }
+    return { groups: ranges, mergeColumns: head.flatMap((h, i) => (i === 0 || SOW_COLS.has(h) ? [] : [i])) }
   }
   const all = shown.flatMap(toRows)
   // Sheet Pintarnya: tanpa kolom biaya internal (Fee Creator ke kanan: biaya, uang keluar, profit, margin)
   const cut = headers.indexOf('Fee Creator')
+  // Sheet ringkas: sampai kolom Total Payment, tanpa Contact (kontak klien)
+  const paymentCols = headers.slice(0, headers.indexOf('Total Payment') + 1).map((h, i) => (h === 'Contact' ? -1 : i)).filter((i) => i >= 0)
+  const pick = (r: (string | number)[]) => paymentCols.map((i) => r[i] ?? '')
   const pintarnyaGroups = shown.filter((g) => isPintarnya(g.company))
   const pintarnya = pintarnyaGroups.flatMap((g) => toRows(g).map((r) => r.slice(0, cut)))
   // Dua tab, kolom sama: semua klien + khusus Pintarnya. Yang bisa diedit cuma Status & biaya.
@@ -114,22 +119,25 @@ async function syncFinanceSheet(tenantId: string): Promise<Record<FinanceScope, 
   const editable = [statusCol, ...Object.keys(FEE_HEADERS).map((h) => headers.indexOf(h))]
   const tab = (rows: (string | number)[][], head: string[], editableCols: number[], list: typeof shown): WorkbookTab => ({
     title: TAB, values: [head, ...rows], tableRows: rows.length + 1, hideFirstColumn: true,
-    dropdowns: { [statusCol]: STATUS_OPTIONS }, editableColumns: editableCols, ...grouping(list, head.length),
+    // Dropdown Status cuma kalau tab punya kolom Status di posisi itu (sheet s.d. Total Payment tidak punya)
+    dropdowns: head[statusCol] === 'Status' ? { [statusCol]: STATUS_OPTIONS } : {}, editableColumns: editableCols, ...grouping(list, head),
     numberFormats: Object.fromEntries(head.flatMap((h, i) => (MONEY_HEADERS.has(h) || columns.some((c) => c.label === h && c.type !== 'text') ? [[i, RUPIAH]]
       : h === 'Jumlah Talent' ? [[i, '#,##0']] : []))),
   })
   const files: [FinanceScope, string, WorkbookTab][] = [
     ['all', mainId, tab(all, headers, editable, shown)],
     ['pintarnya', pintarnyaId, tab(pintarnya, headers.slice(0, cut), [statusCol], pintarnyaGroups)], // Pintarnya: cuma Status yang bisa diedit
+    ['payment', paymentId, tab(all.map(pick), pick(headers) as string[], [], shown)],
   ]
   for (const [scope, id, t] of files) {
     await writeWorkbookTabs(id, [t])
+    if (SCOPES[scope].readOnly) continue
     // Patokan polling cadangan (sel dianggap diedit orang kalau beda dari yang terakhir ditulis server)
     lastWritten.set(`${id}:${t.title}`, t.values)
     await ensureHook(tenantId, scope, id)
   }
   await deleteWorkbookTab(mainId, OLD_PINTARNYA_TAB).catch(() => undefined)
-  return { all: mainId, pintarnya: pintarnyaId }
+  return { all: mainId, pintarnya: pintarnyaId, payment: paymentId }
 }
 
 // Perubahan beruntun (tandai lunas beberapa invoice, edit biaya) digabung jadi satu tulis ulang
@@ -162,7 +170,7 @@ async function ensureHook(tenantId: string, scope: FinanceScope, spreadsheetId: 
 export async function financeSheetTargets(tenantId: string): Promise<{ id: string; tabs: string[]; hooked: boolean }[]> {
   const tenant = await Tenant.findById(tenantId).select('settings')
   const st = tenant?.settings
-  return (Object.values(SCOPES)).flatMap(({ idKey, hookKey }) => (st?.[idKey] ? [{ id: st[idKey]!, tabs: [TAB], hooked: !!st[hookKey] }] : []))
+  return (Object.values(SCOPES)).flatMap(({ idKey, hookKey, readOnly }) => (st?.[idKey] && !readOnly ? [{ id: st[idKey]!, tabs: [TAB], hooked: !!st[hookKey] }] : []))
 }
 
 const num = (v: unknown) => { const t = String(v ?? '').replace(/[^\d-]/g, ''); return t === '' || t === '-' ? null : Number(t) }

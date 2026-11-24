@@ -935,6 +935,42 @@ router.post('/:id/client-sheet/approve', async (req: AuthRequest, res: Response)
   }
 })
 
+const PAYMENT_DUE_DAYS = 14
+const fmtTanggal = (d: Date) => d.toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' })
+
+// Done insight: tandai (sekali, set batas payment H+14 hari kalender) lalu kirim info ke grup WA campaign.
+// `resend: true` = tombol "Kirim Info Payment" (tanggal tidak berubah). groupJid kosong = cuma ditandai.
+router.post('/:id/done-insight', async (req: AuthRequest, res: Response) => {
+  try {
+    await connectDB()
+    const tenantId = req.auth!.tenantId
+    const { groupJid = '', resend = false } = req.body as { groupJid?: string; resend?: boolean }
+    const sender = parseSender(req.body.waSender)
+    const campaign = await Campaign.findOne({ _id: req.params.id, tenantId })
+    if (!campaign) { res.status(404).json({ message: 'Not found' }); return }
+    if (resend && !campaign.doneInsightAt) { res.status(400).json({ message: 'Campaign belum ditandai done insight' }); return }
+    if (groupJid) {
+      if (!sender) { res.status(400).json({ message: 'Pilih WA pengirim' }); return }
+      if (!(await listGroups(sender)).some((g) => g.jid === groupJid)) { res.status(400).json({ message: 'WA pengirim tidak ada di grup itu' }); return }
+    }
+    if (!resend) {
+      campaign.doneInsightAt = new Date()
+      campaign.paymentDueAt = new Date(campaign.doneInsightAt.getTime() + PAYMENT_DUE_DAYS * 86_400_000)
+    }
+    if (groupJid) campaign.waGroupJid = groupJid
+    await campaign.save()
+    if (groupJid) {
+      const payload = renderTemplate(await getTemplate(tenantId, 'payment_due_info'), {
+        campaign: campaign.name, tanggal_insight: fmtTanggal(campaign.doneInsightAt!), batas_payment: fmtTanggal(campaign.paymentDueAt!),
+      })
+      await enqueueWaMessage({ tenantId, trigger: 'payment_due_info', to: groupJid, payload, campaignId: String(campaign._id), sender })
+    }
+    res.json({ doneInsightAt: campaign.doneInsightAt, paymentDueAt: campaign.paymentDueAt, waGroupJid: campaign.waGroupJid, sent: Boolean(groupJid) })
+  } catch (err) {
+    res.status(500).json({ message: 'Gagal memproses done insight', error: (err as Error).message })
+  }
+})
+
 // Dokumen (report/case study/invoice) yang sudah dibuat untuk campaign ini
 router.get('/:id/documents', async (req: AuthRequest, res: Response) => {
   try {

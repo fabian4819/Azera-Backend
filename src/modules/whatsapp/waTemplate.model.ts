@@ -18,6 +18,8 @@ export const WA_TRIGGERS = [
   'reminder_insight',
   'reminder_payment_creator',
   'payment_completed',
+  // Grup WA campaign: info batas pembayaran H+14 setelah admin menandai done insight
+  'payment_due_info',
   // client
   'invoice_new',
   'invoice_paid',
